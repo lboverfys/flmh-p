@@ -14,6 +14,11 @@ class PlannerTests(unittest.TestCase):
         self.assertTrue(plan["create_content"])
         validate_plan(plan)
 
+    def test_natural_chinese_demo_request_keeps_only_the_product_keyword(self):
+        plan = build_demo_plan("请帮我在美国查露营灯并写口播脚本，预算不超过 30")
+        self.assertEqual(plan["queries"], [{"region": "US", "keyword": "露营灯", "max_price": 30.0}])
+        self.assertTrue(plan["create_content"])
+
     def test_plan_does_not_claim_an_llm(self):
         plan = build_demo_plan("查印尼收纳用品")
         self.assertFalse(plan["create_content"])
