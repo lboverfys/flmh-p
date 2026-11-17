@@ -25,6 +25,7 @@ const state = { current: null, submission: null, busy: false, controller: null, 
 let workflowEditor;
 let sessionsPanel;
 let productCatalog;
+let mediaAssets;
 const accounts = { profile: null, selected: null, listing: null, page: 1, search: "", listingVersion: 0, pointsUncertain: new Map() };
 const works = { listing: null, page: 1, selected: null, lineage: null, pendingSave: null };
 
@@ -121,6 +122,7 @@ function updateControls() {
   workflowEditor?.updateControls(blocked);
   sessionsPanel?.updateControls(blocked);
   productCatalog?.updateControls(blocked);
+  mediaAssets?.updateControls(blocked);
 }
 function errorMessage(status, data) {
   if (data.error?.startsWith("work_") || data.error?.startsWith("invalid_work_")) {
@@ -145,7 +147,7 @@ function errorMessage(status, data) {
   }
   return `服务暂时未能完成请求（HTTP ${status}，${data.error || "未知错误"}）。运行编号已保留，请先刷新，再决定是否重试。`;
 }
-async function request(path, body, method = body === undefined ? "GET" : "POST", { authenticated = true, idempotencyKey } = {}) {
+async function request(path, body, method = body === undefined ? "GET" : "POST", { authenticated = true, idempotencyKey, binaryType } = {}) {
   if (authenticated && !state.token) {
     const error = new Error("请先登录，再访问自己的运行。");
     error.status = 401;
@@ -160,9 +162,9 @@ async function request(path, body, method = body === undefined ? "GET" : "POST",
   if (authenticated) headers.Authorization = `Bearer ${state.token}`;
   if (key) headers["X-Agent-Key"] = key;
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (body !== undefined) headers["Content-Type"] = binaryType || "application/json";
   try {
-    const response = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+    const response = await fetch(path, { method, headers, body: body === undefined ? undefined : binaryType ? body : JSON.stringify(body),
       signal: controller.signal, cache: "no-store", credentials: "omit" });
     let data;
     try { data = await response.json(); } catch { throw new Error("服务返回了无法识别的响应。运行编号已保留，请刷新状态。"); }
@@ -289,6 +291,7 @@ function clearSession(message = "已退出。请登录后继续；旧结果与�
   workflowEditor?.reset();
   sessionsPanel?.reset();
   productCatalog?.reset();
+  mediaAssets?.reset();
   ui.results.removeAttribute("aria-busy");
   resetRun();
   ui["auth-status"].textContent = message;
@@ -899,6 +902,12 @@ productCatalog = globalThis.FlmhProductCatalog?.mount(ui["product-catalog-panel"
   request, authenticated: () => Boolean(state.user && state.token), blocked: () => state.busy || state.authBusy,
   version: () => state.sessionVersion, busy: value => { state.busy = value; updateControls(); },
   selectProduct: id => resetRun(`查询 ${id} 的详情`),
+});
+mediaAssets = globalThis.FlmhMediaAssets?.mount(ui["media-assets-panel"], {
+  request, authenticated: () => Boolean(state.user && state.token), blocked: () => state.busy || state.authBusy,
+  version: () => state.sessionVersion, busy: value => { state.busy = value; updateControls(); },
+  upload: (file,key) => request(`/v1/assets?fileName=${encodeURIComponent(file.name)}`,file,"POST",{idempotencyKey:key,binaryType:file.type}),
+  selectAsset: asset => workflowEditor?.useAsset(asset),
 });
 sessionsPanel = globalThis.FlmhSessions?.mount(ui["agent-sessions-panel"], {
   request, authenticated: () => Boolean(state.user && state.token), blocked: () => state.busy || state.authBusy,

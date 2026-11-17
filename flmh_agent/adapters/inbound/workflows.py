@@ -4,7 +4,7 @@ import re
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, ValidationError, model_validator
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -26,7 +26,14 @@ class Position(Input):
 
 class Asset(Input):
     type: Literal["image", "video"]
-    url: str = Field(min_length=1, max_length=4000)
+    url: str | None = Field(default=None, min_length=1, max_length=4000)
+    assetId: str | None = Field(default=None, pattern=r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")
+
+    @model_validator(mode="after")
+    def one_reference(self):
+        if (self.url is None) == (self.assetId is None):
+            raise ValueError("asset_requires_one_reference")
+        return self
 
 
 class DefinitionNode(Input):

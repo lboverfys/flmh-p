@@ -42,31 +42,34 @@
         <pre data-w="quote-detail" class="generated" hidden></pre><button data-w="confirm" class="primary" type="button" disabled>确认报价并创建运行</button>
         <div class="button-row"><button data-w="history" class="secondary" type="button">读取运行历史</button><button data-w="refresh" class="secondary" type="button">刷新当前运行</button><button data-w="advance" class="primary" type="button">推进就绪节点</button><button data-w="verify" class="secondary" type="button">仅核实已有请求</button></div>
         <label class="delete-confirm"><input data-w="cancel-confirm" type="checkbox">停止新提交；已有请求仍需核实，不等于撤销供应商生成</label><button data-w="cancel" class="secondary" type="button">请求取消</button>
-        <pre data-w="run" class="generated" hidden></pre><div data-w="history-list" class="workflow-list"></div>
+        <pre data-w="run" class="generated" hidden></pre><p data-w="history-context" class="help"></p>
+        <div data-w="history-list" class="workflow-list"></div>
+        <div class="button-row"><button data-w="history-prev" type="button" class="secondary" aria-label="运行历史上一页">上一页</button><span data-w="history-page" class="help" role="status"></span><button data-w="history-next" type="button" class="secondary" aria-label="运行历史下一页">下一页</button></div>
       </section>`;
     const el = Object.fromEntries([...container.querySelectorAll("[data-w]")].map(item => [item.dataset.w, item]));
-    let s;
+    let s, activeAction = 0;
     function initial() { return { saved: null, graph: { nodes: [], edges: [] }, selected: null, dirty: false,
-      page: 1, pages: 0, capabilities: [], quote: null, pendingStart: null, run: null, uncertainAction: false, uncertainSave: false }; }
+      page: 1, pages: 0, history: null, capabilities: [], quote: null, pendingStart: null, run: null, uncertainAction: false, uncertainSave: false }; }
     function message(value) { el.message.textContent = value; }
     function changed() { if (s.pendingStart) return; s.dirty = true; s.quote = null; renderQuote(); renderGraph(); updateControls(); }
     function button(label, action) { const item = document.createElement("button"); item.type = "button"; item.className = "secondary"; item.textContent = label; item.addEventListener("click", action); return item; }
     function option(value, label) { const item = document.createElement("option"); item.value = value; item.textContent = label; return item; }
     async function act(operation) {
       if (!host.authenticated() || host.blocked()) return;
-      const version = host.version(); host.busy(true); updateControls(true);
+      const version = host.version(), action = ++activeAction; host.busy(true); updateControls(true);
       try { await operation(version); }
-      catch (error) { if (version === host.version()) message(s.uncertainSave
+      catch (error) { if (version === host.version() && action === activeAction) message(s.uncertainSave
         ? "保存结果未知，请先读取目录并选中已保存项核对，不要重复新建。"
         : s.pendingStart ? `${error.message} 已保留同一次创建的幂等键，可重试核实，勿新建另一份生产任务。`
         : s.uncertainAction ? `${error.message} 请先刷新当前运行核实，再继续操作。` : error.message); }
-      finally { if (version === host.version()) { host.busy(false); updateControls(); } }
+      finally { if (version === host.version() && action === activeAction) { host.busy(false); updateControls(); } }
     }
     function reset() {
       s = initial();
       for (const key of ["name", "description", "node-key", "node-name", "node-prompt", "edge-slot", "origin", "product", "budget"]) el[key].value = "";
       for (const key of ["delete-confirm", "cancel-confirm"]) el[key].checked = false;
-      for (const key of ["list", "support", "history-list"]) el[key].replaceChildren();
+      for (const key of ["list", "support"]) el[key].replaceChildren();
+      resetHistory();
       el.page.textContent = "";
       el["node-capability"].replaceChildren(); el["node-params"].value = '{"aspectRatio":"9:16"}'; el["node-assets"].value = "[]";
       message("保存节点和连线后获取报价；确认报价才会创建运行。Mock 模式没有真实媒体文件。");
@@ -89,6 +92,9 @@
       el.confirm.disabled = blocked || !s.quote || Boolean(s.run && !s.pendingStart);
       el.confirm.textContent = s.pendingStart ? "重试同一次确认与创建" : "确认报价并创建运行";
       el.history.disabled = blocked || Boolean(s.pendingStart) || !s.saved;
+      el["history-prev"].disabled = blocked || Boolean(s.pendingStart) || !s.history || s.history.page <= 1;
+      el["history-next"].disabled = blocked || Boolean(s.pendingStart) || !s.history || s.history.page >= s.history.pages;
+      for (const item of el["history-list"].querySelectorAll("button")) item.disabled = blocked || Boolean(s.pendingStart);
       const running = s.run && !terminal.has(s.run.status);
       el.refresh.disabled = blocked || !s.run;
       el.advance.disabled = blocked || !running || s.uncertainAction || s.run.status === "SUBMISSION_UNKNOWN" || s.run.cancelRequested;
@@ -112,6 +118,7 @@
     function load(detail) {
       s.saved = detail; s.graph = copy(detail.definition); s.dirty = false; s.uncertainSave = false;
       s.quote = null; s.pendingStart = null; s.run = null; s.selected = null;
+      resetHistory();
       el.name.value = detail.name; el.description.value = detail.description || "";
       el["delete-confirm"].checked = false;
       el["cancel-confirm"].checked = false;
@@ -123,6 +130,46 @@
       }
       message("定义已读取。后续编辑不改变已经创建的运行快照。");
       selectNode(null); renderGraph(); renderQuote(); renderRun(); updateControls();
+    }
+    function resetHistory() {
+      s.history = s.saved ? { workflowId: s.saved.id, page: 1, pages: 0 } : null;
+      el["history-list"].replaceChildren(); el["history-page"].textContent = "";
+      el["history-context"].textContent = s.saved ? `运行历史：${s.saved.name} · 编号 ${s.saved.id}` : "";
+    }
+    function historyAction(context, operation) {
+      if (!context || context !== s.history || s.pendingStart) return;
+      return act(async version => {
+        const current = () => version === host.version() && context === s.history;
+        try { await operation(current); }
+        catch (error) { if (current()) throw error; }
+      });
+    }
+    function historyPage(page) {
+      const context = s.history;
+      return historyAction(context, async current => {
+        const result = await host.request(`/v1/workflows/${context.workflowId}/runs?page=${page}&pageSize=20`);
+        if (!current()) return;
+        context.page = result.page; context.pages = result.totalPages;
+        el["history-page"].textContent = `${result.page} / ${Math.max(1, result.totalPages)}，共 ${result.total} 次`;
+        el["history-list"].replaceChildren(...result.runs.map(item => button(`${item.runId} · ${item.status}`, () => historyAction(context, async currentRun => {
+          const run = await host.request(`/v1/workflow-runs/${item.runId}`);
+          if (!currentRun()) return;
+          s.run = run; s.uncertainAction = false; el["cancel-confirm"].checked = false; renderRun();
+        }))));
+        if (!result.runs.length) el["history-list"].textContent = result.total === 0 ? "该工作流暂无运行记录。" : "本页暂无运行记录，请返回上一页或重新读取。";
+        message(`运行历史第 ${result.page} 页，显示 ${result.runs.length} 次，共 ${result.total} 次。`);
+      });
+    }
+    function useAsset(asset) {
+      if (!host.authenticated() || host.blocked() || s.pendingStart) return false;
+      let assets;
+      try { assets = JSON.parse(el["node-assets"].value); }
+      catch { message("当前节点固定素材不是有效的 JSON 数组，请先修正。"); return false; }
+      if (!Array.isArray(assets)) { message("当前节点固定素材不是有效的 JSON 数组，请先修正。"); return false; }
+      if (assets.some(item => item?.assetId === asset.id)) { message("素材已在当前节点编辑框中，请应用节点并保存定义后再报价。"); return true; }
+      if (assets.length >= 18) { message("当前节点最多支持 18 项固定素材，请先移除不需要的素材。"); return false; }
+      assets.push({ type: asset.type, assetId: asset.id }); el["node-assets"].value = JSON.stringify(assets);
+      message("素材已加入当前节点编辑框，请应用节点并保存定义后再报价。"); return true;
     }
     function selectNode(key) {
       s.selected = key;
@@ -232,13 +279,10 @@
       try { s.run = await host.request(`/v1/workflow-runs/${s.run.runId}/${action}`, undefined, "POST"); renderRun(); }
       catch (error) { if (version === host.version() && (!error.status || error.status >= 500)) s.uncertainAction = true; throw error; }
     }));
-    el.history.addEventListener("click", () => act(async () => {
-      if (!s.saved) return;
-      const history = await host.request(`/v1/workflows/${s.saved.id}/runs?page=1&pageSize=20`);
-      el["history-list"].replaceChildren(...history.runs.map(item => button(`${item.runId} · ${item.status}`, () => act(async () => { s.run = await host.request(`/v1/workflow-runs/${item.runId}`); s.uncertainAction = false; el["cancel-confirm"].checked = false; renderRun(); }))));
-      message(`显示最近 ${history.runs.length} 次运行，共 ${history.total} 次。`);
-    }));
-    reset(); return { reset, updateControls };
+    el.history.addEventListener("click", () => historyPage(s.history?.page || 1));
+    el["history-prev"].addEventListener("click", () => { if (s.history?.page > 1) historyPage(s.history.page - 1); });
+    el["history-next"].addEventListener("click", () => { if (s.history && s.history.page < s.history.pages) historyPage(s.history.page + 1); });
+    reset(); return { reset, updateControls, useAsset };
   }
   globalThis.FlmhWorkflowEditor = { mount };
 })();
