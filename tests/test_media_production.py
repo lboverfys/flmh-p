@@ -91,6 +91,23 @@ class MediaProductionTests(IdentityTestCase):
         script = await planner.plan("为美国杯子写视频脚本，预算10元", {})
         self.assertEqual(script.content_type, "product_script")
 
+    async def test_video_capacity_wait_stays_processing_without_resubmit_or_reconfirmation(self):
+        await self.application.start("capacity", self.request)
+        await self.application.confirm("capacity", {"confirmed": True, "quote_id": "q-media"})
+        queued = {"runId": "media-1", "status": "RUNNING", "executionMode": "REAL_HTTP", "artifacts": [],
+                  "nodes": [{"nodeKey": "image", "status": "SUCCEEDED"},
+                            {"nodeKey": "video", "status": "QUEUED", "errorCode": "VIDEO_CAPACITY_WAIT", "attempt": 0}]}
+        self.tools.run = lambda: queued
+        before = list(self.tools.calls)
+        result = await self.application.advance_media("capacity")
+        self.assertEqual(self.tools.calls[len(before):], ["get", "advance"])
+        self.assertEqual(result["status"], "processing")
+        self.assertIn("仍在排队、未提交", result["summary"])
+        self.assertEqual(result["mediaStatus"]["nodes"][1]["attempt"], 0)
+        self.assertEqual(self.tools.calls.count("submit"), 1)
+        self.assertEqual(self.tools.calls.count("quote"), 1)
+        self.assertEqual(self.tools.calls.count("confirm"), 1)
+
     async def test_product_price_and_production_budget_are_independent(self):
         planner = RuleBasedPlanner()
         plan = await planner.plan("查美国旅行杯，商品价格不超过100元，制作图片和视频，预算10美元", {})

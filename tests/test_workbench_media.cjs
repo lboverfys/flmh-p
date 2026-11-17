@@ -226,6 +226,17 @@ test("已登录不能调用匿名密码恢复", async () => {
   assert.equal(page.calls.length, 0);
 });
 
+test("视频额度等待显示排队原因且不自动推进或重新创建", () => {
+  const page = harness();
+  page.show(mediaResult("RUNNING", "processing", { executionMode: "REAL_HTTP",
+    nodes: [{ nodeKey: "video", status: "QUEUED", attempt: 0, errorCode: "VIDEO_CAPACITY_WAIT" }] }));
+  assert.match(page.ui("media-nodes").textContent, /在途视频请求已达上限/);
+  assert.match(page.ui("media-nodes").textContent, /尚未提交/);
+  assert.equal(page.ui("media-advance").disabled, false);
+  assert.equal(page.ui("media-verify").disabled, true);
+  assert.equal(page.calls.length, 0);
+});
+
 const savedWork = { id: "work-1", title: "保存文字", module: "notes", type: "script", content: "真实用户文字", source: "USER_SAVED", createdAt: "2026-11-17" };
 function workPage(records = [savedWork], page = 1, totalPages = 1) {
   return { records, page, pageSize: 10, total: records.length, totalPages, availableModules: ["notes", "content-production"], availableModulesTruncated: false };

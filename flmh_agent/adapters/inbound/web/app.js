@@ -718,6 +718,7 @@ function renderMedia(currentMedia) {
     fields(info, [["执行次数", item.attempt], ["请求编号", item.requestId], ["供应商任务编号", item.providerTaskId],
       ["输出地址", item.outputUrl], ["来源", item.source], ["错误代码", item.errorCode]]);
     card.append(heading, info);
+    if (item.status === "QUEUED" && item.errorCode === "VIDEO_CAPACITY_WAIT") card.append(node("p", "在途视频请求已达上限，此节点尚未提交。已有请求完成或核实后，可手动推进。", "help"));
     ui["media-nodes"].append(card);
   }
   ui["media-artifact-note"].textContent = artifacts.length ? "以下为服务返回的产物记录，地址仅作文本展示。" : "暂无图片或视频文件。";

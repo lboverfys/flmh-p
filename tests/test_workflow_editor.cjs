@@ -119,6 +119,20 @@ function harness() {
 async function settled() { await new Promise(resolve => setImmediate(resolve)); }
 function historyResult(runs, page = 1, total = runs.length) { return { runs, page, total, pageSize: 20, totalPages: Math.ceil(total / 20) }; }
 
+test("工作流视频容量等待只展示原因并保留手动核实与推进", async () => {
+  const page = harness(); await page.open();
+  page.respond((url, body, method, options, defaults) => {
+    if (url === "/v1/workflow-runs/run-1") return { ...page.run(), snapshot: { workflowId: "wf-1", executionMode: "REAL_HTTP" },
+      nodes: [{ nodeKey: "video", status: "QUEUED", attempt: 0, errorCode: "VIDEO_CAPACITY_WAIT" }] };
+    return defaults(url, body, method, options);
+  });
+  await page.chooseRun(0);
+  assert.match(page.fields.run.textContent, /在途视频请求已达上限，尚未提交/);
+  assert.equal(page.fields.advance.disabled, false);
+  assert.equal(page.fields.verify.disabled, false);
+  assert.equal(page.calls.filter(call => call.url.endsWith("/advance") || call.url.endsWith("/verify")).length, 0);
+});
+
 test("商品预算和来源变化立即作废旧报价，确认不会发送过期请求", async () => {
   const page = harness(); await page.open();
   for (const field of ["product", "budget", "origin"]) {
