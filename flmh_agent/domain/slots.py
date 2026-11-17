@@ -36,6 +36,8 @@ def normalize_slots(values: dict[str, Any] | None = None) -> dict[str, Any]:
             if value is not None and not isinstance(value, str):
                 raise ValueError("product slot must be a string")
             normalized[name] = value.strip() or None if value is not None else None
+            if normalized[name] is not None and len(normalized[name]) > 80:
+                raise ValueError("product slot must be at most 80 characters")
         elif name == "region":
             if value is not None and not isinstance(value, str):
                 raise ValueError("region slot must be a string")

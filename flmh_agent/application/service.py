@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import hashlib
 import json
@@ -76,7 +77,7 @@ class AgentApplication:
                 raise RunConflictError("run_id already belongs to a different request")
             return _snapshot_response(run_id, previous)
         state["request_fingerprint"] = fingerprint
-        async with self.tool_session_factory() as tools:
+        async with self._tool_session() as tools:
             graph = self._graph(tools)
             result = await graph.ainvoke(state, config=graph_config)
         return _response(run_id, result)
@@ -104,7 +105,7 @@ class AgentApplication:
             if current is decision.confirmed and not previous.next:
                 return _response(run_id, previous.values)
             raise RunConflictError("run is not waiting for this confirmation")
-        async with self.tool_session_factory() as tools:
+        async with self._tool_session() as tools:
             graph = self._graph(tools)
             result = await graph.ainvoke(
                 Command(resume={"confirmed": decision.confirmed}),
@@ -125,7 +126,7 @@ class AgentApplication:
             failed_queries = previous.values.get("query_failures")
             if not previous.next and not failed_queries:
                 return await self._refresh_task(run_id, previous)
-            async with self.tool_session_factory() as tools:
+            async with self._tool_session() as tools:
                 graph = self._graph(tools)
                 if failed_queries:
                     resume_from = "retrieve_knowledge" if previous.values["plan"].get("knowledge_query") else "plan_request"
@@ -162,7 +163,7 @@ class AgentApplication:
             state = {"user_request": user_request, "slot_updates": revision.slot_updates,
                      "revision": revision.expected_revision + 1,
                      "request_fingerprint": _request_fingerprint({"user_request": user_request, "slot_updates": overrides})}
-            async with self.tool_session_factory() as tools:
+            async with self._tool_session() as tools:
                 graph = self._graph(tools)
                 await graph.aupdate_state(graph_config, state, as_node=START)
                 result = await graph.ainvoke(None, config=graph_config)
@@ -174,7 +175,7 @@ class AgentApplication:
         if snapshot.next or not task or status in {"SUCCEEDED", "FAILED", "CANCELLED"}:
             return _snapshot_response(run_id, snapshot)
         task_id = task["taskId"]
-        async with self.tool_session_factory() as tools:
+        async with self._tool_session() as tools:
             graph = self._graph(tools)
             current = dict(await tools.get_task(task_id))
             await graph.aupdate_state(self._config(run_id, trace=False), {"task_status": current}, as_node="read_task_status")
@@ -190,6 +191,9 @@ class AgentApplication:
             knowledge_query=self.knowledge_query,
             checkpointer=self.checkpointer,
         )
+
+    def _tool_session(self) -> _LazyToolSession:
+        return _LazyToolSession(self.tool_session_factory)
 
     def _config(self, run_id: str, *, trace: bool = True) -> dict[str, Any]:
         config: dict[str, Any] = {
@@ -222,6 +226,61 @@ class _DisconnectedTools:
 
     async def get_task(self, task_id: str) -> Mapping[str, Any]:
         raise RuntimeError("state lookup does not use the content tools")
+
+
+class _LazyToolSession:
+    def __init__(self, factory: Callable[[], AbstractAsyncContextManager[ProductContentPort]]) -> None:
+        self._factory = factory
+        self._tools: ProductContentPort | None = None
+        self._lock = asyncio.Lock()
+        self._ready = asyncio.Event()
+        self._stop = asyncio.Event()
+        self._owner: asyncio.Task[None] | None = None
+
+    async def __aenter__(self) -> _LazyToolSession:
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
+        if self._owner is not None:
+            self._stop.set()
+            await self._owner
+
+    async def _own_session(self) -> None:
+        try:
+            async with self._factory() as tools:
+                self._tools = tools
+                self._ready.set()
+                await self._stop.wait()
+        finally:
+            self._tools = None
+            self._ready.set()
+
+    async def _connected(self) -> ProductContentPort:
+        if self._tools is not None:
+            return self._tools
+        async with self._lock:
+            if self._owner is None:
+                self._owner = asyncio.create_task(self._own_session())
+            await self._ready.wait()
+            if self._tools is None:
+                await self._owner
+                raise RuntimeError("MCP tool session closed before becoming available")
+        return self._tools
+
+    async def search_products(self, query: Mapping[str, Any]) -> Mapping[str, Any]:
+        return await (await self._connected()).search_products(query)
+
+    async def create_quote(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        return await (await self._connected()).create_quote(request)
+
+    async def confirm_quote(self, quote_id: str) -> Mapping[str, Any]:
+        return await (await self._connected()).confirm_quote(quote_id)
+
+    async def submit_task(self, request: Mapping[str, Any], idempotency_key: str) -> Mapping[str, Any]:
+        return await (await self._connected()).submit_task(request, idempotency_key)
+
+    async def get_task(self, task_id: str) -> Mapping[str, Any]:
+        return await (await self._connected()).get_task(task_id)
 
 
 def _response(run_id: str, result: Mapping[str, Any]) -> dict[str, Any]:

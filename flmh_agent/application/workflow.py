@@ -41,8 +41,11 @@ def build_workflow(
                 updates["keyword"] = normalize_slots(overrides)["product"]
             if "budget_max" in overrides:
                 updates["max_price"] = normalize_slots(overrides)["budget_max"]
-            plan = plan.model_copy(update={"queries": [query.model_copy(update=updates) for query in plan.queries],
-                                          **({"budget_max": updates["max_price"]} if "max_price" in updates else {})})
+            plan = AgentPlan.model_validate({
+                **plan.model_dump(),
+                "queries": [{**query.model_dump(), **updates} for query in plan.queries],
+                **({"budget_max": updates["max_price"]} if "max_price" in updates else {}),
+            })
         _validate_plan_content(plan)
         effective = dict(overrides)
         if plan.queries:

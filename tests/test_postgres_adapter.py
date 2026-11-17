@@ -1,13 +1,45 @@
 import unittest
+import asyncio
+import sys
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from datetime import date
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from flmh_agent.adapters.outbound.postgres_sql import AsyncPostgresReadOnlyRunner
 from flmh_agent.config import Settings
 
 
 class ReadOnlyPostgresTests(unittest.IsolatedAsyncioTestCase):
+    async def test_concurrent_open_creates_one_pool_and_close_releases_it(self):
+        started = asyncio.Event()
+        release = asyncio.Event()
+        pools = []
+
+        class Pool:
+            async def close(self):
+                self.closed = True
+
+        async def create_pool(*args, **kwargs):
+            started.set()
+            await release.wait()
+            pool = Pool()
+            pool.closed = False
+            pools.append(pool)
+            return pool
+
+        runner = AsyncPostgresReadOnlyRunner(Settings(bi_database_uri="postgresql://local/test"))
+        with patch.dict(sys.modules, {"asyncpg": SimpleNamespace(create_pool=create_pool)}):
+            first = asyncio.create_task(runner.open())
+            await started.wait()
+            second = asyncio.create_task(runner.open())
+            release.set()
+            await asyncio.gather(first, second)
+        self.assertEqual(len(pools), 1)
+        await runner.close()
+        self.assertTrue(pools[0].closed)
+
     async def test_adapter_sets_readonly_transaction_timeout_and_serializes_decimal_values(self):
         calls = []
 

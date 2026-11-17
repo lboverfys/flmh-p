@@ -158,6 +158,50 @@ class ApplicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first, second)
         self.assertEqual(self.tools.calls, ["search"])
 
+    async def test_knowledge_request_without_mcp_reports_missing_configuration(self):
+        async def disconnected_tools():
+            raise AssertionError("knowledge-only request must not open MCP")
+            yield
+
+        self.application.tool_session_factory = disconnected_tools
+        result = await self.application.start("knowledge-offline", {"user_request": "从知识库查询采集说明"})
+        self.assertEqual(result["status"], "needs_configuration")
+
+    async def test_parallel_queries_share_one_session_and_close_in_its_owner_task(self):
+        entered = []
+        exited = []
+
+        @asynccontextmanager
+        async def tools_session():
+            entered.append(asyncio.current_task())
+            try:
+                yield self.tools
+            finally:
+                exited.append(asyncio.current_task())
+
+        self.application.tool_session_factory = tools_session
+        result = await self.application.start("session-owner", {"user_request": "比较印尼和美国蓝牙耳机"})
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(entered), 1)
+        self.assertEqual(entered, exited)
+        self.assertEqual(self.tools.calls, ["search", "search"])
+
+    async def test_bi_request_without_mcp_uses_bi_port(self):
+        async def disconnected_tools():
+            raise AssertionError("BI-only request must not open MCP")
+            yield
+
+        class BiQuery:
+            async def query(self, question, principal):
+                return {"source": "TEST_BI", "rows": [{"count": 1}]}
+
+        self.application.tool_session_factory = disconnected_tools
+        self.application.bi_query = BiQuery()
+        self.application.bi_principal = "test-role"
+        result = await self.application.start("bi-offline", {"user_request": "统计美国最近销量和 GMV 增长排行"})
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["biResult"]["source"], "TEST_BI")
+
     async def test_retry_resumes_failed_step_without_repeating_successful_submission(self):
         original_get = self.tools.get_task
         failed = False

@@ -39,3 +39,5 @@ class PlanningTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("quote", invalidated)
         with self.assertRaisesRegex(ValueError, "unknown slot"):
             update_slots({}, {"tenant": "x"})
+        with self.assertRaisesRegex(ValueError, "at most 80"):
+            update_slots({}, {"product": "x" * 81})

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from typing import Any
 from datetime import date, datetime
@@ -13,28 +14,31 @@ class AsyncPostgresReadOnlyRunner:
     def __init__(self, settings: Settings, pool: Any | None = None) -> None:
         self.settings = settings
         self._pool = pool
+        self._pool_lock = asyncio.Lock()
 
     async def open(self) -> None:
-        if self._pool is not None:
-            return
-        if not self.settings.bi_database_uri:
-            raise RuntimeError("BI_DATABASE_URI is not configured")
-        try:
-            import asyncpg
-        except ImportError as error:
-            raise RuntimeError("install the project 'postgres' extra to run BI SQL") from error
-        self._pool = await asyncpg.create_pool(
-            self.settings.bi_database_uri,
-            min_size=1,
-            max_size=5,
-            command_timeout=min(self.settings.request_timeout_seconds, 120.0),
-            server_settings={"default_transaction_read_only": "on"},
-        )
+        async with self._pool_lock:
+            if self._pool is not None:
+                return
+            if not self.settings.bi_database_uri:
+                raise RuntimeError("BI_DATABASE_URI is not configured")
+            try:
+                import asyncpg
+            except ImportError as error:
+                raise RuntimeError("install the project 'postgres' extra to run BI SQL") from error
+            self._pool = await asyncpg.create_pool(
+                self.settings.bi_database_uri,
+                min_size=1,
+                max_size=5,
+                command_timeout=min(self.settings.request_timeout_seconds, 120.0),
+                server_settings={"default_transaction_read_only": "on"},
+            )
 
     async def close(self) -> None:
-        if self._pool is not None:
-            await self._pool.close()
-            self._pool = None
+        async with self._pool_lock:
+            if self._pool is not None:
+                await self._pool.close()
+                self._pool = None
 
     async def fetch(self, query: str, *, max_rows: int, timeout_ms: int) -> Sequence[Mapping[str, Any]]:
         if self._pool is None:
