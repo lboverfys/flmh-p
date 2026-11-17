@@ -28,7 +28,7 @@ MCP 工具桥仅允许绑定本机回环地址。CLI 和 API 在 Windows 启用 
 
 ## 本机启动
 
-本机已验证 Python 为 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`（3.12.14）。包缓存放在 `D:\rubbish\zhongjian\caches\python\flmh`，本轮临时与验收目录为 `D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v12`；Java构建目录为 `D:\rubbish\zhongjian\build\flmh\enterprise-20261117\v12`。不需要下载任何模型权重，不把依赖、缓存或临时数据写入C盘。
+本机已验证 Python 为 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`（3.12.14）。包缓存放在 `D:\rubbish\zhongjian\caches\python\flmh`，本轮临时与验收目录为 `D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v13`；Java构建目录为 `D:\rubbish\zhongjian\build\flmh\enterprise-20261117\v13`。不需要下载任何模型权重，不把依赖、缓存或临时数据写入C盘。
 
 最简整链启动使用 [Java README](../flmh-j/README.md#本机启动) 的 `verify-local.ps1` 命令，它会启动六个Java服务、MCP和Agent，完成验证后自动收尾；手动体验时显式追加 `-KeepAlive`，结束后在原终端输入 `stop`。该脚本已经启动Python服务时，不再执行下面两组命令。
 
@@ -38,7 +38,7 @@ MCP 工具桥仅允许绑定本机回环地址。CLI 和 API 在 Windows 启用 
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v12'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v13'
 $env:TMP = $env:TEMP
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
@@ -49,7 +49,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v12'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v13'
 $env:TMP = $env:TEMP
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
@@ -71,6 +71,10 @@ $headers = @{Authorization = "Bearer $($login.token)"}
 ```
 
 CLI在每次运行前核实用户JWT；identity-service重启后local令牌失效，需重新登录。新JWT带 `credentialStamp`，Java每次对照当前密码哈希核实；自行改密或管理员重置后旧JWT立即失效，Python身份入口同样返回401。升级前没有该标记的JWT不再接受，客户端须重新登录；迁移不自动改写旧用户密码，也不需要新增旧users表字段。
+
+忘记密码可在登录区展开恢复表单：申请后同邮箱60秒倒计时，六位验证码15分钟有效；新密码须输入两次，成功后清空敏感输入并手动登录。`POST /v1/identity/forgot-password {email}`与`POST /v1/identity/reset-password {email,code,newPassword}`匿名开放，但仍受配置的`X-Agent-Key`约束。验证码不经HTTP返回，本机只写Java私有`LOCAL_MOCK_MAILBOX`；实际SMTP配置在Java模板留空。超时或丢响应不自动重发，重置结果未知时先尝试新密码登录。
+
+Python启动器显式关闭Uvicorn自动代理头改写。`AGENT_TRUSTED_PROXY_CIDRS`默认空；非空时必须配内部key，只有原始peer属于可信网段且唯一`X-Service-Key`正确才接受唯一`X-Flmh-Client-IP`。标准Forwarded/XFF不参与限流身份，畸形可信IP返回400。BFF给Java传服务器自己的服务key与核实后的地址，并保留429、不跟重定向、不自动重试；匿名响应上限64KiB。
 
 
 
@@ -171,7 +175,7 @@ Agent 请求“从知识库查询采集说明”进入检索路径并输出带�
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v12'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v13'
 $env:TMP = $env:TEMP
 $env:PIP_CACHE_DIR = 'D:\rubbish\zhongjian\caches\python\flmh'
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
@@ -183,7 +187,7 @@ if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $e
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v12'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v13'
 $env:TMP = $env:TEMP
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
@@ -191,7 +195,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\Code\nodejs\node.exe' --test tests/test_workbench_media.cjs tests/test_workflow_editor.cjs tests/test_sessions_ui.cjs tests/test_product_catalog.cjs tests/test_assets_ui.cjs
 ```
 
-测试覆盖确认闸门、预算/币种、幂等、查询DAG、槽位失效、日统计、FAILED媒体明确字段修订、未知结果恢复、MCP确认、HTTP协议、RAG、Text2SQL、账号权限、商品目录、作品、通用工作流及会话/SSE。v12增加素材流式上传与下载、owner隔离、固定素材ID和工作流历史翻页。实际通过Python 265项、Node 88项及pip check；Java 401项/73个测试集和本机整链107/107通过。Chrome完成12项观察，服务与页面已收尾；限制和证据见[Java交付记录](../flmh-j/docs/delivery.md)。
+测试覆盖确认闸门、预算/币种、幂等、查询DAG、槽位失效、日统计、FAILED媒体修订、未知结果恢复、MCP、RAG、Text2SQL、账号权限、商品目录、素材/作品、工作流及会话/SSE。v13增加密码恢复、可信IP、429透传、重发冷却和密码二次确认。实际通过Python 275项、Node 93项及pip check；Java 485项/80个测试集和本机整链111/111通过。Chrome完成9项观察，服务与页面已收尾；独立Redis验证及限制见[Java交付记录](../flmh-j/docs/delivery.md)。
 
 **历史v11本机整合验证记录：Python 253项、Node最终62项和 `pip check` 通过；Java 360项/68个suite零失败、错误或跳过，六JAR离线构建通过；跨进程验收92/92通过。** 对应Java `d7c2692`、Python `5091363`。这些是历史v11结果，不代表v12已完成验收。真实PostgreSQL、Langfuse、BGE及ES未联调，没有性能基准或召回效果指标，完整生产级重构尚未完成。
 
@@ -205,7 +209,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 
 `.env.example` 中所有服务地址/凭据空项由部署时填写。明天需决定 PostgreSQL Checkpointer 与只读 BI 库、Langfuse、BGE-M3/BGE-Reranker 服务、ES chunk 索引与认证方式。真实模型供应商与模型参数由 Java Model Gateway 维护。真实外部 adapter 联调、数据库权限/索引执行计划验证、跨主机负载和性能基准尚未运行。不得把本地 adapter 或 HTTP contract 测试当作生产数据、实际召回效果或完整生产部署验收。
 
-Agent API与MCP使用用户JWT逐请求核实身份，检查点、会话目录与锁按用户隔离；可选X-Agent-Key仍只是额外服务访问边界。MCP仅绑定本机。商品目录筛选分页、商品历史和日统计工具、资料与管理员用户管理、作品和通用工作流已接入同源工作台；完整旧前端全部页面、密码找回、新任务计入旧视频用量聚合、支付等业务仍未完成。改密撤销已经实现，但不提供单设备登出或独立令牌撤销列表。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。
+Agent API与MCP使用用户JWT逐请求核实身份，检查点、会话目录与锁按用户隔离；可选X-Agent-Key仍只是额外服务访问边界。MCP仅绑定本机。商品目录、历史和日统计、资料与用户管理、密码恢复、作品和通用工作流已接入工作台；完整旧前端全部页面、新任务视频用量聚合、跨入口在途视频额度、支付等业务仍未完成。旧内部版禁用自动扣积分，未擅自新增生成扣费或虚构套餐额度。改密撤销已实现，但无单设备登出或独立撤销列表。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。
 
 ## 图片与视频工作流状态验证
 
