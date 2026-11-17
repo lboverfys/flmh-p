@@ -4,9 +4,10 @@ import asyncio
 import hashlib
 import json
 import re
+from contextlib import aclosing
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
@@ -18,7 +19,18 @@ from flmh_agent.domain.sessions import SessionVersionConflict
 SSE_POLL_SECONDS = 2.0
 SSE_HEARTBEAT_SECONDS = 10.0
 SSE_MAX_SECONDS = 60.0
+SSE_SEND_GRACE_SECONDS = 5.0
 _HEADERS = {"Cache-Control": "no-store"}
+
+
+class _SessionEventsResponse(StreamingResponse):
+    async def stream_response(self, send):
+        async with aclosing(self.body_iterator):
+            try:
+                async with asyncio.timeout(SSE_MAX_SECONDS + SSE_SEND_GRACE_SECONDS):
+                    await super().stream_response(send)
+            except TimeoutError as error:
+                raise ClientDisconnect("session event response exceeded its send deadline") from error
 
 
 class SessionQuery(BaseModel):
@@ -83,7 +95,7 @@ def session_routes(read_body) -> list[Route]:
             return JSONResponse({"error": "session_not_found"}, status_code=404, headers=_HEADERS)
         except ValueError:
             return JSONResponse({"error": "invalid_session_input"}, status_code=400, headers=_HEADERS)
-        return StreamingResponse(
+        return _SessionEventsResponse(
             _events(request, run_id, last_event_id), media_type="text/event-stream",
             headers={**_HEADERS, "X-Accel-Buffering": "no"},
         )

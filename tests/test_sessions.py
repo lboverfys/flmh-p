@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 from langgraph.checkpoint.memory import InMemorySaver
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
+from starlette.requests import ClientDisconnect
 from starlette.testclient import TestClient
 
 from flmh_agent.adapters.inbound.identity import IdentityMiddleware
@@ -531,6 +532,52 @@ class SessionEventTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(asyncio.all_tasks(), before)
         self.assertEqual(self.tools.calls, self.calls_before)
         self.assertEqual((await self.agent.observe("events", identity=ALICE))["status"], "awaiting_confirmation")
+
+    async def test_slow_client_send_is_bounded_and_closes_generator_for_both_asgi_versions(self):
+        for spec_version in ("2.3", "2.4"):
+            with self.subTest(spec_version=spec_version):
+                web = Starlette(routes=session_routes(_json_body), middleware=[Middleware(IdentityMiddleware, verifier=self.verifier)])
+                web.state.agent = self.agent
+                web.state.identity_verifier = self.verifier
+                blocked = asyncio.Event()
+                send_started = asyncio.Event()
+                send_cancelled = asyncio.Event()
+                generator_closed = asyncio.Event()
+
+                async def receive():
+                    await blocked.wait()
+                    return {"type": "http.disconnect"}
+
+                async def send(message):
+                    if message["type"] == "http.response.body":
+                        send_started.set()
+                        try:
+                            await blocked.wait()
+                        finally:
+                            send_cancelled.set()
+
+                async def tracked_events(*args):
+                    try:
+                        yield 'event: status\ndata: {"runId":"events","status":"processing"}\n\n'
+                    finally:
+                        generator_closed.set()
+
+                before = asyncio.all_tasks()
+                scope = {"type": "http", "asgi": {"version": "3.0", "spec_version": spec_version}, "method": "GET",
+                         "path": "/v1/agent/runs/events/events", "raw_path": b"/v1/agent/runs/events/events",
+                         "query_string": b"", "headers": [(b"authorization", ALICE.authorization.encode())],
+                         "http_version": "1.1", "scheme": "http", "server": ("unit", 80), "client": ("unit", 1)}
+                with patch("flmh_agent.adapters.inbound.sessions.SSE_MAX_SECONDS", 0.03), \
+                        patch("flmh_agent.adapters.inbound.sessions.SSE_SEND_GRACE_SECONDS", 0.02), \
+                        patch("flmh_agent.adapters.inbound.sessions._events", tracked_events):
+                    with self.assertRaises(ClientDisconnect):
+                        await asyncio.wait_for(web(scope, receive, send), timeout=1)
+                self.assertTrue(send_started.is_set())
+                self.assertTrue(send_cancelled.is_set())
+                self.assertTrue(generator_closed.is_set())
+                await asyncio.sleep(0)
+                self.assertEqual(asyncio.all_tasks(), before)
+                self.assertEqual(self.tools.calls, self.calls_before)
 
 
 if __name__ == "__main__":
