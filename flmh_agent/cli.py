@@ -18,7 +18,7 @@ async def run_request(user_request: str, *, confirm: bool | None = None, run_id:
             return result
         print(json.dumps(result["confirmationRequest"], ensure_ascii=False, indent=2))
         approved = confirm if confirm is not None else input("确认报价并创建内容任务？输入 y 确认：").strip().lower() == "y"
-        return await runtime.agent.confirm(identifier, {"confirmed": approved})
+        return await runtime.agent.confirm(identifier, {"confirmed": approved, "quote_id": result["confirmationRequest"]["quoteId"]})
 
 
 def main() -> None:

@@ -117,7 +117,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(parents[0].text, "Parent text")
         self.assertTrue(any(path.endswith("_mget") for _, path, _ in calls))
         self.assertIn("knn", calls[1][2])
-        self.assertIn("sparse_vector", calls[2][2]["query"])
+        self.assertIn("sparse_vector", calls[2][2]["query"]["bool"]["must"])
 
     async def test_mcp_product_content_tool_names_are_stable(self):
         adapter = object.__new__(McpProductContentAdapter)

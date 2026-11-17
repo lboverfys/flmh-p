@@ -63,11 +63,20 @@ $run = Invoke-RestMethod -Method Post 'http://127.0.0.1:8090/v1/agent/runs' `
   -Body '{"run_id":"local-request-001","user_request":"请帮我在美国查露营灯并写口播脚本，预算不超过 30"}'
 $run.confirmationRequest
 Invoke-RestMethod -Method Post 'http://127.0.0.1:8090/v1/agent/runs/local-request-001/confirmation' `
-  -ContentType 'application/json' -Body '{"confirmed":true}'
+  -ContentType 'application/json' -Body (@{confirmed=$true; quote_id=$run.confirmationRequest.quoteId} | ConvertTo-Json)
 Invoke-RestMethod 'http://127.0.0.1:8090/v1/agent/runs/local-request-001'
 ```
 
-重复 `run_id` 和完全相同输入回放已有状态；请求体发生变化返回 409。同一 run 的并发启动/确认有运行协调锁；memory 模式在单进程内生效，Postgres 模式使用 PostgreSQL advisory lock。中断状态保留报价、槽位版本和输入快照；改变输入必须使用新 run。失败后 `POST /v1/agent/runs/{run_id}/retry` 通过 LangGraph checkpoint 继续失败节点，不重跑已成功节点；报价等待确认时不能通过 retry 绕过确认。
+重复 `run_id` 和完全相同输入回放已有状态；请求体发生变化返回 409。同一 run 的并发启动、确认、修订和刷新有运行协调锁；memory 模式在单进程内生效，Postgres 模式使用 PostgreSQL advisory lock。确认请求必须带当前报价 ID，避免修订后旧页面误确认新报价。任务幂等键包含报价 ID；缺少有效预算返回 `needs_input`，不猜金额、不请求报价。异步任务返回 `processing`，GET 运行记录刷新 Java 任务状态，直到已知终态。
+
+确认生产前可以显式修订运行记录；`expected_revision` 防止并发覆盖，成功后 revision 加 1。商品、地区、预算有独立 `slotVersions`，结论保留 `conclusionDependencies`，查询按实际参数和上游结果指纹缓存；未受影响的查询复用，其余重新执行。修订将旧报价确认失效，已确认或提交生产的运行禁止改写，应创建新 run。
+
+```powershell
+Invoke-RestMethod -Method Post 'http://127.0.0.1:8090/v1/agent/runs/local-request-001/revision' `
+  -ContentType 'application/json' -Body '{"expected_revision":0,"slot_updates":{"region":"CA","budget_max":40}}'
+```
+
+计划最多 4 条商品查询，可选 `query_id` 与 `depends_on`。校验拒绝未知引用、重复 ID 和环；按依赖层并行执行，无依赖查询同批运行。失败后 `POST /v1/agent/runs/{run_id}/retry` 继续 LangGraph checkpoint 的失败节点；并行查询部分失败时保存成功结果，只重试失败查询及其后继。报价等待确认时不能通过 retry 绕过确认。
 
 ## 外部适配器
 
@@ -79,13 +88,24 @@ Invoke-RestMethod 'http://127.0.0.1:8090/v1/agent/runs/local-request-001'
 | Checkpoint | `langgraph-checkpoint-postgres` 的 AsyncPostgresSaver | 默认 InMemorySaver；进程退出后状态消失 |
 | 观测 | Langfuse v3 CallbackHandler；按配置启用并在退出时 flush/shutdown | 无 key 时禁用 |
 | Text2SQL | Java Model Gateway 生成，SQLGlot AST 校验，asyncpg read-only transaction | 空权限或空连接默认关闭 |
-| RAG | BGE-M3 HTTP 同时返回 dense/sparse；Elasticsearch 并行召回；RRF；BGE-Reranker HTTP 批量重排；`_mget` 批量父块回填 | 无 embedding backend 时 HTTP 返回 503 |
+| RAG | BGE-M3 HTTP 批量返回 dense/sparse；Elasticsearch 并行召回；RRF；BGE-Reranker 批量重排；`_mget` 父块回填；LangGraph 知识问答及内容参考资料节点 | 独立检索 HTTP 返回 503；Agent 知识请求返回 `needs_configuration` 与 TODO |
 
 Postgres Checkpointer 的 schema setup 默认关闭；明确初始化数据库时才使用 `POSTGRES_CHECKPOINT_SETUP=true`。BI 使用独立的 `BI_DATABASE_URI` 和只读数据库账号；不共用 Checkpointer 的写权限。BI HTTP 使用每个 role 的独立 bearer key，角色由服务器 key 映射确定，不信任调用者自报角色头。Agent BI 只在配置 `AGENT_SQL_PRINCIPAL` 时启用对应服务角色。
 
 SQL 校验来源是旧 `biGraph.ts` 和 Prisma schema 的五表：`market_products`、`market_product_daily_stats`、`market_radar_metrics`、`market_canonical_categories`、`market_source_categories`。运行时角色权限只能进一步收缩，不能扩大 allowlist。校验拒绝多语句、非 SELECT、SELECT *、危险函数、越权表/非 public schema、超过 50 的 LIMIT；缺少 LIMIT 时补 20。CTE/JOIN 使用 AST scope 分辨真实表；每个雷达指标分支必须限定 `score_version='v2'`，除非明确请求评分版本比较。Postgres `round(x, precision)` 转为 numeric/decimal，执行事务只读且超时为 5 秒。生成/执行失败会携带错误原因最多修正 3 次。
 
 BGE-M3 HTTP 契约：发送 `{"model":"<配置值>","input":["文本"],"returnDense":true,"returnSparse":true}`；返回 `{"data":[{"denseVector":[...],"sparseVector":{"token":0.1}}]}`。重排发送 model/query/documents/topN，返回 `{"results":[{"index":0,"relevanceScore":0.9}]}`。HTTP URL 是完整 endpoint。Elasticsearch chunk 索引字段使用 `dense_vector`、`sparse_vector`、`text`、`parent_id`，父块以 ID `_mget` 获取。填写服务地址前需让部署实现匹配这些明确契约。
+
+知识入库使用 UTF-8 文本，每个文件最多 1 MiB；父块 3000 字符，子块最多 800 字符、步长 700，每批最多 32 个子块一次嵌入并批量写 ES。固定文档 ID、版本和来源生成稳定块 ID；同版本不同正文或来源会拒绝，失败可使用原输入重试。新版本并存，生产发布应使用独立索引/别名控制生效版本，当前没有自动清理旧版本或全库重建。
+
+配置目标服务并明确授权写入后使用（本任务未执行真实入库）：
+
+```powershell
+& 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m flmh_agent.ingest `
+  --file 'D:\path\manual.txt' --document-id 'product-manual' --version 'v1' --source-ref 'local:product-manual'
+```
+
+Agent 请求“从知识库查询采集说明”进入检索路径并输出带来源的资料；模型规划也可使用 `knowledge_query` 为商品内容请求补充事实。检索资料被明确当作引用数据，不能直接授权确认或调用工具。不填写模型配置时不生成模拟向量或宣称任何召回效果。
 
 ## 依赖与验证
 
@@ -106,8 +126,10 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m unittest discover -s tests -v
 ```
 
-测试覆盖确认闸门、预算、状态读取、幂等键、run_id 冲突、并发查询/同 run 协调、失败节点重试、槽位版本失效、模型/MCP/BGE/ES adapter HTTP 合同、MCP 可空字段、RRF/父块、Text2SQL AST/权限、Windows PostgreSQL 事件循环，以及 API 输入与配置错误。2026-11-17 使用上述 Python 3.12.14 环境运行 43 项测试全部通过；项目 editable 安装、CLI `--help` 和 `pip check` 通过。已安装并检查 PostgreSQL/Langfuse 可选库的实际接口，验证了无网络追踪回调构造和空连接池生命周期；这不等于真实服务联调。当前未在真实 PostgreSQL、Langfuse、BGE 服务或 Elasticsearch 上联调；没有运行性能基准，不以简历历史数字冒充本次数据。
+测试覆盖确认闸门、预算、状态刷新、报价幂等、run_id 冲突、并发查询/同 run 协调、失败节点与失败查询重试、独立槽位版本、修订并发控制、旧报价确认拒绝、DAG 依赖校验、模型/MCP/BGE/ES HTTP 合同、批量入库、RRF/父块、Text2SQL AST/权限、Windows PostgreSQL 事件循环及 API 输入。2026-11-17 使用上述 Python 3.12.14 环境运行 55 项测试全部通过，入库 CLI `--help` 和 `pip check` 通过。已检查 PostgreSQL/Langfuse 可选库接口；这不等于真实服务联调。当前未在真实 PostgreSQL、Langfuse、BGE 服务或 Elasticsearch 上联调；没有运行性能基准，不以简历历史数字冒充本次数据。
 
 ## 待配置与未验证项
 
 `.env.example` 中所有服务地址/凭据空项由部署时填写。明天需决定 PostgreSQL Checkpointer 与只读 BI 库、Langfuse、BGE-M3/BGE-Reranker 服务、ES chunk 索引与认证方式。真实模型供应商与模型参数由 Java Model Gateway 维护。真实外部 adapter 联调、数据库权限/索引执行计划验证、跨主机负载和性能基准尚未运行。不得把本地 adapter 或 HTTP contract 测试当作生产数据、实际召回效果或完整生产部署验收。
+
+当前 Agent API 的 bearer key 是服务边界认证，尚未接入最终用户身份系统及租户隔离；MCP 仅绑定本机。达人和独立趋势工具尚未有对应 Java 读服务契约，当前不生成虚构数据。上述限制不影响本机商品 → 报价 → 确认 → 内容任务链路。

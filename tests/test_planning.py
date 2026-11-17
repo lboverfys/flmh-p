@@ -2,9 +2,19 @@ import unittest
 
 from flmh_agent.domain.planning import RuleBasedPlanner
 from flmh_agent.domain.slots import update_slots
+from flmh_agent.domain.models import AgentPlan, ProductQuery
 
 
 class PlanningTests(unittest.IsolatedAsyncioTestCase):
+    async def test_query_dependencies_reject_cycles_unknown_and_duplicate_ids(self):
+        base = {"summary": "DAG", "create_content": False, "content_type": "", "source": "RULES"}
+        for queries in (
+            [ProductQuery(region="US", query_id="a", depends_on=["b"]), ProductQuery(region="CA", query_id="b", depends_on=["a"])],
+            [ProductQuery(region="US", query_id="a", depends_on=["missing"])],
+            [ProductQuery(region="US", query_id="a"), ProductQuery(region="CA", query_id="a")],
+        ):
+            with self.assertRaises(ValueError):
+                AgentPlan(**base, queries=queries)
     async def test_local_planner_parses_product_content_budget_and_region(self):
         plan = await RuleBasedPlanner().plan(
             "请帮我在美国查露营灯并写口播脚本，预算不超过 30", {}

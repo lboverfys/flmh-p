@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from collections.abc import Sequence
 
 from flmh_agent.domain.rag import Chunk
@@ -22,7 +23,7 @@ def reciprocal_rank_fusion(
             chunks.setdefault(chunk.chunk_id, chunk)
             scores[chunk.chunk_id] = scores.get(chunk.chunk_id, 0.0) + 1.0 / (rank_constant + rank)
     return [
-        Chunk(chunk_id, chunks[chunk_id].parent_id, chunks[chunk_id].text, score)
+        replace(chunks[chunk_id], score=score)
         for chunk_id, score in sorted(scores.items(), key=lambda item: (-item[1], item[0]))
     ]
 
@@ -52,3 +53,17 @@ async def hybrid_retrieve(
     parents = await store.get_parents(parent_ids) if parent_ids else []
     by_id = {chunk.chunk_id: chunk for chunk in parents}
     return [by_id[parent_id] for parent_id in parent_ids if parent_id in by_id]
+
+
+class HybridKnowledgeService:
+    def __init__(self, embedder: HybridEmbeddingPort, store: HybridVectorStorePort, reranker: RerankerPort):
+        self.embedder = embedder
+        self.store = store
+        self.reranker = reranker
+
+    async def retrieve(self, question: str) -> dict:
+        chunks = await hybrid_retrieve(question, self.embedder, self.store, self.reranker, limit=5)
+        return {"source": "CONFIGURED_HYBRID_RETRIEVAL", "chunks": [
+            {"id": chunk.chunk_id, "text": chunk.text, "sourceRef": chunk.source_ref,
+             "documentId": chunk.document_id, "version": chunk.version} for chunk in chunks
+        ]}

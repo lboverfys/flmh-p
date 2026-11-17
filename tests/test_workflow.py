@@ -34,6 +34,27 @@ class FakeProductContent:
 
 
 class WorkflowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_dependency_layers_wait_for_parents_and_strip_planner_metadata(self):
+        from flmh_agent.domain.models import AgentPlan, ProductQuery
+        completed = set()
+        class Planner:
+            async def plan(self, request, slots):
+                return AgentPlan(summary="layers", queries=[
+                    ProductQuery(region="US", query_id="parent"),
+                    ProductQuery(region="CA", query_id="child", depends_on=["parent"]),
+                ], create_content=False, content_type="", source="RULES")
+        class Tools(FakeProductContent):
+            async def search_products(self, query):
+                if query["region"] == "CA":
+                    self_test.assertIn("US", completed)
+                self_test.assertNotIn("depends_on", query)
+                completed.add(query["region"])
+                return await super().search_products(query)
+        self_test = self
+        result = await build_workflow(planner=Planner(), tools=Tools()).ainvoke(
+            {"user_request": "compare"}, {"configurable": {"thread_id": "dag"}})
+        self.assertEqual(len(result["product_results"]), 2)
+
     def build(self, tools):
         return build_workflow(
             planner=RuleBasedPlanner(),

@@ -18,6 +18,7 @@ from flmh_agent.adapters.outbound.observability import LangfuseCallbackFactory
 from flmh_agent.adapters.outbound.postgres_sql import AsyncPostgresReadOnlyRunner
 from flmh_agent.adapters.outbound.sql_permissions import ConfiguredSqlPermissionPolicy
 from flmh_agent.application.service import AgentApplication
+from flmh_agent.application.rag import HybridKnowledgeService
 from flmh_agent.application.text2sql import TextToSqlService
 from flmh_agent.config import Settings
 from flmh_agent.domain.planning import RuleBasedPlanner
@@ -71,6 +72,7 @@ async def open_runtime(settings: Settings) -> AsyncIterator[Runtime]:
                 run_coordinator=coordinator,
                 bi_query=text_to_sql,
                 bi_principal=settings.agent_sql_principal,
+                knowledge_query=HybridKnowledgeService(**rag) if rag else None,
             )
             try:
                 yield Runtime(agent, text_to_sql, sql_permissions, rag)

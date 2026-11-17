@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from typing import Any
+import json
+import math
+import hashlib
+from dataclasses import replace
 
 import httpx
 
@@ -17,23 +21,33 @@ class BgeM3HttpAdapter:
         self._client = client
 
     async def encode(self, text: str) -> tuple[list[float], dict[str, float]]:
-        if not text.strip():
+        return (await self.encode_many([text]))[0]
+
+    async def encode_many(self, texts: Sequence[str]) -> list[tuple[list[float], dict[str, float]]]:
+        if not 1 <= len(texts) <= 32 or any(not text.strip() for text in texts):
             raise ValueError("embedding input is required")
         result = await self._post(self.settings.bge_m3_url, {
             "model": self.settings.bge_m3_model,
-            "input": [text],
+            "input": list(texts),
             "returnDense": True,
             "returnSparse": True,
         }, self.settings.bge_m3_api_key)
         records = result.get("data")
-        record = records[0] if isinstance(records, list) and records else result
-        dense = record.get("denseVector", record.get("dense_vector", record.get("dense_vecs")))
-        sparse = record.get("sparseVector", record.get("sparse_vector", record.get("lexical_weights")))
-        if not isinstance(dense, list) or len(dense) != self.settings.embedding_dimension:
-            raise ValueError("BGE-M3 returned an invalid dense vector dimension")
-        if not isinstance(sparse, dict) or not sparse:
-            raise ValueError("BGE-M3 returned no sparse lexical weights")
-        return [float(value) for value in dense], {str(key): float(value) for key, value in sparse.items()}
+        if not isinstance(records, list) or len(records) != len(texts):
+            raise ValueError("BGE-M3 did not return one result per input")
+        output = []
+        for record in records:
+            dense = record.get("denseVector", record.get("dense_vector", record.get("dense_vecs")))
+            sparse = record.get("sparseVector", record.get("sparse_vector", record.get("lexical_weights")))
+            if not isinstance(dense, list) or len(dense) != self.settings.embedding_dimension:
+                raise ValueError("BGE-M3 returned an invalid dense vector dimension")
+            if not isinstance(sparse, dict) or not sparse:
+                raise ValueError("BGE-M3 returned no sparse lexical weights")
+            if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+                   for value in [*dense, *sparse.values()]):
+                raise ValueError("BGE-M3 vectors must contain finite numbers")
+            output.append(([float(value) for value in dense], {str(key): float(value) for key, value in sparse.items()}))
+        return output
 
     async def _post(self, url: str, payload: dict[str, Any], api_key: str) -> dict[str, Any]:
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
@@ -79,11 +93,11 @@ class BgeRerankerHttpAdapter:
             if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < len(chunks) or index in seen:
                 raise ValueError("BGE-Reranker returned an invalid document index")
             score = item.get("relevanceScore", item.get("relevance_score", item.get("score")))
-            if isinstance(score, bool) or not isinstance(score, (float, int)):
+            if isinstance(score, bool) or not isinstance(score, (float, int)) or not math.isfinite(score):
                 raise ValueError("BGE-Reranker result is missing a numeric score")
             seen.add(index)
             chunk = chunks[index]
-            output.append(Chunk(chunk.chunk_id, chunk.parent_id, chunk.text, float(score)))
+            output.append(replace(chunk, score=float(score)))
             if len(output) >= limit:
                 break
         return output
@@ -115,21 +129,22 @@ class ElasticsearchHybridStore:
                 "query_vector": list(vector),
                 "k": limit,
                 "num_candidates": max(limit * 4, limit),
+                "filter": {"term": {"kind": "child"}},
             },
-            "_source": ["parent_id", "text"],
+            "_source": ["parent_id", "text", "source_ref", "document_id", "version"],
         }
         return await self._search(body)
 
     async def search_sparse(self, vector: Mapping[str, float], limit: int) -> list[Chunk]:
         body = {
             "size": limit,
-            "query": {
+            "query": {"bool": {"filter": [{"term": {"kind": "child"}}], "must": {
                 "sparse_vector": {
                     "field": self.settings.elasticsearch_sparse_field,
                     "query_vector": {str(key): float(value) for key, value in vector.items()},
                 }
-            },
-            "_source": ["parent_id", "text"],
+            }}},
+            "_source": ["parent_id", "text", "source_ref", "document_id", "version"],
         }
         return await self._search(body)
 
@@ -155,7 +170,51 @@ class ElasticsearchHybridStore:
             parent_id=str(source.get("parent_id", "")),
             text=str(source.get("text", "")),
             score=float(hit.get("_score") or 0.0),
+            source_ref=str(source.get("source_ref", "")),
+            document_id=str(source.get("document_id", "")),
+            version=str(source.get("version", "")),
         )
+
+    async def ensure_index(self) -> None:
+        properties = {name: {"type": "keyword"} for name in ("parent_id", "document_id", "version", "kind", "source_ref")}
+        properties.update({"text": {"type": "text"},
+            self.settings.elasticsearch_dense_field: {"type": "dense_vector", "dims": self.settings.embedding_dimension, "index": True, "similarity": "cosine"},
+            self.settings.elasticsearch_sparse_field: {"type": "sparse_vector"}})
+        try:
+            await self._request("PUT", f"/{self.settings.elasticsearch_index}", json={"mappings": {"properties": properties}})
+        except httpx.HTTPStatusError as failure:
+            if failure.response.status_code != 400 or failure.response.json().get("error", {}).get("type") != "resource_already_exists_exception":
+                raise
+
+    async def upsert_chunks(self, chunks: Sequence[Chunk], vectors: Sequence[tuple[Sequence[float], Mapping[str, float]]] | None = None) -> None:
+        if not 1 <= len(chunks) <= 32 or vectors is not None and len(chunks) != len(vectors):
+            raise ValueError("ingestion batch must contain 1 to 32 matching chunks and vectors")
+        lines = []
+        for index, chunk in enumerate(chunks):
+            lines.append(json.dumps({"index": {"_id": chunk.chunk_id}}, separators=(",", ":")))
+            document = {"parent_id": chunk.parent_id, "text": chunk.text, "source_ref": chunk.source_ref,
+                        "document_id": chunk.document_id, "version": chunk.version, "kind": "child" if chunk.parent_id else "parent"}
+            if vectors is not None:
+                document[self.settings.elasticsearch_dense_field] = list(vectors[index][0])
+                document[self.settings.elasticsearch_sparse_field] = dict(vectors[index][1])
+            lines.append(json.dumps(document, ensure_ascii=False, separators=(",", ":")))
+        response = await self._request("POST", f"/{self.settings.elasticsearch_index}/_bulk", content="\n".join(lines)+"\n",
+                                       headers={"content-type": "application/x-ndjson"})
+        items = response.get("items", [])
+        if len(items) != len(chunks) or any(not 200 <= item.get("index", {}).get("status", 0) < 300 for item in items):
+            raise RuntimeError("Elasticsearch ingestion batch was not fully acknowledged")
+
+    async def reserve_document(self, document_id: str, version: str, source_ref: str, content_hash: str) -> None:
+        identifier = "manifest-" + hashlib.sha256(f"{document_id}\n{version}".encode()).hexdigest()
+        document = {"document_id": document_id, "version": version, "source_ref": source_ref, "content_hash": content_hash, "kind": "manifest"}
+        try:
+            await self._request("PUT", f"/{self.settings.elasticsearch_index}/_create/{identifier}", json=document)
+        except httpx.HTTPStatusError as conflict:
+            if conflict.response.status_code != 409:
+                raise
+            existing = await self._request("GET", f"/{self.settings.elasticsearch_index}/_doc/{identifier}")
+            if existing.get("_source") != document:
+                raise ValueError("document version already belongs to different content or source; choose a new version") from conflict
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         headers = kwargs.pop("headers", {})

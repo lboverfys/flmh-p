@@ -24,7 +24,7 @@ class FakeTools:
 
     async def confirm_quote(self, quote_id):
         self.calls.append("confirm")
-        return {"confirmed": True}
+        return {"confirmed": True, "quote_id": "q-1"}
 
     async def submit_task(self, request, idempotency_key):
         self.calls.append("submit")
@@ -77,7 +77,7 @@ class ApplicationTests(unittest.IsolatedAsyncioTestCase):
             return {"taskId": task_id, "status": status}
         self.tools.get_task = get_task
         await self.application.start("pending", {"user_request": "给我露营灯写口播，预算 50"})
-        first = await self.application.confirm("pending", {"confirmed": True})
+        first = await self.application.confirm("pending", {"confirmed": True, "quote_id": "q-1"})
         self.assertEqual(first["status"], "processing")
         status = "SUCCEEDED"
         result = await self.application.get("pending")
@@ -86,12 +86,60 @@ class ApplicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.tools.calls.count("submit"), 1)
         self.assertEqual(self.tools.calls.count("get"), 2)
 
+    async def test_revision_reuses_unaffected_query_and_updates_independent_slots(self):
+        first = await self.application.start("revised", {"user_request": "查商品",
+             "slot_updates": {"product": "Fixture", "region": "US", "budget_max": 50}})
+        revised = await self.application.revise("revised", {"expected_revision": 0, "user_request": "写口播脚本"})
+        self.assertEqual(revised["status"], "awaiting_confirmation")
+        self.assertEqual(revised["reusedQueries"], ["query-1"])
+        self.assertEqual(self.tools.calls.count("search"), 1)
+        self.assertEqual(first["slotVersions"], revised["slotVersions"])
+        self.assertEqual(revised["revision"], 1)
+        changed = await self.application.revise("revised", {"expected_revision": 1, "slot_updates": {"region": "CA"}})
+        self.assertEqual(changed["slotVersions"]["region"], first["slotVersions"]["region"] + 1)
+        self.assertEqual(changed["slotVersions"]["product"], first["slotVersions"]["product"])
+        self.assertEqual(changed["slotValues"]["region"], "CA")
+        self.assertEqual(self.tools.calls.count("search"), 2)
+        with self.assertRaisesRegex(RunConflictError, "revision changed"):
+            await self.application.revise("revised", {"expected_revision": 1, "slot_updates": {"region": "GB"}})
+        await self.application.confirm("revised", {"confirmed": True, "quote_id": "q-1"})
+        with self.assertRaisesRegex(RunConflictError, "cannot be rewritten"):
+            await self.application.revise("revised", {"expected_revision": 2, "slot_updates": {"region": "GB"}})
+
+    async def test_retry_queries_retains_successful_independent_results(self):
+        attempts = {"US": 0, "ID": 0}
+        async def search(query):
+            attempts[query["region"]] += 1
+            if query["region"] == "ID" and attempts["ID"] == 1:
+                raise RuntimeError("controlled failure")
+            return {"products": [{"id": query["region"], "title": "Fixture", "region": query["region"]}]}
+        self.tools.search_products = search
+        first = await self.application.start("failed-query", {"user_request": "查美国和印尼商品"})
+        self.assertEqual(first["status"], "retryable")
+        retried = await self.application.retry("failed-query")
+        self.assertEqual(retried["status"], "completed")
+        self.assertEqual(attempts, {"US": 1, "ID": 2})
+        self.assertEqual(retried["reusedQueries"], ["query-1"])
+
+    async def test_confirmation_rejects_a_previous_quote_after_revision(self):
+        count = 0
+        async def quote(request):
+            nonlocal count
+            count += 1
+            return {"quoteId": f"quote-{count}", "amount": 5}
+        self.tools.create_quote = quote
+        await self.application.start("stale-quote", {"user_request": "写口播预算 50"})
+        await self.application.revise("stale-quote", {"expected_revision": 0, "slot_updates": {"budget_max": 60}})
+        with self.assertRaisesRegex(RunConflictError, "stale or different quote"):
+            await self.application.confirm("stale-quote", {"confirmed": True, "quote_id": "quote-1"})
+        self.assertNotIn("submit", self.tools.calls)
+
     async def test_confirmation_resume_and_repeated_confirmation_are_idempotent(self):
         started = await self.application.start("run-2", {"user_request": "给我露营灯写口播，预算 50"})
         self.assertEqual(started["status"], "awaiting_confirmation")
         self.assertTrue(started["confirmationRequest"])
-        finished = await self.application.confirm("run-2", {"confirmed": True})
-        replay = await self.application.confirm("run-2", {"confirmed": True})
+        finished = await self.application.confirm("run-2", {"confirmed": True, "quote_id": "q-1"})
+        replay = await self.application.confirm("run-2", {"confirmed": True, "quote_id": "q-1"})
         self.assertEqual(finished, replay)
         self.assertEqual(self.tools.calls, ["search", "quote", "confirm", "submit", "get"])
 
@@ -124,7 +172,7 @@ class ApplicationTests(unittest.IsolatedAsyncioTestCase):
         self.tools.get_task = fail_once
         await self.application.start("retry-1", {"user_request": "给我露营灯写口播，预算 50"})
         with self.assertRaisesRegex(RuntimeError, "temporary status failure"):
-            await self.application.confirm("retry-1", {"confirmed": True})
+            await self.application.confirm("retry-1", {"confirmed": True, "quote_id": "q-1"})
         result = await self.application.retry("retry-1")
         self.assertEqual(result["taskStatus"]["status"], "SUCCEEDED")
         self.assertEqual(self.tools.calls.count("submit"), 1)

@@ -121,6 +121,9 @@ def create_app(settings: Settings | None = None) -> Starlette:
             result = await request.app.state.agent.get(request.path_params["run_id"])
         except ValueError as error:
             return JSONResponse({"error": str(error)}, status_code=422)
+        except Exception:
+            logger.exception("Agent status refresh failed")
+            return JSONResponse({"error": "status_refresh_failed"}, status_code=502)
         if result is None:
             return JSONResponse({"error": "run_not_found"}, status_code=404)
         return JSONResponse(result)
@@ -138,6 +141,22 @@ def create_app(settings: Settings | None = None) -> Starlette:
             logger.exception("Agent retry failed")
             return JSONResponse({"error": "retry_failed"}, status_code=502)
         return JSONResponse(result)
+
+    async def revise_run(request: Request) -> Response:
+        try:
+            result = await request.app.state.agent.revise(request.path_params["run_id"], await _json_body(request))
+        except ValidationError as error:
+            return _validation_response(error)
+        except RunNotFoundError as error:
+            return JSONResponse({"error": str(error)}, status_code=404)
+        except RunConflictError as error:
+            return JSONResponse({"error": str(error)}, status_code=409)
+        except ValueError as error:
+            return JSONResponse({"error": str(error)}, status_code=422)
+        except Exception:
+            logger.exception("Agent revision failed")
+            return JSONResponse({"error": "revision_failed"}, status_code=502)
+        return JSONResponse(result, status_code=202 if result["status"] == "awaiting_confirmation" else 200)
 
     async def query_bi(request: Request) -> Response:
         permissions = request.app.state.sql_permissions
@@ -191,7 +210,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
             logger.exception("RAG query failed")
             return JSONResponse({"error": "rag_query_failed"}, status_code=502)
         return JSONResponse({"source": "BGE_M3_ELASTICSEARCH", "chunks": [
-            {"id": chunk.chunk_id, "parentId": chunk.parent_id, "text": chunk.text, "score": chunk.score}
+            {"id": chunk.chunk_id, "parentId": chunk.parent_id, "text": chunk.text, "score": chunk.score,
+             "sourceRef": chunk.source_ref, "documentId": chunk.document_id, "version": chunk.version}
             for chunk in chunks
         ]})
 
@@ -202,6 +222,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Route("/v1/agent/runs/{run_id:str}", get_run, methods=["GET"]),
         Route("/v1/agent/runs/{run_id:str}/confirmation", confirm_run, methods=["POST"]),
         Route("/v1/agent/runs/{run_id:str}/retry", retry_run, methods=["POST"]),
+        Route("/v1/agent/runs/{run_id:str}/revision", revise_run, methods=["POST"]),
         Route("/v1/bi/queries", query_bi, methods=["POST"]),
         Route("/v1/rag/search", rag_search, methods=["POST"]),
     ]

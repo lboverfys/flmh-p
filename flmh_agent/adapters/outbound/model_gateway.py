@@ -103,10 +103,13 @@ class ModelGatewayPlanner:
                     "role": "system",
                     "content": (
                         "将用户请求转换为严格 JSON 计划，不执行工具调用。结构为 {summary, queries, create_content, "
-                        "content_type, budget_max, analysis_question}。商品流程中 queries 为 1 至 4 条独立商品查询，"
+                        "content_type, budget_max, analysis_question, knowledge_query}。商品流程中 queries 为 1 至 4 条商品查询，"
                         "analysis_question=null；BI 分析流程中 queries=[] 且 analysis_question 为原始分析问题。"
-                        "商品查询字段仅含 region、keyword、category、max_price；region 使用两位大写国家代码；"
+                        "商品查询字段为 region、keyword、category、max_price，以及可选的 query_id、depends_on；"
+                        "depends_on 只可引用本计划已有 query_id，依赖必须无环；互不依赖的查询将并行执行。"
+                        "region 使用两位大写国家代码；显式 slots 优先于原始请求中的旧值；"
                         "content_type 仅允许 product_script 或空字符串。不得推断未给出的预算。"
+                        "用户要求检索知识库时 knowledge_query 为检索问题；可独立检索或为商品内容补充事实，未要求时为 null。"
                     ),
                 },
                 {"role": "user", "content": json.dumps({"request": user_request, "slots": dict(slots)}, ensure_ascii=False)},

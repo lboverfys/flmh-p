@@ -9,3 +9,6 @@ class Chunk:
     parent_id: str
     text: str
     score: float = 0.0
+    source_ref: str = ""
+    document_id: str = ""
+    version: str = ""

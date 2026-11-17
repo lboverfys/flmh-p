@@ -9,6 +9,17 @@ INVALIDATION_ORDER = (
     "product_results", "selected_product", "content_brief", "quote", "confirmation",
     "confirmed_quote", "content_task", "task_status", "summary",
 )
+SLOT_DEPENDENCIES = {
+    "product_results": ("product", "region", "budget_max"),
+    "selected_product": ("product", "region", "budget_max"),
+    "content_brief": ("product", "region"),
+    "quote": SLOT_NAMES,
+    "confirmation": SLOT_NAMES,
+    "confirmed_quote": SLOT_NAMES,
+    "content_task": SLOT_NAMES,
+    "task_status": SLOT_NAMES,
+    "summary": SLOT_NAMES,
+}
 
 
 def normalize_slots(values: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -43,9 +54,8 @@ def update_slots(current: dict[str, Any] | None, updates: dict[str, Any] | None)
     if unknown:
         raise ValueError(f"unknown slot names: {sorted(unknown)}")
     after = normalize_slots({**before, **(updates or {})})
-    if before == after:
-        return after, []
-    return after, list(INVALIDATION_ORDER)
+    changed = {name for name in SLOT_NAMES if before[name] != after[name]}
+    return after, [name for name in INVALIDATION_ORDER if changed.intersection(SLOT_DEPENDENCIES[name])]
 
 
 def _number_or_none(value: Any) -> float | None:

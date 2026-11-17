@@ -9,13 +9,15 @@ from uuid import uuid4
 from typing import Any, Callable
 
 from langgraph.types import Command
+from langgraph.graph import START
 
 from flmh_agent.application.workflow import build_workflow
 from flmh_agent.config import Settings
-from flmh_agent.domain.models import AgentInput, AgentState, ConfirmationInput
+from flmh_agent.domain.models import AgentInput, AgentState, ConfirmationInput, RevisionInput
+from flmh_agent.domain.slots import normalize_slots
 from flmh_agent.ports.observability import TraceHandlerFactory
 from flmh_agent.ports.coordination import RunCoordinatorPort
-from flmh_agent.ports.workflow import BiQueryPort, PlannerPort, ProductContentPort
+from flmh_agent.ports.workflow import BiQueryPort, KnowledgeQueryPort, PlannerPort, ProductContentPort
 
 
 RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -41,6 +43,7 @@ class AgentApplication:
         run_coordinator: RunCoordinatorPort,
         bi_query: BiQueryPort | None = None,
         bi_principal: str = "",
+        knowledge_query: KnowledgeQueryPort | None = None,
     ) -> None:
         self.settings = settings
         self.planner = planner
@@ -50,6 +53,7 @@ class AgentApplication:
         self.run_coordinator = run_coordinator
         self.bi_query = bi_query
         self.bi_principal = bi_principal
+        self.knowledge_query = knowledge_query
 
     async def start(self, run_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
         self._validate_run_id(run_id)
@@ -61,6 +65,7 @@ class AgentApplication:
         state: AgentState = {
             "user_request": payload.user_request,
             "slot_updates": payload.slot_updates,
+            "revision": 0,
         }
         fingerprint = _request_fingerprint(payload.model_dump(mode="json"))
         graph_config = self._config(run_id)
@@ -92,6 +97,8 @@ class AgentApplication:
         previous = await graph.aget_state(graph_config)
         if not previous.values:
             raise RunNotFoundError("run_id does not exist")
+        if previous.values.get("quote", {}).get("quoteId") != decision.quote_id:
+            raise RunConflictError("confirmation refers to a stale or different quote")
         current = previous.values.get("confirmation", {}).get("confirmed")
         if "request_confirmation" not in previous.next:
             if current is decision.confirmed and not previous.next:
@@ -115,10 +122,14 @@ class AgentApplication:
                 raise RunNotFoundError("run_id does not exist")
             if "request_confirmation" in previous.next:
                 raise RunConflictError("waiting for confirmation; use the confirmation endpoint")
-            if not previous.next:
+            failed_queries = previous.values.get("query_failures")
+            if not previous.next and not failed_queries:
                 return await self._refresh_task(run_id, previous)
             async with self.tool_session_factory() as tools:
                 graph = self._graph(tools)
+                if failed_queries:
+                    resume_from = "retrieve_knowledge" if previous.values["plan"].get("knowledge_query") else "plan_request"
+                    await graph.aupdate_state(graph_config, {"query_failures": {}, "error": ""}, as_node=resume_from)
                 result = await graph.ainvoke(None, config=graph_config)
             return _response(run_id, result)
 
@@ -130,6 +141,32 @@ class AgentApplication:
             if not snapshot.values:
                 return None
             return await self._refresh_task(run_id, snapshot)
+
+    async def revise(self, run_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
+        self._validate_run_id(run_id)
+        revision = RevisionInput.model_validate(request)
+        normalize_slots(revision.slot_updates)
+        async with self.run_coordinator.acquire(run_id):
+            graph_config = self._config(run_id)
+            previous = await self._graph(_DisconnectedTools()).aget_state(graph_config)
+            if not previous.values:
+                raise RunNotFoundError("run_id does not exist")
+            if previous.values.get("revision", 0) != revision.expected_revision:
+                raise RunConflictError("revision changed; reload the current run before editing")
+            if previous.values.get("confirmed_quote") or previous.values.get("content_task"):
+                raise RunConflictError("confirmed production cannot be rewritten; create a new run")
+            user_request = revision.user_request or previous.values["user_request"]
+            overrides = {**previous.values.get("slot_overrides", {}), **revision.slot_updates}
+            if user_request == previous.values["user_request"] and overrides == previous.values.get("slot_overrides", {}):
+                return _snapshot_response(run_id, previous)
+            state = {"user_request": user_request, "slot_updates": revision.slot_updates,
+                     "revision": revision.expected_revision + 1,
+                     "request_fingerprint": _request_fingerprint({"user_request": user_request, "slot_updates": overrides})}
+            async with self.tool_session_factory() as tools:
+                graph = self._graph(tools)
+                await graph.aupdate_state(graph_config, state, as_node=START)
+                result = await graph.ainvoke(None, config=graph_config)
+            return _response(run_id, result)
 
     async def _refresh_task(self, run_id: str, snapshot: Any) -> dict[str, Any]:
         task = snapshot.values.get("content_task") or {}
@@ -150,6 +187,7 @@ class AgentApplication:
             tools=tools,
             bi_query=self.bi_query,
             bi_principal=self.bi_principal,
+            knowledge_query=self.knowledge_query,
             checkpointer=self.checkpointer,
         )
 
@@ -203,12 +241,17 @@ def _response(run_id: str, result: Mapping[str, Any]) -> dict[str, Any]:
     ]
     return {
         "runId": run_id,
-        "status": ("needs_input" if values.get("required_slots") else "awaiting_confirmation" if pending_confirmation
+        "status": ("needs_configuration" if values.get("configuration_todos") else "retryable" if values.get("query_failures") else "needs_input" if values.get("required_slots") else "awaiting_confirmation" if pending_confirmation
                    else "processing" if values.get("content_task") and values.get("task_status", {}).get("status") not in {"SUCCEEDED", "FAILED", "CANCELLED"}
                    else "completed"),
         "plan": plan,
         "slotValues": values.get("slot_values", {}),
         "slotVersion": values.get("slot_version", 0),
+        "slotVersions": values.get("slot_versions", {}),
+        "revision": values.get("revision", 0),
+        "conclusionDependencies": values.get("conclusion_dependencies", {}),
+        "reusedQueries": values.get("reused_queries", []),
+        "failedQueries": values.get("query_failures", {}),
         "slotSnapshot": values.get("slot_snapshot", ""),
         "invalidated": values.get("invalidated", []),
         "products": products,
@@ -221,6 +264,8 @@ def _response(run_id: str, result: Mapping[str, Any]) -> dict[str, Any]:
         "error": values.get("error", ""),
         "biResult": values.get("bi_result", {}),
         "requiredSlots": values.get("required_slots", []),
+        "knowledgeResult": values.get("knowledge_result", {}),
+        "configurationTodos": values.get("configuration_todos", []),
     }
 
 

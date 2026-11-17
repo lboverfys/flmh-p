@@ -24,6 +24,7 @@ class Settings(BaseModel):
     model_gateway_api_key: str = ""
     mcp_tools_url: str = "http://127.0.0.1:8001/mcp"
     gateway_url: str = "http://127.0.0.1:8080"
+    gateway_api_key: str = ""
     mcp_host: str = "127.0.0.1"
     mcp_port: int = Field(default=8001, ge=1, le=65535)
     checkpointer_backend: Literal["memory", "postgres"] = "memory"
@@ -112,6 +113,7 @@ class Settings(BaseModel):
             "planner_backend": "PLANNER_BACKEND", "model_gateway_url": "MODEL_GATEWAY_URL",
             "model_gateway_api_key": "MODEL_GATEWAY_API_KEY", "mcp_tools_url": "MCP_TOOLS_URL",
             "gateway_url": "JAVA_GATEWAY_URL", "mcp_host": "MCP_HTTP_HOST", "mcp_port": "MCP_HTTP_PORT",
+            "gateway_api_key": "JAVA_GATEWAY_API_KEY",
             "checkpointer_backend": "CHECKPOINTER_BACKEND", "postgres_checkpointer_uri": "POSTGRES_CHECKPOINTER_URI",
             "postgres_checkpoint_setup": "POSTGRES_CHECKPOINT_SETUP",
             "langfuse_host": "LANGFUSE_HOST", "langfuse_public_key": "LANGFUSE_PUBLIC_KEY",

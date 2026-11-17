@@ -30,3 +30,7 @@ class SqlModelPort(Protocol):
 
 class BiQueryPort(Protocol):
     async def query(self, question: str, principal: str) -> Mapping[str, Any]: ...
+
+
+class KnowledgeQueryPort(Protocol):
+    async def retrieve(self, question: str) -> Mapping[str, Any]: ...

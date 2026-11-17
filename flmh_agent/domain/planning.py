@@ -28,6 +28,11 @@ class RuleBasedPlanner:
         if not text:
             raise ValueError("user_request is required")
         normalized = normalize_slots(dict(slots))
+        knowledge_query = text if "知识库" in text or "检索资料" in text else None
+        wants_content = any(term in text for term in CONTENT_TERMS)
+        if knowledge_query and not wants_content:
+            return AgentPlan(summary="本地规则规划；检索已配置知识库并保留来源。", queries=[], create_content=False,
+                             content_type="", knowledge_query=knowledge_query, source="RULES")
         if any(term in text.casefold() for term in BI_TERMS):
             return AgentPlan(
                 summary="本地规则规划；将问题交给受控 BI SQL 服务。",
@@ -38,11 +43,11 @@ class RuleBasedPlanner:
                 analysis_question=text,
                 source="RULES",
             )
-        regions = _find_regions(text) or [normalized["region"]]
+        regions = ([normalized["region"]] if "region" in slots else _find_regions(text)) or [normalized["region"]]
         if len(regions) > 4:
             raise ValueError("at most 4 independent region queries are allowed")
         budget = normalized["budget_max"]
-        if budget is None:
+        if "budget_max" not in slots:
             budget = _find_budget(text)
         keyword = normalized["product"] or _find_keyword(text)
         queries = []
@@ -53,7 +58,6 @@ class RuleBasedPlanner:
             if budget is not None:
                 query["max_price"] = budget
             queries.append(ProductQuery.model_validate(query))
-        wants_content = any(term in text for term in CONTENT_TERMS)
         return AgentPlan(
             summary="本地规则规划；未调用模型。",
             queries=queries,
@@ -61,6 +65,7 @@ class RuleBasedPlanner:
             content_type="product_script" if wants_content else "",
             budget_max=budget,
             analysis_question=None,
+            knowledge_query=knowledge_query,
             source="RULES",
         )
 
