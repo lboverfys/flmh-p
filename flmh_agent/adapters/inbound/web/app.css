@@ -1,5 +1,7 @@
 :root { color-scheme: light; --ink:#192e48; --muted:#63748a; --line:#dde5ed; --teal:#087f76; --teal-light:#e4f4f0; --bg:#f3f6fa; }
 * { box-sizing:border-box; }
+.works-panel { margin-bottom:24px; }.works-panel>summary { cursor:pointer; font-weight:600; }.works-columns { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1fr); gap:28px; margin-top:18px; }.works-columns section { min-width:0; }.works-columns select { width:100%; padding:10px; border:1px solid #ccd7e2; border-radius:8px; font:inherit; background:white; color:var(--ink); }.works-columns label { margin-top:12px; }.work-origin { border-top:1px solid var(--line); padding:12px 0; }
+@media(max-width:900px) { .works-columns { grid-template-columns:1fr; } }
 body { margin:0; background:var(--bg); color:var(--ink); font-family:"Segoe UI","Microsoft YaHei",sans-serif; font-size:14px; line-height:1.6; }
 button,input,textarea { font:inherit; }
 button { cursor:pointer; border:1px solid var(--line); border-radius:8px; padding:10px 15px; line-height:1.4; font-weight:600; transition:background .15s,border-color .15s; }

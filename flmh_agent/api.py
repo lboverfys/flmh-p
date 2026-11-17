@@ -24,13 +24,19 @@ from flmh_agent.domain.identity import AuthenticationError, IdentityUnavailableE
 from flmh_agent.adapters.inbound.identity import IdentityMiddleware
 from flmh_agent.adapters.inbound.accounts import account_routes
 from flmh_agent.adapters.outbound.accounts import JavaUserAccounts
+from flmh_agent.adapters.inbound.works import work_routes
+from flmh_agent.adapters.inbound.sessions import session_routes
+from flmh_agent.adapters.outbound.works import JavaWorkCatalog
+from flmh_agent.adapters.inbound.workflows import workflow_routes
+from flmh_agent.adapters.outbound.workflows import JavaWorkflowClient
 from flmh_agent.ports.identity import IdentityLoginPort, IdentityVerifierPort
 
 
 logger = logging.getLogger("flmh.agent.api")
 MAX_JSON_BODY_BYTES = 64 * 1024
 WORKBENCH_ROOT = Path(__file__).parent / "adapters" / "inbound" / "web"
-WORKBENCH_ASSETS = {"app.css": "text/css", "app.js": "text/javascript"}
+WORKBENCH_ASSETS = {"app.css": "text/css", "app.js": "text/javascript",
+                    "workflows.css": "text/css", "workflows.js": "text/javascript"}
 WORKBENCH_HEADERS = {
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
@@ -46,7 +52,8 @@ class LoginInput(BaseModel):
 
 
 def create_app(settings: Settings | None = None, *, identity_verifier: IdentityVerifierPort | None = None,
-               identity_login: IdentityLoginPort | None = None, accounts: JavaUserAccounts | None = None) -> Starlette:
+               identity_login: IdentityLoginPort | None = None, accounts: JavaUserAccounts | None = None,
+               works: JavaWorkCatalog | None = None, workflows: JavaWorkflowClient | None = None) -> Starlette:
     config = settings or Settings.from_env()
 
     @asynccontextmanager
@@ -59,6 +66,8 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
             application.state.identity_verifier = identity_verifier or runtime.identity_verifier
             application.state.identity_login = identity_login or runtime.identity_verifier
             application.state.accounts = accounts or JavaUserAccounts(config)
+            application.state.works = works or JavaWorkCatalog(config)
+            application.state.workflows = workflows or JavaWorkflowClient(config)
             yield
 
     async def live(_request: Request) -> Response:
@@ -125,6 +134,8 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
             return JSONResponse({"error": str(error)}, status_code=status)
         except RunConflictError as error:
             return JSONResponse({"error": str(error)}, status_code=409)
+        except RunNotFoundError as error:
+            return JSONResponse({"error": str(error)}, status_code=404)
         except Exception as error:
             logger.exception("Agent run failed")
             return JSONResponse({"error": "agent_run_failed"}, status_code=502)
@@ -157,6 +168,8 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
             result = await request.app.state.agent.get(request.path_params["run_id"], identity=request.state.identity)
         except ValueError as error:
             return JSONResponse({"error": str(error)}, status_code=422)
+        except RunNotFoundError as error:
+            return JSONResponse({"error": str(error)}, status_code=404)
         except Exception:
             logger.exception("Agent status refresh failed")
             return JSONResponse({"error": "status_refresh_failed"}, status_code=502)
@@ -287,6 +300,9 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
         Route("/v1/rag/search", rag_search, methods=["POST"]),
     ]
     routes.extend(account_routes(_json_body))
+    routes.extend(work_routes(_json_body))
+    routes.extend(session_routes(_json_body))
+    routes.extend(workflow_routes(_json_body))
     public_paths = frozenset({"/", "/health/live", "/health/ready", *(f"/assets/{name}" for name in WORKBENCH_ASSETS)})
     app = Starlette(routes=routes, lifespan=lifespan, middleware=[
         Middleware(IdentityMiddleware, api_key=config.agent_api_key, public_paths=public_paths,

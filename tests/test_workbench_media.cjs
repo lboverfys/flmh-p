@@ -115,6 +115,102 @@ function mediaResult(status = "QUEUED", overall = "processing", overrides = {}) 
 
 async function settled() { await new Promise(resolve => setImmediate(resolve)); }
 
+const savedWork = { id: "work-1", title: "保存文字", module: "notes", type: "script", content: "真实用户文字", source: "USER_SAVED", createdAt: "2026-11-17" };
+function workPage(records = [savedWork], page = 1, totalPages = 1) {
+  return { records, page, pageSize: 10, total: records.length, totalPages, availableModules: ["notes", "content-production"], availableModulesTruncated: false };
+}
+function workResponder(page) {
+  page.respond(async (url) => ({ ok: true, status: 200, json: async () => url.includes("/lineage")
+    ? { workId: "work-1", entries: [], page: 1, pageSize: 20, total: 0, totalPages: 0 }
+    : url.startsWith("/v1/works?") ? workPage() : { record: savedWork, reused: true } }));
+}
+
+test("作品目录受登录保护，分页查询一次且列表不逐条加载正文", async () => {
+  const page = harness({ authenticated: false });
+  assert.equal(page.ui("works-panel").hidden, true);
+  page.submit("works-filter-form"); await settled(); assert.equal(page.calls.length, 0);
+  page.run('state.token="unit";state.user={id:"alice",role:"USER"};updateControls();');
+  page.response(workPage([savedWork], 1, 3));
+  page.ui("works-type").value = "script"; page.ui("works-size").value = "10";
+  page.submit("works-filter-form"); await settled();
+  assert.equal(page.calls.length, 1);
+  assert.match(page.calls[0].url, /^\/v1\/works\?page=1&pageSize=10&sort=createdAt_desc&type=script$/);
+  assert.match(page.ui("works-rows").textContent, /保存文字/);
+  assert.equal(page.ui("works-prev").disabled, true); assert.equal(page.ui("works-next").disabled, false);
+  page.response(workPage([], 2, 3)); page.click("works-next"); await settled();
+  assert.equal(page.calls.length, 2); assert.match(page.calls[1].url, /page=2/);
+});
+
+test("作品保存结果未知时保留同幂等键及原正文并阻止重复点击", async () => {
+  const page = harness();
+  page.ui("work-title").value = "保存文字"; page.ui("work-module").value = "notes"; page.ui("work-text").value = "原始正文";
+  page.failure(new Error("connection lost"));
+  page.submit("work-save-form"); page.submit("work-save-form"); await settled();
+  assert.equal(page.calls.length, 1);
+  const original = page.calls[0].options;
+  assert.equal(original.headers["Idempotency-Key"], "work-test-uuid");
+  assert.equal(page.ui("work-text").disabled, true); assert.match(page.ui("work-save-note").textContent, /幂等键已保留/);
+  page.ui("work-text").value = "恶意改动界面字段";
+  workResponder(page); page.submit("work-save-form"); await settled();
+  const retry = page.calls[1].options;
+  assert.equal(retry.headers["Idempotency-Key"], original.headers["Idempotency-Key"]);
+  assert.equal(retry.body, original.body);
+  assert.equal(page.run("works.pendingSave"), null);
+  assert.equal(page.ui("work-text").value, ""); assert.match(page.ui("works-message").textContent, /没有重复创建/);
+});
+
+test("删除作品必须确认且换作品会清掉确认，删除不删除来源任务", async () => {
+  const page = harness(); page.run(`renderWork(${JSON.stringify(savedWork)}); updateControls();`);
+  page.click("work-delete"); await settled(); assert.equal(page.calls.length, 0);
+  page.ui("work-delete-confirm").checked = true;
+  page.run(`renderWork(${JSON.stringify({ ...savedWork, id: "work-2" })}); updateControls();`);
+  assert.equal(page.ui("work-delete-confirm").checked, false);
+  page.ui("work-delete-confirm").checked = true; workResponder(page); page.click("work-delete"); await settled();
+  assert.equal(page.calls[0].url, "/v1/works/work-2"); assert.equal(page.calls[0].options.method, "DELETE");
+  assert.equal(page.run("works.selected"), null); assert.match(page.ui("works-message").textContent, /来源任务和幂等记录保留/);
+});
+
+test("退出清空作品和幂等输入，迟到作品响应不能泄漏给新用户", async () => {
+  const page = harness(); let resolve;
+  page.respond(() => new Promise(done => { resolve = done; })); page.submit("works-filter-form");
+  page.run(`renderWork(${JSON.stringify(savedWork)}); works.pendingSave={key:"key",payload:{content:"secret"}};`);
+  page.ui("work-text").value = "secret"; page.click("logout");
+  page.run('state.token="bob";state.user={id:"bob",role:"USER"};updateControls();');
+  resolve({ ok: true, status: 200, json: async () => workPage() }); await settled();
+  assert.equal(page.run("works.selected"), null); assert.equal(page.run("works.pendingSave"), null);
+  assert.equal(page.ui("work-text").value, ""); assert.equal(page.ui("works-rows").textContent, "");
+  assert.equal(page.ui("work-detail").hidden, true);
+});
+
+test("作品详情只显示文本，媒体原始URL不会生成自动访问节点", () => {
+  const page = harness(); page.run(`renderWork(${JSON.stringify({ ...savedWork, title: "<img src=x onerror=alert(1)>", type: "video", content: "<script>secret</script>", mediaUrl: "http://localhost/private" })});`);
+  assert.match(page.ui("work-fields").textContent, /<img src=x/); assert.match(page.ui("work-content").textContent, /<script>/);
+  assert.equal(page.createdTags.some(tag => ["a", "img", "video", "iframe", "script"].includes(tag)), false);
+  assert.equal(page.calls.length, 0);
+});
+
+test("媒体下载逐块写文件并使用受控鉴权路径，不创建整量Blob", async () => {
+  const page = harness();
+  page.run(`renderWork(${JSON.stringify({ ...savedWork, type: "video", mediaUrl: "https://ignored.invalid/file" })}); var writes=[], closed=0, aborted=0; window.showSaveFilePicker=async()=>({createWritable:async()=>({write:async c=>writes.push(c.byteLength),close:async()=>closed++,abort:async()=>aborted++})});`);
+  let reads = 0, cancelled = 0;
+  page.respond(async () => ({ ok: true, headers: { get: name => name === "Content-Type" ? "video/webm" : name === "Content-Length" ? "8" : null },
+    blob() { throw new Error("must not allocate Blob"); },
+    body: { getReader: () => ({ async read() { reads++; return reads <= 2 ? { done: false, value: new Uint8Array(4) } : { done: true }; }, async cancel() { cancelled++; } }) } }));
+  page.click("work-download"); await settled();
+  assert.equal(page.calls[0].url, "/v1/works/work-1/file"); assert.equal(page.calls[0].options.headers.Authorization, "Bearer unit-alice");
+  assert.equal(page.run("writes.join(',')"), "4,4"); assert.equal(page.run("closed"), 1); assert.equal(page.run("aborted"), 0);
+  assert.equal(cancelled, 1); assert.match(page.ui("works-message").textContent, /\.webm/);
+});
+
+test("下载超过200MiB时在写入前取消上游", async () => {
+  const page = harness();
+  page.run(`renderWork(${JSON.stringify({ ...savedWork, type: "video", mediaUrl: "https://ignored.invalid/file" })}); var opened=0; window.showSaveFilePicker=async()=>({createWritable:async()=>{opened++;throw new Error("must not write");}});`);
+  let cancelled = 0;
+  page.respond(async () => ({ ok: true, headers: { get: name => name === "Content-Type" ? "video/mp4" : String(200 * 1024 * 1024 + 1) }, body: { async cancel() { cancelled++; } } }));
+  page.click("work-download"); await settled();
+  assert.equal(page.run("opened"), 0); assert.equal(cancelled, 1); assert.match(page.ui("works-message").textContent, /200 MiB/);
+});
+
 test("账号面板只向已登录用户显示，管理区只向管理员显示", () => {
   const page = harness({ authenticated: false });
   assert.equal(page.ui("account-panel").hidden, true);

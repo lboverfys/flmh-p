@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>FLMH · 选品与内容工作台</title>
   <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/workflows.css">
+  <script src="/assets/workflows.js" defer></script>
   <script src="/assets/app.js" defer></script>
 </head>
 <body>
@@ -49,6 +51,38 @@
             <form id="membership-form"><div class="field-pair"><div><label for="membership-level">会员等级</label><select id="membership-level"><option>FREE</option><option>BASIC</option><option>PRO</option><option>VOICE_AGENT</option><option>ENTERPRISE</option><option>ENTERPRISE_SUPREME</option></select></div><div><label for="membership-expiry">到期时间（本地时间，可留空）</label><input id="membership-expiry" type="datetime-local"></div></div><button class="secondary full-width" type="submit">保存会员设置</button></form>
             <label class="delete-confirm"><input id="user-delete-confirm" type="checkbox">确认删除当前选中的用户</label><button id="user-delete" type="button" class="secondary">删除所选用户</button>
           </div>
+        </section>
+      </div>
+    </details>
+    <section id="workflow-panel" class="panel" hidden></section>
+    <details id="works-panel" class="panel works-panel" hidden>
+      <summary>我的作品目录</summary>
+      <p id="works-message" class="help" role="status" aria-live="polite">成功文本与已保存的真实媒体自动归档。Mock 图片、视频流程不生成作品文件。</p>
+      <div class="works-columns">
+        <section>
+          <form id="works-filter-form">
+            <div class="field-pair"><div><label for="works-type">作品类型</label><select id="works-type"><option value="">全部</option><option value="script">文案</option><option value="report">报告</option><option value="image">图片</option><option value="video">视频</option></select></div><div><label for="works-module">来源模块</label><select id="works-module"><option value="">全部</option></select></div></div>
+            <div class="field-pair"><div><label for="works-sort">排序</label><select id="works-sort"><option value="createdAt_desc">最新在前</option><option value="createdAt_asc">最早在前</option><option value="title_asc">标题升序</option><option value="title_desc">标题降序</option></select></div><div><label for="works-size">每页数量</label><select id="works-size"><option value="10">10</option><option value="20">20</option><option value="50">50</option></select></div></div>
+            <button class="secondary full-width" type="submit">查询作品</button>
+          </form>
+          <div class="table-scroll"><table><thead><tr><th>作品 / 类型</th><th>模块 / 来源</th><th>保存时间</th><th>操作</th></tr></thead><tbody id="works-rows"></tbody></table></div>
+          <div class="button-row"><button id="works-prev" type="button" class="secondary">上一页</button><span id="works-page" class="help"></span><button id="works-next" type="button" class="secondary">下一页</button></div>
+          <p id="works-facets-note" class="help"></p>
+          <div id="work-detail" hidden>
+            <h3>作品详情</h3><div id="work-fields" class="key-values"></div><pre id="work-content" class="generated" hidden></pre>
+            <button id="work-download" type="button" class="secondary full-width" hidden>选择本地文件并下载</button><p id="work-download-note" class="help" hidden>媒体最大 200 MiB，直接分块写入你选择的文件。需要支持文件保存选择器的 Chrome；不会自动打开原始媒体链接。</p>
+            <h3>来源记录</h3><div id="work-lineage"></div><div class="button-row"><button id="lineage-prev" type="button" class="secondary">上一页来源</button><span id="lineage-page" class="help"></span><button id="lineage-next" type="button" class="secondary">下一页来源</button></div>
+            <label class="delete-confirm"><input id="work-delete-confirm" type="checkbox">确认从我的目录删除当前作品（来源任务保留）</label><button id="work-delete" type="button" class="secondary">删除当前作品</button>
+          </div>
+        </section>
+        <section>
+          <h2>保存文字作品</h2><p class="help">保存你输入的文案或报告，来源标为 USER_SAVED。请求结果未知时保留相同内容和幂等键。</p>
+          <form id="work-save-form">
+            <label for="work-title">标题</label><input id="work-title" maxlength="256" required>
+            <div class="field-pair"><div><label for="work-module">模块名称</label><input id="work-module" maxlength="64" required placeholder="例如：manual-notes"></div><div><label for="work-type">类型</label><select id="work-type"><option value="script">文案</option><option value="report">报告</option></select></div></div>
+            <label for="work-text">正文</label><textarea id="work-text" rows="8" maxlength="20000" required></textarea>
+            <button id="work-save" type="submit" class="primary full-width">保存文字作品</button><p id="work-save-note" class="help">正文最多 20,000 字；一次保存形成一件作品。</p>
+          </form>
         </section>
       </div>
     </details>

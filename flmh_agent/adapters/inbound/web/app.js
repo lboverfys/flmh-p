@@ -22,7 +22,9 @@ const mediaNodeLabels = { image: "图片", video: "视频" };
 const state = { current: null, submission: null, busy: false, controller: null, pollTimer: null,
   pollCount: 0, productionLocked: false, uncertain: false, closing: false,
   token: "", user: null, authBusy: false, sessionVersion: 0 };
+let workflowEditor;
 const accounts = { profile: null, selected: null, listing: null, page: 1, search: "", listingVersion: 0, pointsUncertain: new Map() };
+const works = { listing: null, page: 1, selected: null, lineage: null, pendingSave: null };
 
 function text(value) { return value === null || value === undefined || value === "" ? "未提供" : String(value); }
 function node(tag, value, className = "") {
@@ -69,6 +71,8 @@ function updateControls() {
   visible("session-panel", Boolean(state.user));
   visible("identity-source", Boolean(state.user));
   visible("account-panel", Boolean(state.user));
+  visible("works-panel", Boolean(state.user));
+  updateWorkControls(blocked);
   visible("admin-users", isAdministrator());
   for (const id of ["profile-name", "profile-phone", "current-password", "new-password", "user-search", "user-name", "user-email", "user-phone", "user-password", "user-role", "user-status", "points-amount", "points-reason", "membership-level", "membership-expiry", "user-delete-confirm"]) ui[id].disabled = blocked;
   ui["users-prev"].disabled = blocked || !isAdministrator() || accounts.page <= 1;
@@ -99,8 +103,15 @@ function updateControls() {
       : "当前状态不允许推进，请刷新状态查看服务返回的最新记录。";
   }
   visible("revision-panel", canRevise());
+  workflowEditor?.updateControls(blocked);
 }
 function errorMessage(status, data) {
+  if (data.error?.startsWith("work_") || data.error?.startsWith("invalid_work_")) {
+    return { work_not_found: "作品或来源记录不存在，或不属于当前用户。", work_conflict: "作品保存冲突，或原作品已删除。请读取目录核对。",
+      work_input_rejected: "作品服务拒绝了输入，请核对内容。", invalid_work_input: "作品输入无效，请核对必填内容和长度。",
+      work_service_unavailable: "作品服务暂时不可用；保存可能已经成功，重试会使用相同幂等键。",
+      work_file_size_exceeded: "文件超过下载上限或大小无效。" }[data.error] || "作品请求未完成，请刷新目录核对。";
+  }
   if (data.error?.startsWith("account_") || data.error === "admin_required" || data.error === "invalid_account_input") {
     return { account_conflict: "账号变更冲突，邮箱可能已存在，或该用户仍被业务数据引用。请重新读取后核对。",
       account_not_found: "用户已不存在，请重新查询。", admin_required: "当前账号没有管理员权限。",
@@ -117,7 +128,7 @@ function errorMessage(status, data) {
   }
   return `服务暂时未能完成请求（HTTP ${status}，${data.error || "未知错误"}）。运行编号已保留，请先刷新，再决定是否重试。`;
 }
-async function request(path, body, method = body === undefined ? "GET" : "POST", { authenticated = true } = {}) {
+async function request(path, body, method = body === undefined ? "GET" : "POST", { authenticated = true, idempotencyKey } = {}) {
   if (authenticated && !state.token) {
     const error = new Error("请先登录，再访问自己的运行。");
     error.status = 401;
@@ -131,6 +142,7 @@ async function request(path, body, method = body === undefined ? "GET" : "POST",
   const key = ui["api-key"].value.trim();
   if (authenticated) headers.Authorization = `Bearer ${state.token}`;
   if (key) headers["X-Agent-Key"] = key;
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   try {
     const response = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body),
@@ -256,10 +268,161 @@ function clearSession(message = "已退出。请登录后继续；旧结果与�
   ui["identity-fields"].replaceChildren();
   ui["identity-source"].textContent = "";
   clearAccounts();
+  clearWorks();
+  workflowEditor?.reset();
   ui.results.removeAttribute("aria-busy");
   resetRun();
   ui["auth-status"].textContent = message;
   updateControls();
+}
+function updateWorkControls(blocked) {
+  for (const id of ["works-type", "works-module", "works-sort", "works-size", "work-delete-confirm"]) ui[id].disabled = blocked;
+  for (const id of ["work-title", "work-module", "work-type", "work-text"]) ui[id].disabled = blocked || Boolean(works.pendingSave);
+  ui["works-prev"].disabled = blocked || works.page <= 1;
+  ui["works-next"].disabled = blocked || !works.listing || works.page >= works.listing.totalPages;
+  ui["lineage-prev"].disabled = blocked || !works.lineage || works.lineage.page <= 1;
+  ui["lineage-next"].disabled = blocked || !works.lineage || works.lineage.page >= works.lineage.totalPages;
+  ui["work-delete"].disabled = blocked || !works.selected || !ui["work-delete-confirm"].checked;
+  ui["work-download"].disabled = blocked || !works.selected;
+  ui["work-save"].textContent = works.pendingSave ? "重试同一保存请求" : "保存文字作品";
+  ui["work-save-note"].textContent = works.pendingSave
+    ? "本次保存结果尚未确认。内容与幂等键已保留，再次发送不会创建第二件作品。"
+    : "正文最多 20,000 字；一次保存形成一件作品。";
+}
+function clearWorkDetail() {
+  works.selected = null; works.lineage = null;
+  ui["work-delete-confirm"].checked = false;
+  for (const id of ["work-fields", "work-content", "work-lineage", "lineage-page"]) ui[id].replaceChildren();
+  visible("work-detail", false);
+}
+function clearWorks() {
+  works.listing = null; works.page = 1; works.pendingSave = null;
+  clearWorkDetail();
+  for (const id of ["works-rows", "works-page", "works-message", "works-facets-note"]) ui[id].replaceChildren();
+  for (const id of ["work-title", "work-module", "work-text", "works-type"]) ui[id].value = "";
+  ui["work-type"].value = "script"; ui["works-sort"].value = "createdAt_desc"; ui["works-size"].value = "10";
+  const option = node("option", "全部"); option.value = ""; ui["works-module"].replaceChildren(option); ui["works-module"].value = "";
+  ui["works-panel"].open = false;
+}
+async function workAction(operation, message) {
+  if (state.busy || state.authBusy || !requireUser()) return;
+  const version = state.sessionVersion;
+  state.busy = true; stopPolling(); updateControls();
+  ui["works-message"].textContent = "正在处理作品请求…";
+  try {
+    const result = await operation(version);
+    if (version === state.sessionVersion) ui["works-message"].textContent = result || message;
+  } catch (error) {
+    if (version === state.sessionVersion) ui["works-message"].textContent = error.message;
+  } finally {
+    if (version === state.sessionVersion) { state.busy = false; updateControls(); }
+  }
+}
+async function loadWorks(page = 1) {
+  const params = [["page", page], ["pageSize", ui["works-size"].value || "10"], ["sort", ui["works-sort"].value || "createdAt_desc"]];
+  for (const [name, id] of [["module", "works-module"], ["type", "works-type"]]) if (ui[id].value) params.push([name, ui[id].value]);
+  const listing = await request("/v1/works?" + params.map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join("&"));
+  works.listing = listing; works.page = listing.page;
+  ui["works-rows"].replaceChildren();
+  for (const work of listing.records) {
+    const row = node("tr"); const name = node("td", work.title); name.append(node("small", work.type));
+    const source = node("td", work.module); source.append(node("small", work.source));
+    const action = node("td"); const button = node("button", "查看", "secondary"); button.type = "button";
+    button.addEventListener("click", () => workAction(() => showWork(work.id), "已读取作品与来源记录。"));
+    action.append(button); row.append(name, source, node("td", work.createdAt), action); ui["works-rows"].append(row);
+  }
+  if (!listing.records.length) { const row = node("tr"); const empty = node("td", "当前条件下暂无作品"); empty.colSpan = 4; row.append(empty); ui["works-rows"].append(row); }
+  ui["works-page"].textContent = `第 ${listing.page} 页 / 共 ${listing.totalPages} 页 · ${listing.total} 件`;
+  const selectedModule = ui["works-module"].value;
+  const modules = [...listing.availableModules]; if (selectedModule && !modules.includes(selectedModule)) modules.push(selectedModule);
+  ui["works-module"].replaceChildren();
+  for (const value of ["", ...modules]) { const option = node("option", value || "全部"); option.value = value; ui["works-module"].append(option); }
+  ui["works-module"].value = selectedModule;
+  ui["works-facets-note"].textContent = listing.availableModulesTruncated ? "来源模块超过 100 个，仅显示前 100 个。" : "来源模块按当前类型汇总，不受当前页限制。";
+}
+async function loadLineage(page = 1) {
+  const data = await request(`/v1/works/${encodeURIComponent(works.selected.id)}/lineage?page=${page}&pageSize=20`);
+  works.lineage = data; ui["work-lineage"].replaceChildren();
+  for (const item of data.entries) {
+    const entry = node("div", undefined, "key-values work-origin");
+    fields(entry, [["来源类型", item.kind], ["运行 / 节点", `${item.originId} / ${item.nodeKey}`], ["当前状态", item.sourceExists ? item.currentStatus : "来源已不存在"],
+      ["尝试次数", item.attempt], ["请求编号", item.requestId], ["原运行", item.originRunId], ["输入指纹", item.inputFingerprint]]);
+    ui["work-lineage"].append(entry);
+  }
+  if (!data.entries.length) ui["work-lineage"].append(node("p", "手动文字作品没有生产任务血缘。", "help"));
+  ui["lineage-page"].textContent = `第 ${data.page} 页 / 共 ${data.totalPages} 页 · ${data.total} 条`;
+}
+function renderWork(work) {
+  clearWorkDetail(); works.selected = work;
+  fields(ui["work-fields"], [["标题", work.title], ["编号", work.id], ["类型 / 模块", `${work.type} / ${work.module}`],
+    ["来源", work.source], ["供应商", work.provider], ["保存时间", work.createdAt]]);
+  ui["work-content"].textContent = work.content || ""; visible("work-content", Boolean(work.content));
+  const downloadable = ["image", "video"].includes(work.type) && Boolean(work.mediaUrl);
+  visible("work-download", downloadable); visible("work-download-note", downloadable); visible("work-detail", true);
+}
+async function showWork(id) { renderWork(await request(`/v1/works/${encodeURIComponent(id)}`)); await loadLineage(); }
+async function saveWork() {
+  if (!works.pendingSave) {
+    const payload = { module: ui["work-module"].value.trim(), title: ui["work-title"].value.trim(), type: ui["work-type"].value || "script", content: ui["work-text"].value };
+    if (!payload.module || !payload.title || !payload.content.trim()) throw new Error("请填写作品模块、标题和正文。");
+    works.pendingSave = { key: `work-${crypto.randomUUID()}`, payload };
+  }
+  updateControls();
+  let result;
+  try { result = await request("/v1/works", works.pendingSave.payload, "POST", { idempotencyKey: works.pendingSave.key }); }
+  catch (error) {
+    if (error.status === 400 || error.status === 422) works.pendingSave = null;
+    throw error;
+  }
+  works.pendingSave = null;
+  for (const id of ["work-title", "work-text"]) ui[id].value = "";
+  renderWork(result.record); await loadLineage(); await loadWorks(1);
+  return result.reused ? "已读取同一请求保存的作品，没有重复创建。" : "文字作品已保存，来源为 USER_SAVED。";
+}
+async function downloadWork(version) {
+  const selected = works.selected;
+  if (!selected || !["image", "video"].includes(selected.type)) return;
+  if (typeof window.showSaveFilePicker !== "function") throw new Error("当前浏览器不支持分块保存文件。请使用本机 Chrome 的文件保存功能；本页面不会把大文件缓存为 Blob。");
+  const handle = await window.showSaveFilePicker({ suggestedName: selected.id });
+  if (version !== state.sessionVersion) return;
+  const controller = new AbortController(); state.controller = controller;
+  let writer, reader, saved = false;
+  const timeout = setTimeout(() => controller.abort(), 300000);
+  try {
+    const headers = { Authorization: `Bearer ${state.token}` };
+    if (ui["api-key"].value.trim()) headers["X-Agent-Key"] = ui["api-key"].value.trim();
+    const response = await fetch(`/v1/works/${encodeURIComponent(selected.id)}/file`, { headers, signal: controller.signal, cache: "no-store", credentials: "omit" });
+    if (version !== state.sessionVersion) throw new Error("用户已改变，下载已取消。");
+    if (!response.ok) {
+      const message = errorMessage(response.status, await response.json());
+      if (response.status === 401) clearSession(message);
+      throw new Error(message);
+    }
+    const extensions = { "image/png": ".png", "image/jpeg": ".jpg", "video/mp4": ".mp4", "video/webm": ".webm" };
+    const extension = extensions[response.headers.get("Content-Type")?.split(";")[0]];
+    const size = Number(response.headers.get("Content-Length"));
+    if (!extension || !Number.isSafeInteger(size) || size <= 0 || size > 200 * 1024 * 1024 || !response.body) {
+      await response.body?.cancel(); throw new Error("文件类型或大小无效；下载上限为 200 MiB。");
+    }
+    writer = await handle.createWritable(); reader = response.body.getReader();
+    let total = 0;
+    while (true) {
+      const item = await reader.read();
+      if (version !== state.sessionVersion) throw new Error("用户已改变，下载已取消。");
+      if (item.done) break;
+      total += item.value.byteLength;
+      if (total > size) throw new Error("实际文件大小超过服务声明，下载已停止。");
+      await writer.write(item.value);
+    }
+    if (total !== size) throw new Error("文件下载不完整，未保存残缺文件。");
+    await writer.close(); saved = true;
+    return `文件已分块保存（${total} 字节）。实际格式为 ${extension}，文件名未含后缀时请使用此后缀。`;
+  } finally {
+    clearTimeout(timeout); controller.abort();
+    if (reader) await reader.cancel().catch(() => {});
+    if (writer && !saved) await writer.abort().catch(() => {});
+    if (state.controller === controller) state.controller = null;
+  }
 }
 function isAdministrator() { return ["ADMIN", "SUPER_ADMIN"].includes(state.user?.role); }
 function clearAccounts() {
@@ -594,6 +757,24 @@ ui["user-delete"].addEventListener("click", () => {
     selectAccount(null); await loadAccounts(1);
   }, "所选用户已删除。");
 });
+ui["works-filter-form"].addEventListener("submit", event => { event.preventDefault(); workAction(() => loadWorks(1), "已刷新作品目录。"); });
+ui["works-prev"].addEventListener("click", () => { if (works.page > 1) workAction(() => loadWorks(works.page - 1), "已读取上一页。"); });
+ui["works-next"].addEventListener("click", () => { if (works.listing && works.page < works.listing.totalPages) workAction(() => loadWorks(works.page + 1), "已读取下一页。"); });
+ui["works-type"].addEventListener("change", () => { ui["works-module"].value = ""; });
+ui["work-save-form"].addEventListener("submit", event => { event.preventDefault(); workAction(saveWork, "已保存作品。"); });
+ui["work-delete-confirm"].addEventListener("change", updateControls);
+ui["work-delete"].addEventListener("click", () => {
+  if (!works.selected || !ui["work-delete-confirm"].checked) return;
+  const id = works.selected.id;
+  workAction(async () => {
+    try { await request(`/v1/works/${encodeURIComponent(id)}`, undefined, "DELETE"); }
+    catch (error) { if (error.status !== 404) throw error; }
+    clearWorkDetail(); await loadWorks(1);
+  }, "作品已从目录移除，来源任务和幂等记录保留。");
+});
+ui["lineage-prev"].addEventListener("click", () => { if (works.lineage?.page > 1) workAction(() => loadLineage(works.lineage.page - 1), "已读取上一页来源。"); });
+ui["lineage-next"].addEventListener("click", () => { if (works.lineage && works.lineage.page < works.lineage.totalPages) workAction(() => loadLineage(works.lineage.page + 1), "已读取下一页来源。"); });
+ui["work-download"].addEventListener("click", () => workAction(downloadWork, "下载已取消。"));
 ui["login-form"].addEventListener("submit", event => { event.preventDefault(); login(); });
 ui.logout.addEventListener("click", () => clearSession());
 document.querySelectorAll("[data-demo-user]").forEach(button => button.addEventListener("click", () => {
@@ -668,5 +849,9 @@ async function checkConnection() {
     ui.connection.className = "connection failed";
   }
 }
+workflowEditor = globalThis.FlmhWorkflowEditor?.mount(ui["workflow-panel"], {
+  request, authenticated: () => Boolean(state.user && state.token), blocked: () => state.busy || state.authBusy,
+  version: () => state.sessionVersion, busy: value => { state.busy = value; updateControls(); },
+});
 updateControls();
 checkConnection();
