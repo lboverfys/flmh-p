@@ -48,7 +48,6 @@ class Settings(BaseModel):
     elasticsearch_dense_field: str = "dense_vector"
     elasticsearch_sparse_field: str = "sparse_vector"
     sql_dialect: str = "postgres"
-    bi_sql_role_api_keys_json: str = ""
     bi_sql_role_tables_json: str = ""
     bi_database_uri: str = ""
     sql_max_rows: int = Field(default=50, ge=1, le=50)
@@ -85,11 +84,9 @@ class Settings(BaseModel):
             raise ValueError("the MCP tool bridge must bind to loopback; expose it through an authenticated gateway")
         if self.checkpointer_backend == "postgres" and not self.postgres_checkpointer_uri:
             raise ValueError("POSTGRES_CHECKPOINTER_URI is required when CHECKPOINTER_BACKEND=postgres")
-        if self.bi_sql_role_api_keys_json or self.bi_sql_role_tables_json:
+        if self.bi_sql_role_tables_json:
             if not self.bi_database_uri:
                 raise ValueError("BI_DATABASE_URI is required when BI SQL access is configured")
-            if not self.bi_sql_role_api_keys_json or not self.bi_sql_role_tables_json:
-                raise ValueError("BI_SQL_ROLE_API_KEYS_JSON and BI_SQL_ROLE_TABLES_JSON must be configured together")
         if self.embedding_backend == "bge_m3_http":
             required = {
                 "BGE_M3_URL": self.bge_m3_url,
@@ -133,7 +130,7 @@ class Settings(BaseModel):
             "elasticsearch_url": "ELASTICSEARCH_URL",
             "elasticsearch_api_key": "ELASTICSEARCH_API_KEY", "elasticsearch_index": "ELASTICSEARCH_INDEX",
             "elasticsearch_dense_field": "ELASTICSEARCH_DENSE_FIELD", "elasticsearch_sparse_field": "ELASTICSEARCH_SPARSE_FIELD",
-            "sql_dialect": "SQL_DIALECT", "bi_sql_role_api_keys_json": "BI_SQL_ROLE_API_KEYS_JSON",
+            "sql_dialect": "SQL_DIALECT",
             "bi_sql_role_tables_json": "BI_SQL_ROLE_TABLES_JSON", "bi_database_uri": "BI_DATABASE_URI",
             "sql_max_rows": "SQL_MAX_ROWS", "request_timeout_seconds": "REQUEST_TIMEOUT_SECONDS",
         }

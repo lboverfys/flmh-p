@@ -18,6 +18,21 @@
     <div id="environment-notice" class="notice">本地演示：默认商品为固定演示数据，内容使用模拟模型。每项结果保留来源，不代表真实市场或模型效果。</div>
     <div class="columns">
       <aside class="controls">
+        <section id="login-panel" class="panel">
+          <div class="section-heading"><h2>登录工作台</h2><span id="identity-source" class="badge" hidden></span></div>
+          <p id="auth-status" class="muted" role="status" aria-live="polite">请先登录。每个用户只可读取和操作自己的运行。</p>
+          <form id="login-form">
+            <label for="login-email">邮箱</label><input id="login-email" type="email" maxlength="320" autocomplete="username" required>
+            <label class="login-password-label" for="login-password">密码</label><input id="login-password" type="password" maxlength="1024" autocomplete="off" required>
+            <button id="login" type="submit" class="primary full-width">登录</button>
+            <div id="demo-accounts" hidden>
+              <p class="help">本地 Mock 账号：点击只填入演示凭据，仍需你点击“登录”。</p>
+              <div class="examples"><button type="button" class="chip" data-demo-user="alice">Mock Alice</button><button type="button" class="chip" data-demo-user="bob">Mock Bob</button><button type="button" class="chip" data-demo-user="admin">Mock Admin</button></div>
+            </div>
+          </form>
+          <div id="session-panel" hidden><div id="identity-fields" class="key-values"></div><button id="logout" type="button" class="secondary full-width">退出并换用户</button></div>
+          <p class="help">登录凭证仅保存在当前页面内存；刷新或离开页面后需重新登录。换用户会清空展示结果与运行编号。</p>
+        </section>
         <section class="panel">
           <div class="section-heading"><span class="step">01</span><h2>描述需求</h2></div>
           <form id="request-form">
@@ -53,7 +68,7 @@
             <button type="submit" class="secondary full-width">应用条件并重新查询</button>
           </form>
         </section>
-        <details class="panel access-panel"><summary>访问设置</summary><label for="api-key">API key（如服务已启用认证）</label><input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="默认本机演示无需填写"><p class="help">只用于当前页面的请求，刷新页面即清空。</p></details>
+        <details class="panel access-panel"><summary>访问设置</summary><label for="api-key">Agent 访问凭据（仅服务要求时填写）</label><input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="默认本机演示留空"><p class="help">与用户登录分开；不能代替用户身份。仅供当前页面使用，退出即清空。不要填写 Java 内部服务密钥。</p></details>
       </aside>
       <div id="results" class="results" tabindex="-1">
         <section id="empty-state" class="panel empty-state"><span class="empty-symbol" aria-hidden="true">⌕</span><h2>让每个结果有据可查</h2><p>从左侧选择一个示例，或输入你的需求。</p><ol><li><strong>查询商品</strong><span>查看商品、指标与来源</span></li><li><strong>核对报价</strong><span>确认预算和生产内容</span></li><li><strong>获取结果</strong><span>跟踪任务并查看生成内容</span></li></ol></section>

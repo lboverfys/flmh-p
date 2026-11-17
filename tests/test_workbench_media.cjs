@@ -22,6 +22,8 @@ class Element {
     this.id = attributes.match(/\bid="([^"]+)"/)?.[1];
     const example = attributes.match(/data-example="([^"]+)"/)?.[1];
     if (example) this.dataset.example = example;
+    const demoUser = attributes.match(/data-demo-user="([^"]+)"/)?.[1];
+    if (demoUser) this.dataset.demoUser = demoUser;
     this.content = "";
   }
   set textContent(value) { this.content = String(value); this.children = []; }
@@ -40,7 +42,7 @@ class Element {
   focus() {}
 }
 
-function harness() {
+function harness({ authenticated = true } = {}) {
   const elements = new Map();
   const buttons = [];
   const createdTags = [];
@@ -53,38 +55,48 @@ function harness() {
   const timers = new Map();
   let timerId = 0;
   let response = null;
+  let status = 200;
   let failure = null;
+  let responder = null;
+  const windowEvents = new Map();
   const context = vm.createContext({
     document: {
       querySelectorAll(selector) {
         if (selector === "[id]") return [...elements.values()];
         if (selector === "button") return buttons;
         if (selector === "[data-example]") return buttons.filter(button => button.dataset.example);
+        if (selector === "[data-demo-user]") return buttons.filter(button => button.dataset.demoUser);
         throw new Error(`Unexpected selector: ${selector}`);
       },
       createElement(tag) { createdTags.push(tag); return new Element(tag); },
     },
-    window: { addEventListener() {} },
+    window: { addEventListener(name, handler) { windowEvents.set(name, handler); } },
     crypto: { randomUUID: () => "test-uuid" },
     AbortController,
     AbortSignal,
     setTimeout(callback, delay) { timers.set(++timerId, { callback, delay }); return timerId; },
     clearTimeout(id) { timers.delete(id); },
     async fetch(url, options) {
-      if (url === "/health/ready") return { ok: true, json: async () => ({ environment: "demo" }) };
+      if (url === "/health/ready") return { ok: true, json: async () => ({ environment: "local" }) };
       calls.push({ url, options });
+      if (responder) return responder(url, options);
       if (failure) throw failure;
-      return { ok: true, json: async () => response };
+      return { ok: status >= 200 && status < 300, status, json: async () => response };
     },
   });
   vm.runInContext(script, context, { filename: "app.js" });
+  if (authenticated) vm.runInContext('state.token = "unit-alice"; state.user = { id: "alice", role: "USER", source: "LOCAL_MOCK" }; updateControls();', context);
   return {
     calls, timers, createdTags,
     ui(id) { return elements.get(id); },
     click(id) { elements.get(id).dispatch("click"); },
+    submit(id) { elements.get(id).dispatch("submit"); },
+    windowEvent(name) { windowEvents.get(name)(); },
     example(name) { buttons.find(button => button.dataset.example === name).dispatch("click"); },
+    demoUser(name) { buttons.find(button => button.dataset.demoUser === name).dispatch("click"); },
     run(code) { return vm.runInContext(code, context); },
-    response(value) { response = value; failure = null; },
+    response(value, code = 200) { response = value; status = code; failure = null; responder = null; },
+    respond(handler) { responder = handler; failure = null; },
     failure(error) { failure = error; },
     show(value) {
       context.fixture = value;
@@ -134,6 +146,145 @@ test("零元媒体报价保留显式确认并展示已报价的规格", async ()
   assert.equal(page.calls[0].url, "/v1/agent/runs/agent-media-1/confirmation");
   assert.deepEqual(JSON.parse(page.calls[0].options.body), { confirmed: true, quote_id: "quote-1" });
   assert.equal(page.ui("revision-panel").hidden, true);
+});
+
+test("未登录时不能提交、读取或创建运行编号，Mock 账号按钮仅填表", async () => {
+  const page = harness({ authenticated: false });
+  assert.equal(page.ui("login-form").hidden, false);
+  for (const id of ["start", "load-run", "refresh", "confirm", "media-advance"]) assert.equal(page.ui(id).disabled, true, id);
+  page.ui("request").value = "查询商品";
+  page.submit("request-form");
+  page.ui("run-id").value = "some-run";
+  page.submit("lookup-form");
+  page.click("refresh");
+  await settled();
+  assert.equal(page.calls.length, 0);
+  assert.equal(page.run("state.submission"), null);
+  page.demoUser("alice");
+  assert.equal(page.ui("login-email").value, "alice@demo.flmh.invalid");
+  assert.equal(page.ui("login-password").value, "DemoAlice2026!");
+  assert.equal(page.calls.length, 0);
+  assert.match(page.ui("auth-status").textContent, /点击.*登录/);
+});
+
+test("显式登录后再核实身份，业务请求带用户 Bearer 且访问凭据独立", async () => {
+  const page = harness({ authenticated: false });
+  page.demoUser("alice");
+  page.ui("api-key").value = "agent-access-only";
+  page.respond(async url => ({ ok: true, status: 200, json: async () => url.endsWith("/login")
+    ? { token: "alice-jwt", tokenType: "Bearer" } : { id: "demo-alice", role: "USER", source: "LOCAL_MOCK" } }));
+  page.submit("login-form");
+  await settled();
+  assert.deepEqual(page.calls.map(call => call.url), ["/v1/identity/login", "/v1/identity/me"]);
+  assert.equal(page.calls[0].options.headers.Authorization, undefined);
+  assert.deepEqual(JSON.parse(page.calls[0].options.body), { email: "alice@demo.flmh.invalid", password: "DemoAlice2026!" });
+  assert.equal(page.calls[1].options.headers.Authorization, "Bearer alice-jwt");
+  assert.equal(page.calls[1].options.headers["X-Agent-Key"], "agent-access-only");
+  assert.equal(page.calls[1].options.headers["X-Service-Key"], undefined);
+  assert.equal(page.ui("login-password").value, "");
+  assert.equal(page.ui("login-form").hidden, true);
+  assert.match(page.ui("identity-fields").textContent, /demo-alice/);
+  assert.equal(page.ui("identity-source").textContent, "本地 Mock");
+  page.response(mediaResult());
+  page.show(mediaResult());
+  page.click("media-advance");
+  await settled();
+  assert.equal(page.calls[2].options.headers.Authorization, "Bearer alice-jwt");
+  assert.equal(page.calls[2].options.credentials, "omit");
+});
+
+test("退出换用户清除实际结果内容、历史、条件和运行编号", async () => {
+  const page = harness();
+  page.show({ ...mediaResult(), summary: "Alice confidential", productDetail: { product: { id: "alice-product", title: "Alice product" } },
+    productHistory: { product: { id: "alice-product" }, metrics: [{ metricVersion: 1, source: "Alice source" }] },
+    slotValues: { product: "alice-product", region: "US", budget_max: 20 } });
+  page.run('state.submission = { run_id: "old-run" };');
+  assert.match(page.ui("raw-response").textContent, /Alice confidential/);
+  assert.match(page.ui("history-rows").textContent, /Alice source/);
+  page.click("logout");
+  assert.equal(page.run("state.current"), null);
+  assert.equal(page.run("state.submission"), null);
+  assert.equal(page.run("state.token"), "");
+  for (const id of ["run-id", "request", "rev-product", "rev-region", "rev-budget", "api-key"]) assert.equal(page.ui(id).value, "", id);
+  for (const id of ["summary", "raw-response", "products", "history-rows", "detail-fields", "media-nodes"]) assert.equal(page.ui(id).textContent, "", id);
+  assert.equal(page.timers.size, 0);
+  page.demoUser("bob");
+  page.respond(async url => ({ ok: true, status: 200, json: async () => url.endsWith("/login")
+    ? { token: "bob-jwt", tokenType: "Bearer" } : { id: "demo-bob", role: "USER", source: "LOCAL_MOCK" } }));
+  page.submit("login-form");
+  await settled();
+  assert.equal(page.run("state.token"), "bob-jwt");
+  assert.equal(page.ui("run-id").value, "");
+  assert.equal(page.ui("history-rows").textContent, "");
+  assert.equal(page.ui("technical-panel").hidden, true);
+});
+
+test("业务身份失效后清空旧结果并回到登录，禁止后续操作", async () => {
+  const page = harness();
+  page.show(mediaResult());
+  page.response({ error: "unauthorized" }, 401);
+  page.click("media-advance");
+  await settled();
+  assert.equal(page.run("state.token"), "");
+  assert.equal(page.run("state.current"), null);
+  assert.equal(page.ui("login-form").hidden, false);
+  assert.equal(page.ui("run-id").value, "");
+  assert.equal(page.ui("raw-response").textContent, "");
+  assert.match(page.ui("auth-status").textContent, /登录已失效/);
+  page.click("media-advance");
+  page.click("refresh");
+  assert.equal(page.calls.length, 1);
+});
+
+test("换用户后丢弃旧请求的迟到响应，不覆盖新身份或重新展示历史", async () => {
+  const page = harness();
+  page.show(mediaResult());
+  let resolveOld;
+  page.respond(() => new Promise(resolve => { resolveOld = resolve; }));
+  page.click("refresh");
+  assert.equal(page.run("state.busy"), true);
+  page.click("logout");
+  page.demoUser("bob");
+  page.respond(async url => ({ ok: true, status: 200, json: async () => url.endsWith("/login")
+    ? { token: "bob-jwt", tokenType: "Bearer" } : { id: "demo-bob", role: "USER", source: "LOCAL_MOCK" } }));
+  page.submit("login-form");
+  await settled();
+  resolveOld({ ok: true, status: 200, json: async () => ({ ...mediaResult(), summary: "Alice private" }) });
+  await settled();
+  assert.equal(page.run("state.token"), "bob-jwt");
+  assert.equal(page.run("state.user.id"), "demo-bob");
+  assert.equal(page.run("state.current"), null);
+  assert.equal(page.ui("raw-response").textContent, "");
+  assert.equal(page.ui("run-id").value, "");
+  assert.equal(page.ui("error-box").hidden, true);
+});
+
+test("页面离开清空内存登录态，返回后需要重新登录", () => {
+  const page = harness();
+  page.show(mediaResult());
+  page.ui("api-key").value = "agent-access";
+  page.windowEvent("pagehide");
+  page.windowEvent("pageshow");
+  assert.equal(page.run("state.token"), "");
+  assert.equal(page.run("state.user"), null);
+  assert.equal(page.ui("api-key").value, "");
+  assert.equal(page.ui("raw-response").textContent, "");
+  assert.equal(page.ui("start").disabled, true);
+  assert.equal(page.ui("login-form").hidden, false);
+  assert.equal(page.timers.size, 0);
+});
+
+test("登录失败不保留密码或获得会话，不调用业务接口", async () => {
+  const page = harness({ authenticated: false });
+  page.demoUser("admin");
+  page.response({ error: "invalid_credentials_or_inactive_user" }, 401);
+  page.submit("login-form");
+  await settled();
+  assert.equal(page.calls.length, 1);
+  assert.equal(page.run("state.token"), "");
+  assert.equal(page.ui("login-password").value, "");
+  assert.equal(page.ui("start").disabled, true);
+  assert.match(page.ui("auth-status").textContent, /密码错误/);
 });
 
 test("媒体推进由单次点击触发无正文 POST，刷新只读且不自动轮询", async () => {

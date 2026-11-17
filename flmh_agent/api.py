@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.requests import Request
@@ -20,8 +20,9 @@ from flmh_agent.application.rag import hybrid_retrieve
 from flmh_agent.bootstrap import open_runtime, runtime_loop_factory
 from flmh_agent.config import Settings
 from flmh_agent.domain.models import AgentStartRequest, ConfirmationInput, TextToSqlInput
+from flmh_agent.domain.identity import AuthenticationError, IdentityUnavailableError
 from flmh_agent.adapters.inbound.identity import IdentityMiddleware
-from flmh_agent.ports.identity import IdentityVerifierPort
+from flmh_agent.ports.identity import IdentityLoginPort, IdentityVerifierPort
 
 
 logger = logging.getLogger("flmh.agent.api")
@@ -36,7 +37,14 @@ WORKBENCH_HEADERS = {
 }
 
 
-def create_app(settings: Settings | None = None, *, identity_verifier: IdentityVerifierPort | None = None) -> Starlette:
+class LoginInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    email: str = Field(min_length=1, max_length=320)
+    password: str = Field(min_length=1, max_length=1024, repr=False)
+
+
+def create_app(settings: Settings | None = None, *, identity_verifier: IdentityVerifierPort | None = None,
+               identity_login: IdentityLoginPort | None = None) -> Starlette:
     config = settings or Settings.from_env()
 
     @asynccontextmanager
@@ -47,6 +55,7 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
             application.state.sql_permissions = runtime.sql_permissions
             application.state.rag = runtime.rag
             application.state.identity_verifier = identity_verifier or runtime.identity_verifier
+            application.state.identity_login = identity_login or runtime.identity_verifier
             yield
 
     async def live(_request: Request) -> Response:
@@ -75,6 +84,26 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
                 "identity": "java_user_verification",
             },
         })
+
+    async def login(request: Request) -> Response:
+        headers = {"Cache-Control": "no-store"}
+        try:
+            payload = LoginInput.model_validate(await _json_body(request))
+            result = await request.app.state.identity_login.login(payload.email.strip(), payload.password)
+        except ValidationError as error:
+            return _validation_response(error)
+        except ValueError as error:
+            return JSONResponse({"error": str(error)}, status_code=413 if "exceeds" in str(error) else 400, headers=headers)
+        except AuthenticationError:
+            return JSONResponse({"error": "invalid_credentials_or_inactive_user"}, status_code=401, headers=headers)
+        except IdentityUnavailableError:
+            return JSONResponse({"error": "identity_service_unavailable"}, status_code=503, headers=headers)
+        return JSONResponse(result, headers=headers)
+
+    async def current_user(request: Request) -> Response:
+        identity = request.state.identity
+        return JSONResponse({"id": identity.user_id, "role": identity.role, "status": "ACTIVE", "source": identity.source},
+                            headers={"Cache-Control": "no-store"})
 
     async def start_run(request: Request) -> Response:
         try:
@@ -243,6 +272,8 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
         Route("/assets/{filename:str}", workbench_asset, methods=["GET"]),
         Route("/health/live", live, methods=["GET"]),
         Route("/health/ready", ready, methods=["GET"]),
+        Route("/v1/identity/login", login, methods=["POST"]),
+        Route("/v1/identity/me", current_user, methods=["GET"]),
         Route("/v1/agent/runs", start_run, methods=["POST"]),
         Route("/v1/agent/runs/{run_id:str}", get_run, methods=["GET"]),
         Route("/v1/agent/runs/{run_id:str}/confirmation", confirm_run, methods=["POST"]),
@@ -254,7 +285,8 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
     ]
     public_paths = frozenset({"/", "/health/live", "/health/ready", *(f"/assets/{name}" for name in WORKBENCH_ASSETS)})
     app = Starlette(routes=routes, lifespan=lifespan, middleware=[
-        Middleware(IdentityMiddleware, api_key=config.agent_api_key, public_paths=public_paths),
+        Middleware(IdentityMiddleware, api_key=config.agent_api_key, public_paths=public_paths,
+                   anonymous_routes=frozenset({("POST", "/v1/identity/login")})),
     ])
     app.state.settings = config
     return app

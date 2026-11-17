@@ -15,10 +15,41 @@ class _VerifiedUser(BaseModel):
     source: Literal["LOCAL_MOCK", "LEGACY_JDBC"]
 
 
+class _LoginResponse(BaseModel):
+    token: str = Field(min_length=1, max_length=16377, pattern=r"^\S+$", repr=False)
+    tokenType: Literal["Bearer"]
+    expiresAt: str = Field(min_length=1)
+    user: _VerifiedUser
+    source: Literal["LOCAL_MOCK", "LEGACY_JDBC"]
+
+
 class JavaIdentityVerifier:
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
         self.settings = settings
         self._client = client
+
+    async def login(self, email: str, password: str) -> dict:
+        headers = {"X-Service-Key": self.settings.gateway_api_key} if self.settings.gateway_api_key else {}
+        try:
+            if self._client is not None:
+                response = await self._client.post("/api/v1/identity/login", json={"email": email, "password": password}, headers=headers)
+            else:
+                async with httpx.AsyncClient(base_url=self.settings.identity_service_url,
+                                            timeout=self.settings.request_timeout_seconds, trust_env=False) as client:
+                    response = await client.post("/api/v1/identity/login", json={"email": email, "password": password}, headers=headers)
+        except httpx.HTTPError as error:
+            raise IdentityUnavailableError("identity service is unavailable") from error
+        if response.status_code in {401, 403}:
+            raise AuthenticationError("invalid credentials or inactive user")
+        if response.status_code != 200:
+            raise IdentityUnavailableError("identity service rejected login")
+        try:
+            result = _LoginResponse.model_validate(response.json())
+        except (ValidationError, ValueError) as error:
+            raise IdentityUnavailableError("identity service returned an invalid login response") from error
+        if result.source != result.user.source or self.settings.environment == "production" and result.source != "LEGACY_JDBC":
+            raise AuthenticationError("Mock identities cannot authenticate production requests")
+        return result.model_dump()
 
     async def authenticate(self, authorization: str) -> UserIdentity:
         parts = authorization.split(" ")

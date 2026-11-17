@@ -95,22 +95,26 @@ class SqlValidationTests(unittest.TestCase):
 class PermissionTests(unittest.IsolatedAsyncioTestCase):
     async def test_role_permissions_are_intersected_with_fixed_table_allowlist(self):
         settings = Settings(
-            bi_sql_role_tables_json='{"analyst":["market_products","users"]}',
-            bi_sql_role_api_keys_json='{"analyst":"secret"}',
+            bi_sql_role_tables_json='{"USER":["market_products","users"]}',
             bi_database_uri="postgresql://user:pass@localhost/agent",
         )
         with self.assertRaisesRegex(ValueError, "unsupported tables"):
             ConfiguredSqlPermissionPolicy(settings)
 
-    async def test_role_authentication_and_empty_permission_fail_closed(self):
+    async def test_verified_role_permissions_and_unknown_roles_fail_closed(self):
         settings = Settings(
-            bi_sql_role_tables_json='{"analyst":["market_products"]}',
-            bi_sql_role_api_keys_json='{"analyst":"secret"}',
+            bi_sql_role_tables_json='{"USER":["market_products"],"ADMIN":["market_products","market_product_daily_stats"]}',
             bi_database_uri="postgresql://user:pass@localhost/agent",
         )
         policy = ConfiguredSqlPermissionPolicy(settings)
-        self.assertEqual(policy.authenticate("Bearer secret"), "analyst")
-        self.assertIsNone(policy.authenticate("Bearer wrong"))
+        self.assertEqual(await policy.allowed_tables("USER"), frozenset({"market_products"}))
+        self.assertEqual(await policy.allowed_tables("ADMIN"), frozenset({"market_products", "market_product_daily_stats"}))
         service = TextToSqlService(permissions=policy, model=None, runner=None)
         with self.assertRaisesRegex(PermissionError, "no BI table permissions"):
             await service.query("查商品", "unknown")
+
+    async def test_arbitrary_or_legacy_shared_roles_cannot_be_configured(self):
+        settings = Settings(bi_sql_role_tables_json='{"analyst":["market_products"]}',
+                            bi_database_uri="postgresql://user:pass@localhost/agent")
+        with self.assertRaisesRegex(ValueError, "verified USER"):
+            ConfiguredSqlPermissionPolicy(settings)

@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 
+from flmh_agent.adapters.outbound.identity import JavaIdentityVerifier
 from flmh_agent.adapters.outbound.mcp_client import McpProductContentAdapter
 from flmh_agent.application.workflow import build_workflow
 from flmh_agent.config import Settings
@@ -26,8 +28,13 @@ class SuppliedPlanner:
 
 
 async def main() -> None:
+    settings = Settings.from_env()
+    token = os.environ.get("FLMH_USER_TOKEN", "")
+    if not token:
+        raise RuntimeError("请先登录并在当前进程设置 FLMH_USER_TOKEN；示例不使用匿名或默认身份")
     async with asyncio.timeout(30):
-        async with McpProductContentAdapter(Settings()) as tools:
+        identity = await JavaIdentityVerifier(settings).authenticate("Bearer " + token)
+        async with McpProductContentAdapter(settings, identity=identity) as tools:
             result = await build_workflow(planner=SuppliedPlanner(), tools=tools).ainvoke(
                 {"user_request": "查询美国露营灯，再查询加拿大同类商品"},
                 {"configurable": {"thread_id": "cross-region-category-example"}},

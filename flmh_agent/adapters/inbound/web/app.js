@@ -7,6 +7,11 @@ const examples = {
   history: "查询 camping-lamp-001 的历史趋势",
   detail: "查询 camping-lamp-001 的详情",
 };
+const demoUsers = {
+  alice: { email: "alice@demo.flmh.invalid", password: "DemoAlice2026!" },
+  bob: { email: "bob@demo.flmh.invalid", password: "DemoBob2026!" },
+  admin: { email: "admin@demo.flmh.invalid", password: "DemoAdmin2026!" },
+};
 const labels = {
   awaiting_confirmation: "等待确认", processing: "生产中", completed: "已完成",
   needs_input: "需补充条件", needs_configuration: "等待配置", needs_verification: "等待核实", retryable: "可重试",
@@ -15,7 +20,8 @@ const labels = {
 };
 const mediaNodeLabels = { image: "图片", video: "视频" };
 const state = { current: null, submission: null, busy: false, controller: null, pollTimer: null,
-  pollCount: 0, productionLocked: false, uncertain: false, closing: false };
+  pollCount: 0, productionLocked: false, uncertain: false, closing: false,
+  token: "", user: null, authBusy: false, sessionVersion: 0 };
 
 function text(value) { return value === null || value === undefined || value === "" ? "未提供" : String(value); }
 function node(tag, value, className = "") {
@@ -44,19 +50,34 @@ function canRevise() {
   return Boolean(state.current) && !state.productionLocked && !state.current.contentTask?.taskId
     && !media().runId && !state.current.conclusionDependencies?.confirmed_quote && !state.uncertain;
 }
+function requireUser() {
+  if (state.token && state.user) return true;
+  ui["auth-status"].textContent = "请先登录，再提交需求或读取自己的运行。";
+  ui["login-email"].focus();
+  return false;
+}
 function updateControls() {
-  document.querySelectorAll("button").forEach(button => { button.disabled = state.busy; });
-  ui.request.disabled = state.busy || Boolean(state.submission || state.current);
-  ui.start.disabled = state.busy || Boolean(state.current);
+  const blocked = state.busy || state.authBusy || !state.user;
+  document.querySelectorAll("button").forEach(button => { button.disabled = blocked; });
+  ui.login.disabled = state.busy || state.authBusy;
+  ui.logout.disabled = false;
+  document.querySelectorAll("[data-demo-user]").forEach(button => { button.disabled = state.authBusy; });
+  ui["login-email"].disabled = state.authBusy;
+  ui["login-password"].disabled = state.authBusy;
+  visible("login-form", !state.user);
+  visible("session-panel", Boolean(state.user));
+  visible("identity-source", Boolean(state.user));
+  ui.request.disabled = blocked || Boolean(state.submission || state.current);
+  ui.start.disabled = blocked || Boolean(state.current);
   ui.start.textContent = state.submission && !state.current ? "再次发送同一请求" : "开始处理 →";
-  ui.refresh.disabled = state.busy || !runId();
-  ui.confirm.disabled = state.busy || state.uncertain;
-  ui.reject.disabled = state.busy || state.uncertain;
-  ui["api-key"].disabled = state.busy;
-  ui["run-id"].disabled = state.busy;
+  ui.refresh.disabled = blocked || !runId();
+  ui.confirm.disabled = blocked || state.uncertain;
+  ui.reject.disabled = blocked || state.uncertain;
+  ui["api-key"].disabled = state.busy || state.authBusy || Boolean(state.user);
+  ui["run-id"].disabled = blocked;
   visible("retry", state.current?.status === "retryable" && !media().runId && !state.uncertain);
-  ui["media-advance"].disabled = state.busy || !canAdvanceMedia();
-  ui["media-verify"].disabled = state.busy || !canVerifyMedia();
+  ui["media-advance"].disabled = blocked || !canAdvanceMedia();
+  ui["media-verify"].disabled = blocked || !canVerifyMedia();
   if (media().runId) {
     ui["media-action-note"].textContent = state.uncertain ? "上次操作结果尚未确认，请先刷新状态。"
       : canVerifyMedia() ? "提交结果未知，只能核实已有请求；核实不会重新提交。"
@@ -67,7 +88,7 @@ function updateControls() {
   visible("revision-panel", canRevise());
 }
 function errorMessage(status, data) {
-  if (status === 401) return "访问被拒绝。请在“访问设置”中填写此服务的 API key，再刷新或重发。";
+  if (status === 401) return "登录已失效或访问凭据不匹配，请重新登录；服务要求 Agent 访问凭据时，也需填写访问设置。";
   if (status === 404) return "未找到该运行或商品。请核对编号；本地内存模式下，重启 Agent 会清空运行记录。";
   if (status === 409) return "运行状态或报价已变化。请刷新后再操作；已有生产任务不能改写。";
   if (status === 422 || status === 400) {
@@ -76,21 +97,31 @@ function errorMessage(status, data) {
   }
   return `服务暂时未能完成请求（HTTP ${status}，${data.error || "未知错误"}）。运行编号已保留，请先刷新，再决定是否重试。`;
 }
-async function request(path, body, method = body === undefined ? "GET" : "POST") {
+async function request(path, body, method = body === undefined ? "GET" : "POST", { authenticated = true } = {}) {
+  if (authenticated && !state.token) {
+    const error = new Error("请先登录，再访问自己的运行。");
+    error.status = 401;
+    throw error;
+  }
+  const version = state.sessionVersion;
   const controller = new AbortController();
   state.controller = controller;
   const timeout = setTimeout(() => controller.abort(), 60000);
   const headers = { Accept: "application/json" };
   const key = ui["api-key"].value.trim();
-  if (key) headers.Authorization = `Bearer ${key}`;
+  if (authenticated) headers.Authorization = `Bearer ${state.token}`;
+  if (key) headers["X-Agent-Key"] = key;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   try {
     const response = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body),
-      signal: controller.signal, cache: "no-store", credentials: "same-origin" });
+      signal: controller.signal, cache: "no-store", credentials: "omit" });
     let data;
     try { data = await response.json(); } catch { throw new Error("服务返回了无法识别的响应。运行编号已保留，请刷新状态。"); }
+    if (version !== state.sessionVersion) throw new Error("用户会话已改变，已丢弃原用户的响应。");
     if (!response.ok) {
-      const error = new Error(errorMessage(response.status, data));
+      const message = !authenticated && response.status === 401 ? "邮箱或密码错误、账号不可用，或服务要求的 Agent 访问凭据未提供。" : errorMessage(response.status, data);
+      if (authenticated && response.status === 401) clearSession(message);
+      const error = new Error(message);
       error.status = response.status;
       throw error;
     }
@@ -105,7 +136,8 @@ async function request(path, body, method = body === undefined ? "GET" : "POST")
   }
 }
 async function perform(operation, activity, { mutation = false, poll = false } = {}) {
-  if (state.busy) return;
+  if (state.busy || !requireUser()) return;
+  const version = state.sessionVersion;
   stopPolling();
   if (!poll) state.pollCount = 0;
   state.busy = true;
@@ -115,26 +147,31 @@ async function perform(operation, activity, { mutation = false, poll = false } =
   updateControls();
   try {
     const result = await operation();
+    if (version !== state.sessionVersion) return;
     state.current = result;
     state.uncertain = false;
     state.productionLocked = Boolean(result.contentTask?.taskId || result.mediaRun?.runId || result.mediaStatus?.runId
       || result.conclusionDependencies?.confirmed_quote);
     render(!poll);
   } catch (error) {
-    if (!state.closing) {
+    if (!state.closing && version === state.sessionVersion) {
       setError(error.message);
       ui.activity.textContent = "操作未确认完成；当前运行与结果已保留。";
       if (mutation && (!error.status || error.status >= 500)) state.uncertain = true;
     }
   } finally {
-    state.busy = false;
-    ui.results.removeAttribute("aria-busy");
-    updateControls();
+    if (version === state.sessionVersion) {
+      state.busy = false;
+      ui.results.removeAttribute("aria-busy");
+      updateControls();
+    }
   }
+  if (version !== state.sessionVersion) return;
   if (!state.closing && !ui["error-box"].hidden) return;
   schedulePoll();
 }
 function schedulePoll() {
+  if (!state.user) return;
   if (media().runId) { ui["poll-note"].textContent = "媒体任务需手动推进或核实；刷新状态只读取记录。"; return; }
   if (state.closing || state.current?.status !== "processing") { ui["poll-note"].textContent = ""; return; }
   if (state.pollCount >= 20) { ui["poll-note"].textContent = "自动刷新已结束；任务仍在处理时，可点击“刷新状态”。"; return; }
@@ -145,11 +182,13 @@ function schedulePoll() {
   }, 1500);
 }
 function refresh(poll = false) {
+  if (!requireUser()) return;
   const id = runId();
   if (!validRunId(id)) { setError("请填写有效的运行编号。允许字母、数字、点、下划线、冒号及短横线。"); return; }
   return perform(() => request(`/v1/agent/runs/${encodeURIComponent(id)}`), "正在读取最新状态…", { poll });
 }
 function startSubmission() {
+  if (state.busy || !requireUser()) return;
   if (!state.submission) {
     const input = ui.request.value.trim();
     if (!input) { ui.request.focus(); return; }
@@ -168,6 +207,10 @@ function resetRun(prompt = "") {
   state.pollCount = 0;
   ui.request.value = prompt;
   ui["run-id"].value = "";
+  for (const id of ["rev-product", "rev-region", "rev-budget"]) ui[id].value = "";
+  for (const id of ["summary", "raw-response", "configuration-todos", "quote-fields", "quote-brief", "task-fields", "task-status",
+    "generated-content", "task-failure", "media-fields", "media-status", "media-notice", "media-nodes", "media-artifacts", "media-artifact-note",
+    "media-action-note", "products", "product-count", "detail-fields", "history-rows", "history-count", "history-next", "plan-source"]) ui[id].replaceChildren();
   setError("");
   for (const id of ["summary-panel", "confirmation-panel", "task-panel", "media-panel", "products-panel", "detail-panel", "history-panel", "technical-panel", "revision-panel"]) visible(id, false);
   visible("empty-state", true);
@@ -178,6 +221,59 @@ function resetRun(prompt = "") {
   ui["submission-note"].textContent = "内容生产会先展示报价，确认后才创建任务。";
   updateControls();
   ui.request.focus();
+}
+function clearSession(message = "已退出。请登录后继续；旧结果与运行编号已清空。") {
+  state.sessionVersion += 1;
+  state.token = "";
+  state.user = null;
+  state.controller?.abort();
+  state.controller = null;
+  state.busy = false;
+  state.authBusy = false;
+  ui["login-email"].value = "";
+  ui["login-password"].value = "";
+  ui["api-key"].value = "";
+  ui["identity-fields"].replaceChildren();
+  ui["identity-source"].textContent = "";
+  ui.results.removeAttribute("aria-busy");
+  resetRun();
+  ui["auth-status"].textContent = message;
+  updateControls();
+}
+async function login() {
+  if (state.authBusy || state.busy) return;
+  const email = ui["login-email"].value.trim();
+  const password = ui["login-password"].value;
+  if (!email || !password) { ui["auth-status"].textContent = "请填写邮箱和密码，再点击登录。"; return; }
+  const version = state.sessionVersion;
+  state.authBusy = true;
+  ui["auth-status"].textContent = "正在核实登录身份…";
+  updateControls();
+  try {
+    const result = await request("/v1/identity/login", { email, password }, "POST", { authenticated: false });
+    if (version !== state.sessionVersion) return;
+    if (!result.token || result.tokenType !== "Bearer") throw new Error("登录服务未返回可用凭证，请重新登录。");
+    state.token = result.token;
+    const user = await request("/v1/identity/me");
+    if (version !== state.sessionVersion) return;
+    state.user = user;
+    resetRun();
+    fields(ui["identity-fields"], [["用户", user.id], ["角色", user.role], ["身份来源", user.source]]);
+    ui["identity-source"].textContent = user.source === "LOCAL_MOCK" ? "本地 Mock" : "已核实用户";
+    ui["auth-status"].textContent = "登录成功。当前只展示此用户的运行；可以选择示例开始演示。";
+  } catch (error) {
+    if (version === state.sessionVersion) {
+      state.token = "";
+      state.user = null;
+      ui["auth-status"].textContent = error.message;
+    }
+  } finally {
+    if (version === state.sessionVersion) {
+      ui["login-password"].value = "";
+      state.authBusy = false;
+      updateControls();
+    }
+  }
 }
 function render(fillRevision) {
   const result = state.current;
@@ -335,11 +431,21 @@ function renderHistory(history) {
     : metrics.length ? "已展示本次返回的全部历史快照。" : "该商品暂时没有已保存的指标快照。";
 }
 
+ui["login-form"].addEventListener("submit", event => { event.preventDefault(); login(); });
+ui.logout.addEventListener("click", () => clearSession());
+document.querySelectorAll("[data-demo-user]").forEach(button => button.addEventListener("click", () => {
+  if (state.authBusy || state.user) return;
+  const user = demoUsers[button.dataset.demoUser];
+  ui["login-email"].value = user.email;
+  ui["login-password"].value = user.password;
+  ui["auth-status"].textContent = "已填入本地 Mock 凭据。请点击“登录”核实身份。";
+}));
 ui["request-form"].addEventListener("submit", event => { event.preventDefault(); startSubmission(); });
 ui["new-run"].addEventListener("click", () => resetRun());
 document.querySelectorAll("[data-example]").forEach(button => button.addEventListener("click", () => resetRun(examples[button.dataset.example])));
 ui["lookup-form"].addEventListener("submit", event => {
   event.preventDefault();
+  if (!requireUser()) return;
   const id = ui["run-id"].value.trim();
   if (!validRunId(id)) { setError("请填写有效的运行编号。允许字母、数字、点、下划线、冒号及短横线。"); return; }
   perform(async () => {
@@ -382,7 +488,7 @@ ui["revision-form"].addEventListener("submit", event => {
     expected_revision: state.current.revision, slot_updates: updates,
   }), "正在更新条件并重新查询…", { mutation: true });
 });
-window.addEventListener("pagehide", () => { state.closing = true; stopPolling(); state.controller?.abort(); ui["api-key"].value = ""; });
+window.addEventListener("pagehide", () => { state.closing = true; clearSession("页面已离开，登录凭证与结果已清空。请重新登录。"); });
 window.addEventListener("pageshow", () => { state.closing = false; });
 
 async function checkConnection() {
@@ -392,6 +498,7 @@ async function checkConnection() {
     const data = await response.json();
     ui.connection.textContent = "Agent 服务已连接";
     ui.connection.className = "connection connected";
+    visible("demo-accounts", data.environment === "local");
     if (data.environment === "production") ui["environment-notice"].textContent = "生产配置模式：本页面展示服务实际返回的数据及来源，模型和数据服务以你的配置为准。";
   } catch {
     ui.connection.textContent = "服务连接待检查";
