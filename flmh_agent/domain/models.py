@@ -36,6 +36,7 @@ class ProductQuery(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     region: str = Field(pattern=r"^[A-Z]{2}$")
+    ranking_limit: int | None = Field(default=None, strict=True, ge=1, le=50)
     keyword: str | None = Field(default=None, min_length=1, max_length=80)
     category: str | None = Field(default=None, min_length=1, max_length=100)
     max_price: float | None = Field(default=None, ge=0, allow_inf_nan=False)
@@ -44,6 +45,8 @@ class ProductQuery(BaseModel):
     category_from_query: str | None = Field(default=None, pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
 
     def model_post_init(self, __context: Any) -> None:
+        if self.ranking_limit is not None and any(x is not None for x in (self.keyword, self.category, self.max_price, self.category_from_query)):
+            raise ValueError("the ranking index accepts region and limit, not catalog filters")
         if self.category_from_query is not None:
             if self.category_from_query not in self.depends_on:
                 raise ValueError("category_from_query must reference a direct depends_on query")

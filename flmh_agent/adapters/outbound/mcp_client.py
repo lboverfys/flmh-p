@@ -13,6 +13,7 @@ from flmh_agent.domain.identity import UserIdentity, current_identity
 
 
 REQUIRED_TOOLS = {
+    "product_ranking", "product_creator_observations",
     "product_search", "product_history", "product_detail", "content_quote_create", "content_quote_confirm", "content_task_submit", "content_task_get",
 }
 
@@ -58,7 +59,12 @@ class McpProductContentAdapter:
             self._session = None
 
     async def search_products(self, query: dict[str, Any]) -> dict[str, Any]:
-        return await self._call("product_search", query)
+        if query.get("ranking_limit") is not None:
+            return await self._call("product_ranking", {"region": query["region"], "limit": query["ranking_limit"]})
+        return await self._call("product_search", {key: value for key, value in query.items() if key != "ranking_limit"})
+
+    async def get_creator_observations(self, product_id: str) -> dict[str, Any]:
+        return await self._call("product_creator_observations", {"product_id": product_id})
 
     async def get_product_history(self, product_id: str, *, limit: int = 30, before_version: int | None = None) -> dict[str, Any]:
         return await self._call("product_history", {"product_id": product_id, "limit": limit, "before_version": before_version})

@@ -1,0 +1,10 @@
+{
+  "name": "人工排序示例（含漏召回）",
+  "dataset": "flmh-local-contracts-v1",
+  "source": "SCRIPTED_FIXTURE",
+  "rankings": {
+    "lease": ["product-radar/worker", "product-radar/queryService"],
+    "catalog": ["workflow/workArchive", "product-radar/queryService"],
+    "archives": []
+  }
+}

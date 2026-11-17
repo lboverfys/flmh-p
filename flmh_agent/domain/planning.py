@@ -15,7 +15,8 @@ REGION_ALIASES = {
 }
 CONTENT_TERMS = ("文案", "口播", "脚本", "内容", "视频", "图片")
 BI_TERMS = ("销量", "销售额", "gmv", "增长", "排名", "top", "趋势", "机会分", "风险分", "排行榜", "类目统计", "数据分析")
-HISTORY_TERMS = ("历史", "趋势", "快照", "history", "trend")
+CREATOR_COUNT_TERMS = ("关联达人数", "关联达人数量")
+HISTORY_TERMS = ("历史", "趋势", "快照", "history", "trend", *CREATOR_COUNT_TERMS)
 DETAIL_TERMS = ("详情", "detail")
 DAILY_TERMS = ("日统计", "日报", "每日统计", "日评分", "daily")
 
@@ -32,6 +33,11 @@ class RuleBasedPlanner:
         if not text:
             raise ValueError("user_request is required")
         normalized = normalize_slots(dict(slots))
+        ranking = re.fullmatch(r"(?:请|请帮我)?(?:查询|查看|查|看)?\s*(" + "|".join(REGION_ALIASES) + r"|[A-Z]{2})\s*(?:地区)?商品榜单(?:前\s*(\d{1,3})\s*(?:名|个|件)?)?[。？?]?", text)
+        if ranking:
+            region = normalized["region"] if "region" in slots else REGION_ALIASES.get(ranking[1], ranking[1])
+            return AgentPlan(summary="按地区读取已发布榜单索引。", queries=[ProductQuery(region=region, ranking_limit=int(ranking[2] or 20))],
+                             create_content=False, content_type="", source="RULES")
         knowledge_query = text if "知识库" in text or "检索资料" in text else None
         wants_content = any(term in text for term in CONTENT_TERMS)
         wants_media = "视频" in text and not any(term in text for term in ("脚本", "文案", "口播"))

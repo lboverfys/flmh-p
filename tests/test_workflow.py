@@ -3,7 +3,6 @@ import unittest
 from langgraph.types import Command
 
 from flmh_agent.application.workflow import build_workflow
-from flmh_agent.domain.idempotency import idempotency_key
 from flmh_agent.domain.planning import RuleBasedPlanner
 
 
@@ -73,6 +72,9 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
 
         finished = await graph.ainvoke(Command(resume={"confirmed": True}), config=config)
         self.assertEqual([call[0] for call in tools.calls], ["search", "quote", "confirm", "submit", "get"])
+        submit = next(call for call in tools.calls if call[0] == "submit")
+        self.assertEqual(submit[2], paused["quote"]["quoteId"])
+        self.assertEqual(submit[1]["quote_id"], submit[2])
         self.assertEqual(finished["task_status"]["status"], "SUCCEEDED")
         self.assertEqual(finished["content_brief"]["source"], "INPUT_REQUEST")
 
@@ -134,12 +136,12 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["slot_snapshot"])
 
 
-class IdempotencyTests(unittest.TestCase):
-    def test_same_normalized_input_has_same_key_and_changed_input_does_not(self):
-        values = {
-            "quote_id": "q-1", "user_request": "  写一段 口播 ", "product_id": "p-1", "content_type": "product_script",
-            "budget_max": 50.0, "region": "id",
-        }
-        self.assertEqual(idempotency_key(**values), idempotency_key(**{**values, "user_request": "写一段 口播"}))
-        self.assertNotEqual(idempotency_key(**values), idempotency_key(**{**values, "product_id": "p-2"}))
-        self.assertNotEqual(idempotency_key(**values), idempotency_key(**{**values, "quote_id": "q-2"}))
+    async def test_resuming_a_preexisting_quote_uses_the_key_persisted_with_it(self):
+        tools = FakeProductContent()
+        graph = self.build(tools)
+        config = {"configurable": {"thread_id": "preexisting-quote"}}
+        await graph.ainvoke({"user_request": "写口播脚本预算不超过 50"}, config)
+        await graph.aupdate_state(config, {"idempotency_key": "prior-release-key"}, as_node="create_quote")
+        await graph.ainvoke(None, config)
+        await graph.ainvoke(Command(resume={"confirmed": True}), config)
+        self.assertEqual([call[2] for call in tools.calls if call[0] == "submit"], ["prior-release-key"])

@@ -12,10 +12,10 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 from pydantic import ValidationError
 
-from flmh_agent.domain.idempotency import idempotency_key
 from flmh_agent.domain.content import build_content_request
 from flmh_agent.domain.media_production import MediaOptions, MediaProductionRequest, media_status, summarize_media
 from flmh_agent.domain.models import AgentPlan, AgentState, ContentBrief, ProductQuery
+from flmh_agent.domain.planning import CREATOR_COUNT_TERMS
 from flmh_agent.domain.product_trend import compare_product_snapshots
 from flmh_agent.domain.slots import INVALIDATION_ORDER, SLOT_NAMES, SLOT_DEPENDENCIES, normalize_slots, update_slots
 from flmh_agent.ports.workflow import BiQueryPort, KnowledgeQueryPort, PlannerPort, ProductContentPort
@@ -122,7 +122,9 @@ def build_workflow(
         return {"bi_result": dict(result)}
 
     async def read_product_history(state: AgentState) -> dict[str, Any]:
-        history = dict(await tools.get_product_history(state["plan"]["product_history_id"]))
+        product = state["plan"]["product_history_id"]
+        history = dict(await tools.get_creator_observations(product) if any(term in state["user_request"] for term in CREATOR_COUNT_TERMS)
+                       else await tools.get_product_history(product))
         return {"product_history": history,
                 "conclusion_dependencies": _dependencies(state, "product_history")}
 
@@ -196,7 +198,6 @@ def build_workflow(
 
     async def create_quote(state: AgentState) -> dict[str, Any]:
         product = state["selected_product"]
-        query = state["plan"]["queries"][0]
         media_request = {}
         if state["plan"]["content_type"] == "product_media":
             specification = _media_specification(state)
@@ -219,14 +220,6 @@ def build_workflow(
             })
         amount = _quote_amount(quote)
         quote_id = _required_identifier(quote, "quoteId", "id", "quote_id")
-        key = idempotency_key(
-            quote_id=quote_id,
-            user_request=state["user_request"],
-            product_id=str(product["id"]),
-            content_type=state["plan"]["content_type"],
-            budget_max=state["plan"]["budget_max"],
-            region=str(product.get("region") or query["region"]),
-        )
         budget = state["plan"]["budget_max"]
         budget_currency = state["plan"].get("budget_currency")
         if budget_currency and quote.get("currency") != budget_currency:
@@ -235,7 +228,7 @@ def build_workflow(
         within_budget = budget is None or amount <= Decimal(str(budget))
         prompt = {
             "kind": "budget_confirmation",
-            "quoteId": _required_identifier(quote, "quoteId", "id", "quote_id"),
+            "quoteId": quote_id,
             "quote": dict(quote),
             "product": state["selected_product"],
             "contentBrief": state["content_brief"],
@@ -248,7 +241,7 @@ def build_workflow(
             "planSource": state["plan"].get("source"),
         }
         return {
-            "quote": dict(quote), "budget_ok": within_budget, "idempotency_key": key,
+            "quote": dict(quote), "budget_ok": within_budget, "idempotency_key": quote_id,
             "confirmation_request": prompt if within_budget else {},
             "media_request": media_request,
             "conclusion_dependencies": _dependencies(state, "quote"),
@@ -335,6 +328,15 @@ def build_workflow(
             metrics = history["metrics"]
             product = history["product"]
             trend = compare_product_snapshots(metrics)
+            if history.get("scope") == "PRODUCT_RELATED_AUTHOR_COUNTS":
+                lines = [f"商品 {plan['product_history_id']} 有 {len(metrics)} 条关联达人数观测；没有达人名单或个人画像。"]
+                for row in metrics:
+                    count = row.get('relatedAuthorCount')
+                    lines.append(f"{row.get('capturedAt')}：{count if count is not None else '未提供'}；来源：{row.get('source')} / {row.get('sourceRef')}。")
+                change = trend['changes'].get('relatedAuthorCount')
+                if change is not None:
+                    lines.append(f"最近两次同来源观测相差 {change['delta']:g} 人。")
+                return {"summary": "\n".join(lines)}
             lines = [f"商品 {plan['product_history_id']} 返回 {len(metrics)} 条指标快照，按指标版本倒序。",
                      f"商品来源：{product.get('source') if product.get('source') is not None else '未提供'}；"
                      f"商品来源引用：{product.get('sourceRef') if product.get('sourceRef') is not None else '未提供'}。",
@@ -384,6 +386,9 @@ def build_workflow(
             f"规划来源：{plan['source']}。",
             f"商品查询返回 {len(products)} 条结果。",
         ]
+        for result in state.get("product_results", []):
+            if "adapter" in result:
+                parts.append(f"榜单索引：{result['adapter']}。")
         if plan["create_content"]:
             if not state.get("budget_ok"):
                 parts.append("报价超出预算，未请求确认且未创建任务。")
@@ -544,6 +549,8 @@ async def _layered_search(queries: list[dict[str, Any]], tools: ProductContentPo
                 arguments["category"] = category
             try:
                 arguments = ProductQuery.model_validate(arguments).model_dump(exclude={"query_id", "depends_on", "category_from_query"})
+                if arguments.get("ranking_limit") is None:
+                    arguments.pop("ranking_limit", None)
             except ValidationError as error:
                 if source_query is not None:
                     raise ValueError("CATEGORY_BINDING_CATEGORY_INVALID") from error

@@ -1,0 +1,8 @@
+{
+  "dataset": "flmh-local-contracts-v1",
+  "cases": [
+    {"id": "lease", "question": "采集的执行锁如何续期，丢锁后 worker 怎么处理？", "relevant": ["product-radar/crawlRunLease", "product-radar/worker"]},
+    {"id": "catalog", "question": "从哪里读取选品目录的来源类目和地区筛选？", "relevant": ["product-radar/queryService"]},
+    {"id": "archives", "question": "工作流节点的成果如何关联到作品归档？", "relevant": ["workflow/workArchive"]}
+  ]
+}

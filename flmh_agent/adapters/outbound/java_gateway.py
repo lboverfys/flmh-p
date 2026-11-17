@@ -33,6 +33,10 @@ class JavaGatewayClient:
         }
         return await self._request("POST", "/api/v1/content/quotes", json=payload)
 
+    async def product_ranking(self, region: str, limit: int) -> dict[str, Any]:
+        data = await self._request("GET", "/api/v1/rankings", params={"region": region, "limit": limit})
+        return {"adapter": data["adapter"], "products": [{**row, "id": row["productId"]} for row in data["products"]]}
+
     async def get_product_history(self, product_id: str, *, limit: int = 30, before_version: int | None = None) -> dict[str, Any]:
         query = ProductHistoryQuery(product_id=product_id, limit=limit, before_version=before_version)
         params = {"limit": query.limit}

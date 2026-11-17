@@ -55,8 +55,13 @@ async def hybrid_retrieve(
         dense, sparse = recalls
         fused = reciprocal_rank_fusion(dense, sparse)
         reranked = await reranker.rerank(query, fused, candidate_limit)
-        parent_ids = list(dict.fromkeys(chunk.parent_id for chunk in reranked[:limit] if chunk.parent_id))
-        parents = await published.get_parents(parent_ids) if parent_ids else []
+        parent_ids: dict[str, None] = {}
+        for chunk in reranked:
+            if chunk.parent_id:
+                parent_ids[chunk.parent_id] = None
+                if len(parent_ids) == limit:
+                    break
+        parents = await published.get_parents(list(parent_ids)) if parent_ids else []
     by_id = {chunk.chunk_id: chunk for chunk in parents}
     return [by_id[parent_id] for parent_id in parent_ids if parent_id in by_id]
 

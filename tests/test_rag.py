@@ -28,7 +28,7 @@ class RagTests(unittest.IsolatedAsyncioTestCase):
 
             async def search_dense(self, vector, limit):
                 self.calls.append(("dense", vector, limit))
-                return [Chunk("d1", "parent-1", "Dense child")]
+                return [Chunk("d1", "parent-1", "Dense child"), Chunk("d2", "parent-2", "Another parent")]
 
             async def search_sparse(self, vector, limit):
                 self.calls.append(("sparse", vector, limit))
@@ -36,7 +36,7 @@ class RagTests(unittest.IsolatedAsyncioTestCase):
 
             async def get_parents(self, parent_ids):
                 self.calls.append(("parents", list(parent_ids)))
-                return [Chunk("parent-1", "", "Parent block")]
+                return [Chunk(key, "", "Parent block") for key in reversed(parent_ids)]
 
         class Reranker:
             async def rerank(self, query, chunks, limit):
@@ -46,6 +46,6 @@ class RagTests(unittest.IsolatedAsyncioTestCase):
         store = Store()
         reranker = Reranker()
         result = await hybrid_retrieve("query", Embedder(), store, reranker, limit=2)
-        self.assertEqual([chunk.chunk_id for chunk in result], ["parent-1"])
+        self.assertEqual([chunk.chunk_id for chunk in result], ["parent-1", "parent-2"])
         self.assertEqual([call[0] for call in store.calls], ["dense", "sparse", "parents"])
-        self.assertEqual(len(store.calls[-1][1]), 1)
+        self.assertEqual(store.calls[-1][1], ["parent-1", "parent-2"])

@@ -110,6 +110,7 @@ class ModelGatewayPlanner:
                         "content_type, budget_max, budget_currency, media_options, analysis_question, knowledge_query, product_history_id, product_detail_id, product_daily_id}。商品流程中 queries 为 1 至 4 条商品查询，"
                         "analysis_question=null；BI 分析流程中 queries=[] 且 analysis_question 为原始分析问题。"
                         "商品查询字段为 region、keyword、category、max_price，以及可选的 query_id、depends_on、category_from_query；"
+                        "查地区商品榜单时给该条查询 ranking_limit（1到50），不带目录筛选；查询某商品的关联达人数用 product_history_id，只返回计数观测，不提供达人名单。"
                         "depends_on 只可引用本计划已有 query_id，依赖必须无环；互不依赖的查询将并行执行。"
                         "跨地区同类选品可用 category_from_query 指定 depends_on 内的直接上游查询 ID，"
                         "仅将该上游第一条商品的 category 绑定为本次查询的类目，不得同时填静态 category；"

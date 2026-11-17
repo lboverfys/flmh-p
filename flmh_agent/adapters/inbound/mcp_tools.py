@@ -74,6 +74,20 @@ def create_mcp_server(settings: Settings | None = None, *, identity_verifier: Id
             "limit": limit,
         })
 
+    @server.tool(name="product_ranking")
+    async def product_ranking(region: Annotated[str, Field(pattern=r"^[A-Z]{2}$")], limit: Annotated[int, Field(strict=True, ge=1, le=50)] = 20) -> dict[str, Any]:
+        """Read the published regional ranking, preserving the index adapter, metric versions and source references."""
+        return await gateway.product_ranking(region, limit)
+
+    @server.tool(name="product_creator_observations")
+    async def product_creator_observations(product_id: Annotated[str, Field(min_length=1, max_length=96)]) -> dict[str, Any]:
+        """Read up to 30 snapshots of a product's related-author count. No names or individual creator records."""
+        history = await gateway.get_product_history(product_id, limit=30)
+        fields = ("metricVersion", "capturedAt", "source", "sourceRef", "relatedAuthorCount")
+        return {"product": history["product"], "scope": "PRODUCT_RELATED_AUTHOR_COUNTS",
+                "nextBeforeVersion": history.get("nextBeforeVersion"),
+                "metrics": [{key: row.get(key) for key in fields} for row in history["metrics"]]}
+
     @server.tool(name="content_quote_create")
     async def content_quote_create(
         product_id: str,

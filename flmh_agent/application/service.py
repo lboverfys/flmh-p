@@ -397,6 +397,9 @@ class _DisconnectedTools:
     async def get_product_history(self, product_id: str, *, limit: int = 30, before_version: int | None = None) -> Mapping[str, Any]:
         raise RuntimeError("state lookup does not use the product tools")
 
+    async def get_creator_observations(self, product_id: str) -> Mapping[str, Any]:
+        raise RuntimeError("state lookup does not use the product tools")
+
     async def get_product_detail(self, product_id: str) -> Mapping[str, Any]:
         raise RuntimeError("state lookup does not use the product tools")
 
@@ -483,6 +486,9 @@ class _LazyToolSession:
 
     async def get_product_history(self, product_id: str, *, limit: int = 30, before_version: int | None = None) -> Mapping[str, Any]:
         return await (await self._connected()).get_product_history(product_id, limit=limit, before_version=before_version)
+
+    async def get_creator_observations(self, product_id: str) -> Mapping[str, Any]:
+        return await (await self._connected()).get_creator_observations(product_id)
 
     async def get_product_detail(self, product_id: str) -> Mapping[str, Any]:
         return await (await self._connected()).get_product_detail(product_id)
