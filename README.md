@@ -154,13 +154,13 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m unittest discover -s tests -v
 ```
 
-测试覆盖确认闸门、预算、状态刷新、报价幂等、run_id 冲突、并发查询/同 run 协调、失败节点与失败查询重试、独立槽位版本、修订并发控制、旧报价确认拒绝、DAG 类目绑定/缓存失效/并行校验、商品历史及详情计划/工具/失败重试、模型/MCP/BGE/ES HTTP 合同、批量入库及发布隔离、RRF/父块、Text2SQL AST/权限、连接池并发初始化、MCP 会话生命周期与重复取消、advisory lock/PIT 清理失败、Windows PostgreSQL 事件循环及 API 输入。2026-11-17 使用上述 Python 3.12.14 环境运行 127 项测试全部通过，`pip check` 通过；日志为 `D:\rubbish\zhongjian\temp\flmh\media-final-20261117\python-unittest.log`。本机工作台 API 与静态资源边界测试 7/7 通过，JavaScript 语法及 CSS 约束检查通过。此前入库 CLI `--help` 也已通过。已检查 PostgreSQL/Langfuse 可选库接口；这不等于真实服务联调。当前未在真实 PostgreSQL、Langfuse、BGE 服务或 Elasticsearch 上联调；没有运行性能基准，不以简历历史数字冒充本次数据。
+测试覆盖确认闸门、预算/币种、幂等、查询DAG、槽位失效、来源日统计、媒体未知结果及响应丢失恢复、MCP严格布尔确认、HTTP协议、RAG发布/召回和Text2SQL权限。2026-11-17在现有Python3.12.14环境全量151项通过，`pip check`通过；日志为`D:\rubbish\zhongjian\temp\flmh\media-production-final-20261117\python-unittest.log`。Node工作台7项与语法检查通过；媒体报价→确认→两次推进→MOCKED在Chrome实际点击通过，未生成真实文件。完整跨进程验收40/40通过。真实PostgreSQL、Langfuse、BGE及ES尚未联调，没有性能基准或召回效果指标。
 
 ## 待配置与未验证项
 
 `.env.example` 中所有服务地址/凭据空项由部署时填写。明天需决定 PostgreSQL Checkpointer 与只读 BI 库、Langfuse、BGE-M3/BGE-Reranker 服务、ES chunk 索引与认证方式。真实模型供应商与模型参数由 Java Model Gateway 维护。真实外部 adapter 联调、数据库权限/索引执行计划验证、跨主机负载和性能基准尚未运行。不得把本地 adapter 或 HTTP contract 测试当作生产数据、实际召回效果或完整生产部署验收。
 
-当前 Agent API 的 bearer key 是服务边界认证，尚未接入最终用户身份系统及租户隔离；MCP 仅绑定本机。商品历史工具已接通；旧系统日统计、完整增长评分和排名趋势仍未迁移。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。上述限制不影响本机商品 → 报价 → 确认 → 内容任务链路。
+当前 Agent API 的 bearer key 是服务边界认证，尚未迁入旧系统的最终用户身份与资源归属检查；MCP 仅绑定本机。商品历史和日统计工具均已接通，完整旧前端、身份管理及工作流编辑仍未迁移。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。
 
 ## 图片与视频工作流状态验证
 
@@ -174,4 +174,24 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m examples.media_workflow
 ```
 
-此入口尚未接入自然语言工作台，不能把它称为已完成真实图片/视频生产。真实媒体提交、异步轮询、结果未知核实、付费报价和 OSS/其他对象存储仍未迁移；配置项在 Java `.env.example` 中保留空值及 TODO，目前填写它们不会启用真实媒体生成。生产 profile 的执行器返回明确的未配置错误，不运行本地 Mock。
+上述旧状态模拟入口保留作为独立示例。自然语言工作台使用下面的媒体生产流程，不调用该 simulate 接口。
+
+## 媒体生产主流程
+
+输入 `查美国旅行杯并制作图片和视频，预算10`，规则计划选择 `product_media`，经 LangGraph → MCP → Java `/api/v1/content/media-productions` 获取报价。初版主流程明确展示一张图片再生成 6 秒、9:16 视频；确认前不会提交供应商。商品限价与内容预算分别处理；明确使用“元/CNY”的预算不能用于 USD 报价，也不会自动换汇。未指定币种时按报价显示的币种确认。超过 2000 字符的媒体提示词（含商品和知识资料）返回可修订错误，不静默截断。
+
+共享确认入口仍为 `POST /v1/agent/runs/{runId}/confirmation`，必须带当前报价 ID 与真正的布尔值。即使本地零元报价也要求确认。确认仅幂等创建 `QUEUED` 运行，后续操作均显式触发：
+
+- `GET /v1/agent/runs/{runId}`：只读取 Java 已保存状态，可恢复上次状态读取中断。
+- `POST /v1/agent/runs/{runId}/media/advance`：推进一次提交、存储或查询阶段，不携带正文。
+- `POST /v1/agent/runs/{runId}/media/verify`：只核实 `SUBMISSION_UNKNOWN`，不重新提交付费请求。
+
+工作台展示逐节点状态、来源、报价规格和产物记录，地址仅作文本。`MOCK_ONLY/MOCKED` 明确没有图片或视频文件。推进响应丢失后先读取状态；未知结果禁止直接推进，只有核实入口。Java 提供 OpenAI Images、旧项目 TOAPIS xai/volcengine 视频协议及 OSS HTTP 适配，所有端点、模型、价格和凭据在 Java `.env.example` 留空；本任务只运行本机合同测试。Gemini/Responses 图片、视频转存 OSS、工作流编辑和供应商丢失任务 ID 后的真实对账仍未完成。
+
+MCP还提供`media_production_revise`：先以`origin_run_id`申请失败运行的新报价，经独立确认后传原运行、新报价和幂等键提交。Java只允许明确FAILED的原运行，禁止未知结果重投；未变化的成功图片可复用。该分支完成接口合同与Java状态机测试，未接工作台自然语言自动修订，也未作真实供应商端到端验证。
+
+## 来源日统计与评分
+
+输入 `查询 camping-lamp-001 的日统计`，Agent 先读取商品来源，再按该来源调用 MCP `product_daily_statistics`；每次固定两次工具调用，日统计最多返回 30 条，MCP 可传 `limit`（1–100）和 `before_date`。响应 `productDaily` 保留评分版本、观测、趋势、限制说明与日期游标，不随条数增加请求或自动翻完全部历史。商品槽位更新会失效旧日统计。
+
+日统计由 Java 内部重算用例生成，Agent 只读；没有已保存统计时明确返回空，不把快照差值冒充日报。`radar-v2-exact-date` 延续旧版分项评分，但 7/30 天增长要求精确日期基线；缺失基线保持 null。金额和类目聚合按来源、币种隔离，原始滚动 7 天销量不会改称当天销量。真实数据库查询计划及生产规模未验证。
