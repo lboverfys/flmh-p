@@ -45,7 +45,7 @@ WORKBENCH_ASSETS = {"app.css": "text/css", "app.js": "text/javascript",
                     "workflows.css": "text/css", "workflows.js": "text/javascript",
                     "sessions.css": "text/css", "sessions.js": "text/javascript",
                     "products.css": "text/css", "products.js": "text/javascript",
-                    "assets.js": "text/javascript"}
+                    "assets.js": "text/javascript", "portraits.js": "text/javascript"}
 WORKBENCH_HEADERS = {
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",

@@ -26,6 +26,7 @@ let workflowEditor;
 let sessionsPanel;
 let productCatalog;
 let mediaAssets;
+let portraits;
 const accounts = { profile: null, selected: null, listing: null, page: 1, search: "", listingVersion: 0,
   pointsUncertain: new Map(), usage: null, usageVersion: 0 };
 const works = { listing: null, page: 1, selected: null, lineage: null, pendingSave: null };
@@ -131,6 +132,7 @@ function updateControls() {
   sessionsPanel?.updateControls(blocked);
   productCatalog?.updateControls(blocked);
   mediaAssets?.updateControls(blocked);
+  portraits?.updateControls();
 }
 function errorMessage(status, data) {
   if (data.error?.startsWith("work_") || data.error?.startsWith("invalid_work_")) {
@@ -303,6 +305,7 @@ function clearSession(message = "已退出。请登录后继续；旧结果与�
   sessionsPanel?.reset();
   productCatalog?.reset();
   mediaAssets?.reset();
+  portraits?.reset();
   ui.results.removeAttribute("aria-busy");
   resetRun();
   ui["auth-status"].textContent = message;
@@ -1038,6 +1041,11 @@ mediaAssets = globalThis.FlmhMediaAssets?.mount(ui["media-assets-panel"], {
   version: () => state.sessionVersion, busy: value => { state.busy = value; updateControls(); },
   upload: (file,key) => request(`/v1/assets?fileName=${encodeURIComponent(file.name)}`,file,"POST",{idempotencyKey:key,binaryType:file.type}),
   selectAsset: asset => workflowEditor?.useAsset(asset),
+  selectPortrait: asset => portraits?.useAsset(asset),
+});
+portraits = globalThis.FlmhPortraits?.mount(ui["portrait-panel"], {
+  request, authenticated: () => Boolean(state.user && state.token), blocked: () => state.busy || state.authBusy,
+  version: () => state.sessionVersion, busy: value => { state.busy = value; updateControls(); },
 });
 sessionsPanel = globalThis.FlmhSessions?.mount(ui["agent-sessions-panel"], {
   request, authenticated: () => Boolean(state.user && state.token), blocked: () => state.busy || state.authBusy,

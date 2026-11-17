@@ -48,6 +48,29 @@ class WorkflowApiTests(unittest.TestCase):
         self.client = self.enterContext(TestClient(create_app(Settings(), workflows=self.workflows, identity_verifier=Verifier())))
         self.headers = {"Authorization": "Bearer session"}
 
+    def test_independent_portrait_keeps_typed_source_and_revision_cannot_replace_it(self):
+        source = {"originalAssetId": "1429c1dd-3b99-4f46-8fd6-89fa04d29d74", "aspectRatio": "3:4"}
+        settings = {"face": {"gender": "auto", "hairStyle": "short"}, "weights": {"faceWeight": 80, "hairWeight": 50, "backgroundWeight": 30}}
+        inputs = {**settings, "budgetMax": "10", "currency": "USD"}
+        snapshot = {**SNAPSHOT, "productId": None, "imageAdaptation": {**source, **settings}}
+        quote = {"quoteId": "q-1", "status": "PENDING_CONFIRMATION", "amount": "0", "currency": "USD", "budgetMax": "10", "pricingSource": "LOCAL_ZERO_COST", "snapshot": snapshot, "createdAt": RUN["createdAt"]}
+        self.workflows.result = quote
+        base = "/v1/image-adaptations/quotes"
+        self.assertEqual(self.client.post(base, json={**source, **inputs}).status_code, 401)
+        response = self.client.post(base, headers=self.headers, json={**source, **inputs})
+        self.assertEqual(response.status_code, 200); self.assertIsNone(response.json()["snapshot"]["productId"])
+        self.assertEqual(self.workflows.calls[-1][2].user_id, "alice")
+        for bad in (source, {"mask": "external"}, {"productId": "p"}, {"weights": {**settings["weights"], "faceWeight": 2.5}}):
+            with self.subTest(bad=bad):
+                self.assertEqual(self.client.post(base+"/q-1/revisions", headers=self.headers, json={**inputs, **bad}).status_code, 422)
+        self.assertEqual(len(self.workflows.calls), 1)
+        self.assertEqual(self.client.post(base+"/q-1/revisions", headers=self.headers, json=inputs).status_code, 200)
+        self.workflows.result = {"quote": quote, "nextQuoteId": "q-2", "runId": None, "ownerId": "private"}
+        restored = self.client.get(base+"/q-1",headers=self.headers)
+        self.assertEqual(restored.json()["nextQuoteId"], "q-2"); self.assertNotIn("ownerId",restored.json())
+        self.workflows.result = {**quote, "snapshot": {**snapshot, "imageAdaptation": None}}
+        self.assertEqual(self.client.post(base, headers=self.headers, json={**source, **inputs}).status_code, 502)
+
     def test_definition_uses_verified_identity_and_strips_upstream_private_fields(self):
         self.workflows.result = {**DETAIL, "ownerId": "private-owner", "secret": "do-not-return"}
         response = self.client.post("/v1/workflows", headers={**self.headers, "X-User-Id": "bob"},

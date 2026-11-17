@@ -88,6 +88,35 @@ class ConfirmInput(Input):
     confirmed: StrictBool
 
 
+class PortraitWeights(Input):
+    faceWeight: StrictInt = Field(ge=0, le=100)
+    hairWeight: StrictInt = Field(ge=0, le=100)
+    backgroundWeight: StrictInt = Field(ge=0, le=100)
+
+
+class PortraitSource(Input):
+    originalAssetId: str = Field(pattern=r"^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$")
+    aspectRatio: Literal["1:1", "3:4", "4:3", "9:16", "16:9"]
+
+
+class PortraitSettings(Input):
+    face: dict[str, str] = Field(max_length=19)
+    weights: PortraitWeights
+
+
+class PortraitRevision(PortraitSettings):
+    budgetMax: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+
+
+class PortraitCreate(PortraitRevision, PortraitSource):
+    pass
+
+
+class PortraitSnapshot(PortraitSettings, PortraitSource):
+    pass
+
+
 class NodeSupport(BaseModel):
     nodeKey: str
     realAdapterSupported: bool
@@ -132,13 +161,20 @@ class Snapshot(BaseModel):
     definitionVersion: int
     definitionFingerprint: str
     definition: Definition
-    productId: str
+    productId: str | None
+    imageAdaptation: PortraitSnapshot | None = None
     executionMode: str
     configurationFingerprint: str
     nodeFingerprints: dict[str, str]
     nodePrices: dict[str, Decimal]
     reusedNodes: list[str]
     originRunId: str | None = None
+
+    @model_validator(mode="after")
+    def production_subject(self):
+        if (self.productId is None) == (self.imageAdaptation is None):
+            raise ValueError("workflow_requires_exactly_one_subject")
+        return self
 
 
 class QuoteView(BaseModel):
@@ -159,6 +195,12 @@ class RunSummary(BaseModel):
     cancelRequested: bool
     createdAt: str
     updatedAt: str
+
+
+class SavedPortrait(BaseModel):
+    quote: QuoteView
+    nextQuoteId: str | None
+    runId: str | None
 
 
 class RuntimeNode(BaseModel):
@@ -274,6 +316,9 @@ def workflow_routes(read_json) -> list[Route]:
 
     base = "/api/v1/content/workflows"
     mappings = [
+        ("/v1/image-adaptations/quotes", "/api/v1/content/image-adaptations/quotes", {"POST": PortraitCreate}, {"POST": QuoteView}, False),
+        ("/v1/image-adaptations/quotes/{id:str}", "/api/v1/content/image-adaptations/quotes/{id}", {"GET": None}, {"GET": SavedPortrait}, False),
+        ("/v1/image-adaptations/quotes/{id:str}/revisions", "/api/v1/content/image-adaptations/quotes/{id}/revisions", {"POST": PortraitRevision}, {"POST": QuoteView}, False),
         ("/v1/workflows/meta/capabilities", base + "/meta/capabilities", {"GET": None}, {"GET": Capabilities}, False),
         ("/v1/workflows", base, {"GET": PageInput, "POST": CreateDefinition}, {"GET": DefinitionPage, "POST": DefinitionView}, False),
         ("/v1/workflows/{id:str}", base + "/{id}", {"GET": None, "PUT": UpdateDefinition, "DELETE": None},

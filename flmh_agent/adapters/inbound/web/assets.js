@@ -32,6 +32,7 @@
         const row=node("tr"), name=node("td",asset.fileName);name.append(node("small",asset.id));
         const actions=node("td");actions.append(button("查看信息",()=>{el.detail.textContent=JSON.stringify(asset,null,2);el.detail.hidden=false;}),
           button("用于当前节点",()=>host.selectAsset({id:asset.id,type:asset.type})));
+        if(asset.type==="image" && host.selectPortrait) actions.append(button("用于模特适配",()=>host.selectPortrait(asset)));
         row.append(name,node("td",`${asset.type} / ${asset.bytes} 字节`),node("td",`${asset.source} / ${asset.storageMode}`),actions);el.rows.append(row);
       }
       el.page.textContent=`第 ${page.page} / ${Math.max(1,page.totalPages)} 页 · 共 ${page.total} 件`;
