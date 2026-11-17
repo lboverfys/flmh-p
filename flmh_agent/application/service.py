@@ -15,7 +15,8 @@ from langgraph.graph import START
 from flmh_agent.application.workflow import build_workflow
 from flmh_agent.config import Settings
 from flmh_agent.domain.models import AgentInput, AgentState, ConfirmationInput, RevisionInput
-from flmh_agent.domain.media_production import MEDIA_TERMINAL_STATUSES, media_status
+from flmh_agent.domain.media_production import MEDIA_TERMINAL_STATUSES, MediaProductionRequest, explicit_media_options, media_status
+from flmh_agent.domain.planning import explicit_revision_slots, find_budget_currency
 from flmh_agent.domain.slots import normalize_slots
 from flmh_agent.domain.identity import UserIdentity, bind_identity, current_identity, run_resource_key
 from flmh_agent.domain.sessions import SessionCursor, SessionNotFoundError, SessionRecord, session_title
@@ -223,16 +224,67 @@ class AgentApplication:
                 raise RunNotFoundError("run_id does not exist")
             if previous.values.get("revision", 0) != revision.expected_revision:
                 raise RunConflictError("revision changed; reload the current run before editing")
-            if previous.values.get("confirmed_quote") or previous.values.get("content_task") or previous.values.get("media_run"):
+            values = previous.values
+            media = values.get("media_run")
+            if values.get("content_task") or values.get("confirmed_quote") and not media:
                 raise RunConflictError("confirmed production cannot be rewritten; create a new run")
-            user_request = revision.user_request or previous.values["user_request"]
-            overrides = {**previous.values.get("slot_overrides", {}), **revision.slot_updates}
-            if user_request == previous.values["user_request"] and overrides == previous.values.get("slot_overrides", {}):
+            media_updates = revision.media_updates.model_dump(exclude_none=True)
+            if media_updates and values.get("plan", {}).get("content_type") != "product_media":
+                raise ValueError("media_updates require an existing product_media plan")
+            user_request = revision.user_request or values["user_request"]
+            contextual_media_edit = bool(values.get("plan", {}).get("content_type") == "product_media" and (
+                media or values.get("media_origin_run") or media_updates or revision.slot_updates
+                or revision.user_request and re.search(r"改为|改成|修改为|修改成|调整为|调整成|提示词|时长|比例", revision.user_request)
+            ))
+            overrides = {**values.get("slot_overrides", {}), **revision.slot_updates}
+            if not contextual_media_edit and user_request == values["user_request"] and overrides == values.get("slot_overrides", {}):
                 return _snapshot_response(run_id, previous)
             state = {"user_request": user_request, "slot_updates": revision.slot_updates,
                      "revision": revision.expected_revision + 1,
                      "request_fingerprint": _request_fingerprint({"user_request": user_request, "slot_updates": overrides})}
             async with self._tool_session() as tools:
+                if contextual_media_edit:
+                    origin = media or values.get("media_origin_run")
+                    base_request = dict(values.get("media_request", {}))
+                    base_request.pop("origin_run_id", None)
+                    if origin:
+                        origin = media_status(await tools.get_media_run(origin["runId"]), origin["runId"])
+                        if origin["status"] == "SUBMISSION_UNKNOWN" or any(
+                            node.get("status") == "SUBMISSION_UNKNOWN" for node in origin.get("nodes", [])
+                        ):
+                            raise RunConflictError("submission outcome is unknown; verify before revising")
+                        if origin["status"] != "FAILED":
+                            raise RunConflictError("media production cannot be rewritten; only verified FAILED runs support revision")
+                        if media:
+                            source = origin["input"]
+                            base_request = MediaProductionRequest(
+                                product_id=source["productId"], image_prompt=source["imagePrompt"],
+                                video_prompt=source["videoPrompt"], aspect_ratio=source["aspectRatio"],
+                                duration_seconds=source["durationSeconds"], budget_max=base_request["budget_max"],
+                            ).model_dump(mode="json")
+                    text = revision.user_request or ""
+                    explicit_slots = explicit_revision_slots(text)
+                    explicit_media = explicit_media_options(text).model_dump(exclude_none=True)
+                    if text and not (explicit_slots or explicit_media or revision.slot_updates or media_updates
+                                     or re.fullmatch(r"(?:请)?(?:重跑|重试)(?:失败的?)?(?:图片|视频|媒体|任务|节点|子图|流程)?[。！!]?", text)):
+                        raise ValueError("media revision requires explicit product, region, budget or media fields; arbitrary text is not a video prompt")
+                    updates = {**explicit_slots, **revision.slot_updates}
+                    media_updates = {**explicit_media, **media_updates}
+                    overrides = {**values.get("slot_values", {}), **updates}
+                    normalize_slots(overrides)
+                    state.update({
+                        "slot_overrides": dict(values.get("slot_values", {})), "slot_updates": updates,
+                        "media_origin_run": origin or {},
+                        "media_revision_context": {
+                            "request": base_request, "slots": values.get("slot_values", {}),
+                            "plan": values["plan"], "updates": media_updates,
+                            "budget_currency": find_budget_currency(text, content_budget=True) or values["plan"].get("budget_currency"),
+                        },
+                        "request_fingerprint": _request_fingerprint({"user_request": user_request, "slot_updates": overrides,
+                                                                     "media_updates": media_updates}),
+                    })
+                else:
+                    state.update({"media_revision_context": {}, "media_origin_run": {}})
                 graph = self._graph(tools)
                 await graph.aupdate_state(graph_config, state, as_node=START)
                 result = await graph.ainvoke(None, config=graph_config)
@@ -378,6 +430,9 @@ class _DisconnectedTools:
     async def verify_media_run(self, run_id: str) -> Mapping[str, Any]:
         raise RuntimeError("state lookup does not use the media tools")
 
+    async def revise_media_run(self, run_id: str, quote_id: str, idempotency_key: str) -> Mapping[str, Any]:
+        raise RuntimeError("state lookup does not use the media tools")
+
 
 class _LazyToolSession:
     def __init__(self, factory: Callable[[], AbstractAsyncContextManager[ProductContentPort]]) -> None:
@@ -462,6 +517,9 @@ class _LazyToolSession:
     async def verify_media_run(self, run_id: str) -> Mapping[str, Any]:
         return await (await self._connected()).verify_media_run(run_id)
 
+    async def revise_media_run(self, run_id: str, quote_id: str, idempotency_key: str) -> Mapping[str, Any]:
+        return await (await self._connected()).revise_media_run(run_id, quote_id, idempotency_key)
+
 
 def _response(run_id: str, result: Mapping[str, Any]) -> dict[str, Any]:
     interrupts = result.get("__interrupt__", ())
@@ -506,6 +564,7 @@ def _response(run_id: str, result: Mapping[str, Any]) -> dict[str, Any]:
         "mediaRequest": values.get("media_request", {}),
         "mediaRun": values.get("media_run", {}),
         "mediaStatus": values.get("media_status", {}),
+        "mediaOriginRun": values.get("media_origin_run", {}),
         "confirmationRequest": action or values.get("confirmation_request"),
         "summary": values.get("summary", ""),
         "error": values.get("error", ""),

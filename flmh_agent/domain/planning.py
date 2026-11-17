@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from typing import Protocol
 
 from .models import AgentPlan, ProductQuery
+from .media_production import explicit_media_options, without_media_fields
 from .slots import is_product_identifier, normalize_slots
 
 
@@ -85,6 +86,7 @@ class RuleBasedPlanner:
             content_type="product_media" if wants_media else "product_script" if wants_content else "",
             budget_max=budget,
             budget_currency=find_budget_currency(text, content_budget=wants_content),
+            media_options=explicit_media_options(text) if wants_media else {},
             analysis_question=None,
             knowledge_query=knowledge_query,
             source="RULES",
@@ -128,13 +130,32 @@ def _find_regions(text: str) -> list[str]:
 
 
 def _budget_match(text: str, content_budget: bool):
-    prefix = r"预算\s*(?:不超过|不高于|最多)?" if content_budget else r"(?:预算\s*(?:不超过|不高于|最多)?|最多|不超过|不高于)"
-    return re.search(prefix + r"\s*(人民币|美元|美金|[A-Z]{3}|¥|￥)?\s*(\d+(?:\.\d+)?)\s*(人民币|美元|美金|[A-Z]{3}|元)?", text, re.IGNORECASE)
+    budget_prefix = r"预算\s*(?:改为|改成|修改为|修改成|调整为|调整成|[:：=])?\s*(?:不超过|不高于|最多)?"
+    prefix = budget_prefix if content_budget else rf"(?:{budget_prefix}|最多|不超过|不高于)"
+    return re.search(prefix + r"\s*(人民币|美元|美金|[A-Z]{3}|¥|￥)?\s*(\d+(?:\.\d+)?)\s*(人民币|美元|美金|[A-Z]{3}|元)?", without_media_fields(text), re.IGNORECASE)
 
 
 def _find_budget(text: str, *, content_budget: bool = False) -> float | None:
     match = _budget_match(text, content_budget)
     return float(match.group(2)) if match else None
+
+
+def explicit_revision_slots(text: str) -> dict[str, object]:
+    updates: dict[str, object] = {}
+    text = without_media_fields(text)
+    start = r"(?:^|[，,；;。\n])\s*(?:请)?(?:把)?\s*"
+    product = re.search(start + r"(?:商品|产品)\s*(?:改为|改成|修改为|修改成|换成|调整为|调整成|[:：=])\s*([^，,；;。\n]+)", text)
+    if product:
+        updates["product"] = product.group(1).strip()
+    region = re.search(start + r"(?:地区|市场|国家)\s*(?:改为|改成|修改为|修改成|换成|调整为|调整成|[:：=])\s*([^，,；;。\n]+)", text)
+    if region:
+        raw = region.group(1).strip()
+        updates["region"] = REGION_ALIASES.get(raw, raw)
+    budget = _find_budget(text, content_budget=True)
+    if budget is not None:
+        updates["budget_max"] = budget
+    normalized = normalize_slots(updates)
+    return {key: normalized[key] for key in updates}
 
 
 def find_budget_currency(text: str, *, content_budget: bool = False) -> str | None:
@@ -152,7 +173,7 @@ def find_budget_currency(text: str, *, content_budget: bool = False) -> str | No
 
 
 def _find_keyword(text: str) -> str | None:
-    cleaned = re.sub(r"商品(?:价格|单价|售价)\s*(?:不超过|不高于|最多)\s*\d+(?:\.\d+)?\s*(?:元|美元)?", " ", text)
+    cleaned = re.sub(r"商品(?:价格|单价|售价)\s*(?:不超过|不高于|最多)\s*\d+(?:\.\d+)?\s*(?:元|美元)?", " ", without_media_fields(text))
     for phrase in (
         "请帮我", "请给我", "帮我", "给我", "帮忙", "请问", "请", "在", "查找", "查询", "搜索", "查", "找",
         "生成", "制作", "写一段", "写个", "写", "比较", "对比", "选品并", "选品", "商品", "产品",

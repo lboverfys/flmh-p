@@ -14,7 +14,7 @@ from pydantic import ValidationError
 
 from flmh_agent.domain.idempotency import idempotency_key
 from flmh_agent.domain.content import build_content_request
-from flmh_agent.domain.media_production import MediaProductionRequest, media_status, summarize_media
+from flmh_agent.domain.media_production import MediaOptions, MediaProductionRequest, media_status, summarize_media
 from flmh_agent.domain.models import AgentPlan, AgentState, ContentBrief, ProductQuery
 from flmh_agent.domain.product_trend import compare_product_snapshots
 from flmh_agent.domain.slots import INVALIDATION_ORDER, SLOT_NAMES, SLOT_DEPENDENCIES, normalize_slots, update_slots
@@ -35,7 +35,14 @@ def build_workflow(
     async def plan_request(state: AgentState) -> dict[str, Any]:
         overrides = {**state.get("slot_overrides", {}), **state.get("slot_updates", {})}
         normalize_slots(overrides)
-        plan = await planner.plan(state["user_request"], overrides)
+        media_context = state.get("media_revision_context")
+        if media_context:
+            plan = AgentPlan.model_validate({
+                **media_context["plan"], "summary": "基于明确修订字段重新规划媒体生产；本次字段合并使用本地规则，未调用模型。",
+                "media_options": media_context["updates"], "budget_currency": media_context["budget_currency"], "source": "RULES",
+            })
+        else:
+            plan = await planner.plan(state["user_request"], overrides)
         if overrides and plan.queries:
             updates = {}
             if "region" in overrides:
@@ -66,7 +73,7 @@ def build_workflow(
         changed = {name for name in SLOT_NAMES if previous[name] != slots[name]}
         versions = {name: state.get("slot_versions", {}).get(name, 0) + int(name in changed) for name in SLOT_NAMES}
         request_changed = state.get("last_user_request", state["user_request"]) != state["user_request"]
-        if request_changed:
+        if request_changed or media_context:
             invalidated = list(dict.fromkeys([*invalidated, *INVALIDATION_ORDER[1:]]))
         result = {
             "slot_values": slots,
@@ -192,15 +199,17 @@ def build_workflow(
         query = state["plan"]["queries"][0]
         media_request = {}
         if state["plan"]["content_type"] == "product_media":
-            if len(state["content_brief"]["body"]) > 2000:
+            specification = _media_specification(state)
+            if any(len(specification[name]) > 2000 for name in ("image_prompt", "video_prompt")):
                 return {"error": "媒体提示词（含商品信息与检索资料）超过2000字符；请缩短请求或减少检索资料后修订，尚未创建报价或任务。",
                         "budget_ok": False}
-            media_request = MediaProductionRequest(
-                product_id=str(product["id"]), image_prompt=state["content_brief"]["body"],
-                video_prompt=state["content_brief"]["body"], aspect_ratio="9:16", duration_seconds=6,
-                budget_max=state["plan"]["budget_max"],
-            ).model_dump(mode="json")
+            media_request = MediaProductionRequest.model_validate(specification).model_dump(mode="json")
+            origin = state.get("media_origin_run")
+            if origin:
+                media_request["origin_run_id"] = origin["runId"]
             quote = await tools.create_media_quote(media_request)
+            if origin:
+                _validate_media_revision_quote(quote, origin, media_request)
         else:
             quote = await tools.create_quote({
                 "product_id": str(product["id"]),
@@ -231,7 +240,10 @@ def build_workflow(
             "product": state["selected_product"],
             "contentBrief": state["content_brief"],
             "mediaRequest": media_request,
-            "message": ("图片到视频生产：初版规格为6秒、9:16；预算按报价币种计算。请确认规格与报价后执行。"
+            "mediaOriginRun": state.get("media_origin_run", {}),
+            "message": (f"图片到视频生产：{media_request['duration_seconds']}秒、{media_request['aspect_ratio']}；"
+                        + ("失败任务修订将使用新报价，图片复用以报价 reusedNodes 为准；" if state.get("media_origin_run") else "")
+                        + "预算按报价币种计算。请确认本次规格与报价后执行。"
                         if media_request else "请确认报价后再创建内容任务。"),
             "planSource": state["plan"].get("source"),
         }
@@ -271,7 +283,11 @@ def build_workflow(
 
     async def submit_media_run(state: AgentState) -> dict[str, Any]:
         quote_id = _required_identifier(state["quote"], "quoteId")
-        result = await tools.submit_media_run(quote_id, state["idempotency_key"])
+        origin = state.get("media_origin_run")
+        if origin:
+            result = await tools.revise_media_run(origin["runId"], quote_id, state["idempotency_key"])
+        else:
+            result = await tools.submit_media_run(quote_id, state["idempotency_key"])
         run_id = _required_identifier(result, "runId")
         return {"media_run": media_status(result, run_id),
                 "conclusion_dependencies": _dependencies(state, "media_run")}
@@ -450,6 +466,46 @@ def build_workflow(
     graph.add_edge("read_task_status", "summarize")
     graph.add_edge("summarize", END)
     return graph.compile(checkpointer=checkpointer or InMemorySaver())
+
+
+def _media_specification(state: AgentState) -> dict[str, Any]:
+    product = state["selected_product"]
+    region = state["plan"]["queries"][0]["region"]
+    context = state.get("media_revision_context")
+    product_context = (f"商品ID：{product['id']}\n商品：{product.get('title', product['id'])}\n目标地区：{region}\n"
+                       f"数据来源：{product.get('source')}\n来源引用：{product.get('sourceRef')}\n")
+    if context and context["request"]:
+        specification = dict(context["request"])
+        if (specification["product_id"] != str(product["id"])
+                or context["slots"].get("product") != state["slot_values"].get("product")
+                or context["slots"].get("region") != state["slot_values"].get("region")):
+            specification.update(image_prompt=product_context + "制作商品图片。",
+                                 video_prompt=product_context + "根据商品图片制作视频。")
+    else:
+        specification = {"image_prompt": product_context + state["content_brief"]["body"],
+                         "video_prompt": product_context + state["content_brief"]["body"],
+                         "aspect_ratio": "9:16", "duration_seconds": 6}
+    options = MediaOptions.model_validate(state["plan"].get("media_options", {})).model_dump(exclude_none=True)
+    for field, value in options.items():
+        specification[field] = product_context + value if field in {"image_prompt", "video_prompt"} else value
+    specification.update(product_id=str(product["id"]), budget_max=state["plan"]["budget_max"])
+    return specification
+
+
+def _validate_media_revision_quote(quote: Mapping[str, Any], origin: Mapping[str, Any], request: Mapping[str, Any]) -> None:
+    if quote.get("originRunId") != origin["runId"]:
+        raise ValueError("media revision quote does not belong to the verified origin run")
+    reused = quote.get("reusedNodes", [])
+    if not isinstance(reused, list) or any(node != "image" for node in reused):
+        raise ValueError("media revision quote contains an unsupported reused node")
+    if "image" in reused:
+        source = origin["input"]
+        unchanged = all(request[field] == source[remote] for field, remote in (
+            ("product_id", "productId"), ("image_prompt", "imagePrompt"), ("aspect_ratio", "aspectRatio")))
+        succeeded = any(node.get("nodeKey") == "image" and node.get("status") in {"SUCCEEDED", "MOCKED"}
+                        for node in origin["nodes"])
+        if not unchanged or not succeeded or quote.get("executionMode") != origin.get("executionMode"):
+            raise ValueError("media revision cannot reuse an unsuccessful or changed image input")
 
 
 async def _layered_search(queries: list[dict[str, Any]], tools: ProductContentPort,

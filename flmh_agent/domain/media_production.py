@@ -1,13 +1,60 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 MEDIA_TERMINAL_STATUSES = {"SUCCEEDED", "MOCKED", "FAILED", "CANCELLED"}
 MEDIA_STATUSES = MEDIA_TERMINAL_STATUSES | {"QUEUED", "RUNNING", "SUBMISSION_UNKNOWN"}
+MEDIA_FIELD_START = r"(?:^|[，,；;。\n])\s*(?:请)?(?:把)?\s*"
+MEDIA_FIELD_PATTERNS = {
+    "image_prompt": re.compile(MEDIA_FIELD_START + r"图片(?:提示词|要求)?\s*(?:改为|改成|修改为|修改成|调整为|调整成|[:：=])\s*([^，,；;。\n]+)"),
+    "video_prompt": re.compile(MEDIA_FIELD_START + r"视频(?:提示词|要求)?\s*(?:改为|改成|修改为|修改成|调整为|调整成|[:：=])\s*([^，,；;。\n]+)"),
+    "aspect_ratio": re.compile(MEDIA_FIELD_START + r"(?:画面比例|宽高比|比例)\s*(?:改为|改成|调整为|调整成|[:：=]|为)?\s*([^，,；;。\n]+)"),
+    "duration_seconds": re.compile(MEDIA_FIELD_START + r"(?:视频)?时长\s*(?:改为|改成|调整为|调整成|[:：=]|为)?\s*([^，,；;。\n]+)"),
+}
+
+
+class MediaOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    image_prompt: str | None = Field(default=None, min_length=1, max_length=2000)
+    video_prompt: str | None = Field(default=None, min_length=1, max_length=2000)
+    aspect_ratio: Literal["1:1", "3:4", "4:3", "9:16", "16:9"] | None = None
+    duration_seconds: int | None = Field(default=None, strict=True, ge=2, le=15)
+
+    @field_validator("image_prompt", "video_prompt")
+    @classmethod
+    def trim_prompt(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("media prompt must not be blank")
+        return value.strip() if value is not None else None
+
+
+def explicit_media_options(text: str) -> MediaOptions:
+    values: dict[str, Any] = {}
+    for field, pattern in MEDIA_FIELD_PATTERNS.items():
+        for match in pattern.finditer(text):
+            raw = match.group(1).strip()
+            if field == "aspect_ratio":
+                values[field] = re.sub(r"\s+", "", raw).replace("：", ":")
+            elif field == "duration_seconds":
+                duration = re.fullmatch(r"(\d+)\s*秒", raw)
+                if not duration:
+                    raise ValueError("duration_seconds must be a whole number of seconds")
+                values[field] = int(duration.group(1))
+            else:
+                values[field] = raw
+    return MediaOptions.model_validate(values)
+
+
+def without_media_fields(text: str) -> str:
+    for pattern in MEDIA_FIELD_PATTERNS.values():
+        text = pattern.sub(" ", text)
+    return text
 
 
 class MediaProductionRequest(BaseModel):

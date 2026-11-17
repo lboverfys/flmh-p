@@ -107,7 +107,7 @@ class ModelGatewayPlanner:
                     "role": "system",
                     "content": (
                         "将用户请求转换为严格 JSON 计划，不执行工具调用。结构为 {summary, queries, create_content, "
-                        "content_type, budget_max, budget_currency, analysis_question, knowledge_query, product_history_id, product_detail_id, product_daily_id}。商品流程中 queries 为 1 至 4 条商品查询，"
+                        "content_type, budget_max, budget_currency, media_options, analysis_question, knowledge_query, product_history_id, product_detail_id, product_daily_id}。商品流程中 queries 为 1 至 4 条商品查询，"
                         "analysis_question=null；BI 分析流程中 queries=[] 且 analysis_question 为原始分析问题。"
                         "商品查询字段为 region、keyword、category、max_price，以及可选的 query_id、depends_on、category_from_query；"
                         "depends_on 只可引用本计划已有 query_id，依赖必须无环；互不依赖的查询将并行执行。"
@@ -117,7 +117,9 @@ class ModelGatewayPlanner:
                         "region 使用两位大写国家代码；显式 slots 优先于原始请求中的旧值；"
                         "content_type 仅允许 product_script、product_media 或空字符串。"
                         "文案/口播/视频脚本使用 product_script；实际图片到视频生产使用 product_media，"
-                        "初版为一张图片再生成6秒9:16视频，规格与报价会在执行前展示并请求确认。不得推断未给出的预算。"
+                        "默认一张图片再生成6秒9:16视频；media_options 只填用户明确提供的 image_prompt、video_prompt、"
+                        "aspect_ratio（1:1/3:4/4:3/9:16/16:9）、duration_seconds（2至15的整数）。未提供字段省略，"
+                        "不得把整句话无条件当成视频提示词，不得生成 origin_run_id 或决定复用节点。规格与报价会在执行前展示并请求确认。不得推断未给出的预算。"
                         "生产请求的 budget_max 是内容生产预算，不得自动作为商品查询 max_price；商品价格限制须用户另行明确。"
                         "budget_currency 为用户明确预算币种的 ISO 三字码（人民币/元=CNY，美元=USD）；未指定时为 null。不得换汇或猜币种。"
                         "用户要求检索知识库时 knowledge_query 为检索问题；可独立检索或为商品内容补充事实，未要求时为 null。"

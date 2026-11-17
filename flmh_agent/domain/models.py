@@ -5,6 +5,8 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
+from flmh_agent.domain.media_production import MediaOptions
+
 
 class ProductLookupQuery(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -65,6 +67,7 @@ class AgentPlan(BaseModel):
     content_type: Literal["", "product_script", "product_media"]
     budget_max: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     budget_currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    media_options: MediaOptions = Field(default_factory=MediaOptions)
     analysis_question: str | None = Field(default=None, max_length=4000)
     knowledge_query: str | None = Field(default=None, min_length=1, max_length=4000)
     product_history_id: str | None = Field(default=None, min_length=1, max_length=96)
@@ -80,6 +83,8 @@ class AgentPlan(BaseModel):
         return value
 
     def model_post_init(self, __context: Any) -> None:
+        if self.media_options.model_dump(exclude_none=True) and self.content_type != "product_media":
+            raise ValueError("media options require a product_media plan")
         if self.product_daily_id is not None:
             ProductLookupQuery(product_id=self.product_daily_id)
             if self.queries or self.analysis_question or self.knowledge_query or self.create_content or self.product_detail_id or self.product_history_id:
@@ -160,9 +165,10 @@ class ConfirmationInput(BaseModel):
 
 class RevisionInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    expected_revision: int = Field(ge=0)
+    expected_revision: int = Field(strict=True, ge=0)
     user_request: str | None = Field(default=None, min_length=1, max_length=4000)
     slot_updates: dict[str, Any] = Field(default_factory=dict)
+    media_updates: MediaOptions = Field(default_factory=MediaOptions)
 
     @field_validator("user_request")
     @classmethod
@@ -196,6 +202,8 @@ class AgentState(TypedDict, total=False):
     media_request: dict[str, Any]
     media_run: dict[str, Any]
     media_status: dict[str, Any]
+    media_origin_run: dict[str, Any]
+    media_revision_context: dict[str, Any]
     idempotency_key: str
     summary: str
     error: str
@@ -225,6 +233,7 @@ class PlanResponse(BaseModel):
     content_type: Literal["", "product_script", "product_media"]
     budget_max: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     budget_currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    media_options: MediaOptions = Field(default_factory=MediaOptions)
     analysis_question: str | None = Field(default=None, max_length=4000)
     knowledge_query: str | None = Field(default=None, min_length=1, max_length=4000)
     product_history_id: str | None = Field(default=None, min_length=1, max_length=96)
