@@ -5,6 +5,7 @@ import hmac
 import json
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 import uvicorn
@@ -12,7 +13,7 @@ from pydantic import ValidationError
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Route
 
 from flmh_agent.application.service import RunConflictError, RunNotFoundError
@@ -24,6 +25,14 @@ from flmh_agent.domain.models import AgentStartRequest, ConfirmationInput, TextT
 
 logger = logging.getLogger("flmh.agent.api")
 MAX_JSON_BODY_BYTES = 64 * 1024
+WORKBENCH_ROOT = Path(__file__).parent / "adapters" / "inbound" / "web"
+WORKBENCH_ASSETS = {"app.css": "text/css", "app.js": "text/javascript"}
+WORKBENCH_HEADERS = {
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+}
 
 
 class ApiKeyMiddleware:
@@ -33,7 +42,10 @@ class ApiKeyMiddleware:
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         path = scope.get("path", "")
-        if scope["type"] != "http" or not self.api_key or path.startswith("/health/") or path == "/v1/bi/queries":
+        public_workbench = scope.get("method") in {"GET", "HEAD"} and path in {
+            "/", *(f"/assets/{name}" for name in WORKBENCH_ASSETS),
+        }
+        if scope["type"] != "http" or not self.api_key or public_workbench or path.startswith("/health/") or path == "/v1/bi/queries":
             await self.app(scope, receive, send)
             return
         headers = {key.decode("latin1").lower(): value.decode("latin1") for key, value in scope.get("headers", [])}
@@ -60,10 +72,20 @@ def create_app(settings: Settings | None = None) -> Starlette:
     async def live(_request: Request) -> Response:
         return JSONResponse({"status": "alive"})
 
+    async def workbench(_request: Request) -> Response:
+        return FileResponse(WORKBENCH_ROOT / "index.html", media_type="text/html", headers=WORKBENCH_HEADERS)
+
+    async def workbench_asset(request: Request) -> Response:
+        name = request.path_params["filename"]
+        if name not in WORKBENCH_ASSETS:
+            return Response(status_code=404)
+        return FileResponse(WORKBENCH_ROOT / name, media_type=WORKBENCH_ASSETS[name], headers=WORKBENCH_HEADERS)
+
     async def ready(request: Request) -> Response:
         current: Settings = request.app.state.settings
         return JSONResponse({
             "status": "process_ready",
+            "environment": current.environment,
             "adapters": {
                 "planner": current.planner_backend,
                 "contentGenerator": "java_content_service",
@@ -216,6 +238,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
         ]})
 
     routes = [
+        Route("/", workbench, methods=["GET"]),
+        Route("/assets/{filename:str}", workbench_asset, methods=["GET"]),
         Route("/health/live", live, methods=["GET"]),
         Route("/health/ready", ready, methods=["GET"]),
         Route("/v1/agent/runs", start_run, methods=["POST"]),

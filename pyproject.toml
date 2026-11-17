@@ -29,3 +29,6 @@ flmh-mcp-bridge = "flmh_agent.adapters.inbound.mcp_tools:main"
 
 [tool.setuptools.packages.find]
 include = ["flmh_agent*"]
+
+[tool.setuptools.package-data]
+"flmh_agent.adapters.inbound" = ["web/*.html", "web/*.css", "web/*.js"]

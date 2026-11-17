@@ -48,6 +48,8 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m flmh_agent.api
 ```
 
+启动后在本机浏览器打开 `http://127.0.0.1:8090/` 即可使用中文工作台；它复用同一 Agent API，无需额外前端服务或依赖。页面提供选品与内容、商品历史、商品详情示例，内容报价必须点击“确认并创建任务”后才提交。配置了 `AGENT_API_KEY` 时，在页面“访问设置”填写该 key；只保留在当前页面内存，关闭页面后清空。超时或连接中断后先用保留的运行编号读取状态，避免盲目新建重复请求。
+
 或直接使用 CLI：
 
 ```powershell
