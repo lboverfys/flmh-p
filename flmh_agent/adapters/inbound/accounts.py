@@ -20,7 +20,7 @@ class Input(BaseModel):
 
 
 class ProfileUpdate(Input):
-    name: str | None = Field(default=None, min_length=1, max_length=200)
+    name: str | None = Field(default=None, min_length=1, max_length=100)
     phone: str | None = Field(default=None, max_length=64)
     inviteCodeHidden: StrictBool | None = None
 
@@ -31,7 +31,7 @@ class PasswordUpdate(Input):
 
 
 class UserCreate(Input):
-    name: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=100)
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=6, max_length=72, repr=False)
     phone: str | None = Field(default=None, max_length=64)
@@ -39,7 +39,7 @@ class UserCreate(Input):
 
 
 class UserUpdate(Input):
-    name: str | None = Field(default=None, min_length=1, max_length=200)
+    name: str | None = Field(default=None, min_length=1, max_length=100)
     email: str | None = Field(default=None, min_length=3, max_length=320)
     phone: str | None = Field(default=None, max_length=64)
     role: Role | None = None
@@ -49,7 +49,7 @@ class UserUpdate(Input):
 
 class PointAdjustment(Input):
     amount: StrictInt = Field(ge=-2147483648, le=2147483647)
-    reason: str = Field(min_length=1, max_length=1000)
+    reason: str = Field(min_length=1, max_length=500)
 
 
 class MembershipUpdate(Input):

@@ -165,6 +165,82 @@ test("用户列表按页查询且把姓名按文本展示", async () => {
   assert.equal(page.ui("users-next").disabled, false);
 });
 
+test("用户翻页失败保留已显示页码并重试同一页，未提交搜索不影响翻页", async () => {
+  const page = harness(); page.run('state.user.role="ADMIN"; updateControls();');
+  page.response({ users: [], total: 30, page: 1, totalPages: 3 });
+  page.ui("user-search").value = "Alice"; page.submit("user-search-form"); await settled();
+  page.ui("user-search").value = "Bob";
+  page.response({ error: "account_service_unavailable" }, 503);
+  page.click("users-next"); await settled();
+  assert.equal(page.calls[1].url, "/v1/identity/users?search=Alice&page=2&pageSize=10");
+  assert.equal(page.run("accounts.page"), 1);
+  assert.match(page.ui("users-page").textContent, /第 1 页/);
+  assert.equal(page.ui("users-prev").disabled, true);
+  page.response({ users: [], total: 30, page: 2, totalPages: 3 });
+  page.click("users-next"); await settled();
+  assert.equal(page.calls[2].url, "/v1/identity/users?search=Alice&page=2&pageSize=10");
+  assert.equal(page.run("accounts.page"), 2);
+  page.response({ users: [], total: 1, page: 1, totalPages: 1 });
+  page.submit("user-search-form"); await settled();
+  assert.equal(page.calls[3].url, "/v1/identity/users?search=Bob&page=1&pageSize=10");
+});
+
+test("积分结果未知阻止重发，重新读取并选择目标后只显示余额且清空旧调整", async () => {
+  const page = harness(); page.run('state.user.role="ADMIN"; updateControls();');
+  const account = { id: "target", name: "Target", role: "USER", points: 10 };
+  page.response({ users: [account], total: 1, page: 1, totalPages: 1 });
+  page.submit("user-search-form"); await settled(); page.run("selectAccount(accounts.listing.users[0]);");
+  page.ui("points-amount").value = "5"; page.ui("points-reason").value = "adjust";
+  page.response({ error: "account_service_unavailable" }, 503);
+  page.submit("points-form"); await settled();
+  assert.equal(page.ui("points-amount").value, ""); assert.equal(page.ui("points-reason").value, "");
+  assert.equal(page.ui("points-save").disabled, true);
+  page.submit("points-form"); assert.equal(page.calls.length, 2);
+  page.run("selectAccount(accounts.listing.users[0]);");
+  assert.equal(page.ui("points-save").disabled, true);
+  page.response({ users: [{ ...account, points: 15 }], total: 1, page: 1, totalPages: 1 });
+  page.submit("user-search-form"); await settled();
+  assert.equal(page.ui("points-save").disabled, true);
+  page.run("selectAccount(accounts.listing.users[0]);");
+  assert.equal(page.ui("points-save").disabled, false);
+  assert.equal(page.ui("points-amount").value, "");
+  assert.match(page.ui("points-status").textContent, /15/);
+  assert.match(page.ui("points-status").textContent, /不.*判定.*成功/);
+  assert.equal(page.calls.filter(call => call.options.method === "PUT").length, 1);
+});
+
+test("同一积分操作进行时重复提交只发一次，已成功响应后列表失败不再调整", async () => {
+  const page = harness(); page.run('state.user.role="ADMIN"; selectAccount({id:"target",name:"Target",role:"USER",points:10});');
+  let complete;
+  page.respond(() => new Promise(resolve => { complete = resolve; }));
+  page.ui("points-amount").value = "5"; page.ui("points-reason").value = "adjust";
+  page.submit("points-form"); page.submit("points-form"); assert.equal(page.calls.length, 1);
+  page.response({ error: "account_service_unavailable" }, 503);
+  complete({ ok: true, status: 200, json: async () => ({ points: 15 }) }); await settled();
+  assert.equal(page.calls.filter(call => call.options.method === "PUT").length, 1);
+  assert.equal(page.ui("points-amount").value, ""); assert.equal(page.ui("points-reason").value, "");
+  assert.equal(page.run("accounts.selected.points"), 15);
+});
+
+test("换用户后丢弃旧账号与积分迟到响应，不恢复资料或污染新会话", async () => {
+  for (const operation of ["profile", "points"]) {
+    const page = harness(); page.run('state.user.role="ADMIN"; selectAccount({id:"target",name:"Target",role:"USER",points:10});');
+    let resolveOld;
+    page.respond(() => new Promise(resolve => { resolveOld = resolve; }));
+    if (operation === "profile") page.click("profile-load");
+    else { page.ui("points-amount").value = "5"; page.ui("points-reason").value = "private"; page.submit("points-form"); }
+    page.click("logout");
+    page.run('state.token="bob-jwt"; state.user={id:"bob",role:"USER"}; updateControls();');
+    resolveOld({ ok: true, status: 200, json: async () => operation === "profile"
+      ? { id: "alice", name: "Alice private", role: "ADMIN", points: 10 } : { points: 15 } });
+    await settled();
+    assert.equal(page.run("state.user.id"), "bob"); assert.equal(page.run("state.user.role"), "USER");
+    assert.equal(page.run("accounts.selected"), null); assert.equal(page.run("accounts.profile"), null);
+    assert.equal(page.ui("profile-fields").textContent, ""); assert.equal(page.ui("points-reason").value, "");
+    assert.equal(page.ui("account-message").textContent, ""); assert.equal(page.calls.length, 1);
+  }
+});
+
 test("删除用户需选中目标并明确勾选，禁止删除当前登录用户", async () => {
   const page = harness(); page.run('state.user.role="ADMIN"; selectAccount({id:"target",name:"Target",role:"USER"});');
   page.click("user-delete"); assert.equal(page.calls.length, 0);

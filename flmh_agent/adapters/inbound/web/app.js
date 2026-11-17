@@ -22,7 +22,7 @@ const mediaNodeLabels = { image: "图片", video: "视频" };
 const state = { current: null, submission: null, busy: false, controller: null, pollTimer: null,
   pollCount: 0, productionLocked: false, uncertain: false, closing: false,
   token: "", user: null, authBusy: false, sessionVersion: 0 };
-const accounts = { profile: null, selected: null, listing: null, page: 1 };
+const accounts = { profile: null, selected: null, listing: null, page: 1, search: "", listingVersion: 0, pointsUncertain: new Map() };
 
 function text(value) { return value === null || value === undefined || value === "" ? "未提供" : String(value); }
 function node(tag, value, className = "") {
@@ -73,6 +73,12 @@ function updateControls() {
   for (const id of ["profile-name", "profile-phone", "current-password", "new-password", "user-search", "user-name", "user-email", "user-phone", "user-password", "user-role", "user-status", "points-amount", "points-reason", "membership-level", "membership-expiry", "user-delete-confirm"]) ui[id].disabled = blocked;
   ui["users-prev"].disabled = blocked || !isAdministrator() || accounts.page <= 1;
   ui["users-next"].disabled = blocked || !isAdministrator() || !accounts.listing || accounts.page >= accounts.listing.totalPages;
+  const pointsPending = accounts.selected && accounts.pointsUncertain.has(accounts.selected.id);
+  const pointsBlocked = blocked || !isAdministrator() || !accounts.selected || pointsPending;
+  for (const id of ["points-amount", "points-reason", "points-save"]) ui[id].disabled = Boolean(pointsBlocked);
+  ui["points-status"].textContent = pointsPending
+    ? "原积分调整结果未确认，已清空输入。请重新查询并选择此用户，核对当前余额后再填写新的调整。"
+    : accounts.selected ? `当前读取余额：${text(accounts.selected.points)}。这不能判定之前的调整是否成功；新的提交会再次调整积分。` : "先从用户列表选择目标。";
   ui["user-delete"].disabled = blocked || !isAdministrator() || !accounts.selected || accounts.selected.id === state.user?.id || !ui["user-delete-confirm"].checked;
   ui.request.disabled = blocked || Boolean(state.submission || state.current);
   ui.start.disabled = blocked || Boolean(state.current);
@@ -258,6 +264,7 @@ function clearSession(message = "已退出。请登录后继续；旧结果与�
 function isAdministrator() { return ["ADMIN", "SUPER_ADMIN"].includes(state.user?.role); }
 function clearAccounts() {
   accounts.profile = null; accounts.selected = null; accounts.listing = null; accounts.page = 1;
+  accounts.search = ""; accounts.listingVersion = 0; accounts.pointsUncertain.clear();
   for (const id of ["profile-fields", "user-rows", "users-page", "account-message"]) ui[id].replaceChildren();
   for (const id of ["profile-name", "profile-phone", "current-password", "new-password", "user-search", "user-name", "user-email", "user-phone", "user-password", "points-amount", "points-reason", "membership-expiry"]) ui[id].value = "";
   ui["user-delete-confirm"].checked = false;
@@ -287,6 +294,8 @@ function showProfile(profile) {
   visible("profile-form", true);
 }
 function selectAccount(user) {
+  if (user && accounts.pointsUncertain.has(user.id) && accounts.listingVersion > accounts.pointsUncertain.get(user.id)
+      && accounts.listing.users.includes(user)) accounts.pointsUncertain.delete(user.id);
   accounts.selected = user;
   ui["user-edit-target"].textContent = user ? `正在编辑：${user.name}（${user.id}）` : "创建新用户";
   for (const [field, key] of [["user-name", "name"], ["user-email", "email"], ["user-phone", "phone"]]) ui[field].value = user?.[key] || "";
@@ -299,9 +308,10 @@ function selectAccount(user) {
   ui["user-save"].textContent = user ? "保存用户变更" : "创建用户";
   updateControls();
 }
-async function loadAccounts() {
-  const result = await request(`/v1/identity/users?search=${encodeURIComponent(ui["user-search"].value.trim())}&page=${accounts.page}&pageSize=10`);
-  accounts.listing = result; accounts.page = result.page; ui["user-rows"].replaceChildren();
+async function loadAccounts(page = accounts.page, search = accounts.search) {
+  const result = await request(`/v1/identity/users?search=${encodeURIComponent(search)}&page=${page}&pageSize=10`);
+  accounts.listing = result; accounts.page = result.page; accounts.search = search; accounts.listingVersion += 1;
+  ui["user-rows"].replaceChildren();
   ui["users-page"].textContent = `第 ${result.page} 页 / 共 ${result.totalPages} 页，${result.total} 个用户`;
   for (const user of result.users) {
     const row = node("tr"); const name = node("td", user.name); name.append(node("small", user.email));
@@ -515,14 +525,14 @@ ui["password-form"].addEventListener("submit", event => {
   }, "密码已修改，下次登录请使用新密码。");
 });
 ui["user-search-form"].addEventListener("submit", event => {
-  event.preventDefault(); if (!isAdministrator()) return;
-  accounts.page = 1; accountAction(loadAccounts, "已读取用户列表。点击编辑可修改所选用户。");
+  event.preventDefault(); if (state.busy || !isAdministrator()) return;
+  accountAction(() => loadAccounts(1, ui["user-search"].value.trim()), "已读取用户列表。点击编辑可修改所选用户。");
 });
 for (const [id, delta] of [["users-prev", -1], ["users-next", 1]]) ui[id].addEventListener("click", () => {
   if (state.busy || !isAdministrator() || !accounts.listing) return;
   const next = accounts.page + delta;
   if (next < 1 || next > accounts.listing.totalPages) return;
-  accounts.page = next; accountAction(loadAccounts, "已读取用户列表。");
+  accountAction(() => loadAccounts(next), "已读取用户列表。");
 });
 ui["user-new"].addEventListener("click", () => { if (!state.busy && isAdministrator()) selectAccount(null); });
 ui["user-form"].addEventListener("submit", event => {
@@ -547,8 +557,18 @@ ui["user-form"].addEventListener("submit", event => {
 ui["points-form"].addEventListener("submit", event => {
   event.preventDefault(); if (!isAdministrator() || !accounts.selected) return;
   const id = accounts.selected.id;
-  accountAction(async () => {
-    const result = await request(`/v1/identity/users/${encodeURIComponent(id)}/points`, { amount: Number(ui["points-amount"].value), reason: ui["points-reason"].value.trim() }, "PUT");
+  if (accounts.pointsUncertain.has(id)) return;
+  accountAction(async version => {
+    let result;
+    try {
+      result = await request(`/v1/identity/users/${encodeURIComponent(id)}/points`, { amount: Number(ui["points-amount"].value), reason: ui["points-reason"].value.trim() }, "PUT");
+    } catch (error) {
+      if (version === state.sessionVersion && (!error.status || error.status >= 500)) {
+        accounts.pointsUncertain.set(id, accounts.listingVersion);
+        ui["points-amount"].value = ""; ui["points-reason"].value = "";
+      }
+      throw error;
+    }
     accounts.selected = { ...accounts.selected, points: result.points };
     ui["points-amount"].value = ""; ui["points-reason"].value = "";
     await loadAccounts();
@@ -571,7 +591,7 @@ ui["user-delete"].addEventListener("click", () => {
   const id = accounts.selected.id;
   accountAction(async () => {
     await request(`/v1/identity/users/${encodeURIComponent(id)}`, undefined, "DELETE");
-    selectAccount(null); accounts.page = 1; await loadAccounts();
+    selectAccount(null); await loadAccounts(1);
   }, "所选用户已删除。");
 });
 ui["login-form"].addEventListener("submit", event => { event.preventDefault(); login(); });

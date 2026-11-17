@@ -94,6 +94,17 @@ class AccountHttpTests(unittest.TestCase):
         self.assertEqual(response.json(), {"points": 23})
         self.assertEqual(len(self.accounts.calls), 2)
 
+    def test_names_and_adjustment_reasons_match_the_java_limits_before_forwarding(self):
+        for path, payload in [("/profile", {"name": "n" * 101}),
+                              ("/users/alice", {"name": "n" * 101}),
+                              ("/users/alice/points", {"amount": 1, "reason": "r" * 501})]:
+            response = self.client.put("/v1/identity" + path, headers=self.headers, json=payload)
+            self.assertEqual(response.status_code, 422)
+        response = self.client.post("/v1/identity/users", headers=self.headers,
+                                    json={"name": "n" * 101, "email": "new@example.invalid", "password": "new-password"})
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(self.accounts.calls, [])
+
     def test_missing_upstream_fields_fail_instead_of_returning_fake_success(self):
         self.accounts.result = {"password": "secret"}
         response = self.client.get("/v1/identity/profile", headers=self.headers)
