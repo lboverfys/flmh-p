@@ -96,7 +96,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
                 ]})
             if request.url.path.endswith("_search"):
                 return httpx.Response(200, json={"hits": {"hits": [
-                    {"_id": "child-1", "_score": 0.8, "_source": {"text": "Child", "parent_id": "parent-1"}}
+                    {"_id": "child-1", "_index": "chunks-doc-version", "_score": 0.8, "_source": {"text": "Child", "parent_id": "parent-1"}}
                 ]}})
             return httpx.Response(200, json={"results": [{"index": 0, "relevanceScore": 0.99}]})
 

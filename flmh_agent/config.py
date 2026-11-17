@@ -43,7 +43,7 @@ class Settings(BaseModel):
     bge_reranker_api_key: str = ""
     elasticsearch_url: str = ""
     elasticsearch_api_key: str = ""
-    elasticsearch_index: str = ""
+    elasticsearch_index: str = Field(default="", pattern=r"^([a-z0-9][a-z0-9_-]{0,79})?$")
     elasticsearch_dense_field: str = "dense_vector"
     elasticsearch_sparse_field: str = "sparse_vector"
     sql_dialect: str = "postgres"

@@ -20,7 +20,7 @@ tests/                 # 领域、工作流、安全与适配器合同测试
 
 应用逻辑只依赖端口。生产适配器按配置选择；未配置的外部能力返回明确的 disabled/configuration 错误。`rules` 是明示的本地规划适配器，输出来源为 `RULES`，不冒充真实模型输出。报价前只整理用户输入和商品信息成 `INPUT_REQUEST` 摘要，不调用付费内容生成；明确确认后才通过 MCP 提交 Java 内容任务，由内容服务执行真实或本地 provider。`APP_ENV=production` 必须启用模型网关规划、PostgreSQL Checkpointer 和 API key。
 
-Agent 是 MCP client：它连接 `MCP_TOOLS_URL`，初始化后核对工具集，再在同一 MCP 会话内执行独立商品查询。工具桥仅将 Java Gateway REST 转成 MCP，不持有 Agent 逻辑。模型供应商、模型名及厂商密钥在 Java Model Gateway 配置；Python 只使用 `MODEL_GATEWAY_URL` 和服务认证键。生产网关、Java 服务及 Python 两个 Java client 共用 `FLMH_SERVICE_API_KEY` 对应值，调用方以 `X-Service-Key` 发送；Gateway 还要求 `X-Client-Id`。这是服务认证边界，不是终端用户身份或租户授权。
+Agent 是 MCP client：真正调用商品/内容工具时才连接 `MCP_TOOLS_URL`，初始化后核对工具集，再在同一 MCP 会话内执行独立商品查询；会话由同一异步任务建立和关闭。独立知识/BI 请求不依赖 MCP 可达性。工具桥仅将 Java Gateway REST 转成 MCP，不持有 Agent 逻辑。模型供应商、模型名及厂商密钥在 Java Model Gateway 配置；Python 只使用 `MODEL_GATEWAY_URL` 和服务认证键。生产网关、Java 服务及 Python 两个 Java client 共用 `FLMH_SERVICE_API_KEY` 对应值，调用方以 `X-Service-Key` 发送；Gateway 还要求 `X-Client-Id`。这是服务认证边界，不是终端用户身份或租户授权。
 
 MCP 工具桥仅允许绑定本机回环地址。CLI 和 API 在 Windows 启用 PostgreSQL Checkpointer 时选择 psycopg 兼容的 Selector 事件循环；直接使用其他 ASGI 启动器时，也必须显式配置兼容循环。
 
@@ -88,7 +88,7 @@ Invoke-RestMethod -Method Post 'http://127.0.0.1:8090/v1/agent/runs/local-reques
 | Checkpoint | `langgraph-checkpoint-postgres` 的 AsyncPostgresSaver | 默认 InMemorySaver；进程退出后状态消失 |
 | 观测 | Langfuse v3 CallbackHandler；按配置启用并在退出时 flush/shutdown | 无 key 时禁用 |
 | Text2SQL | Java Model Gateway 生成，SQLGlot AST 校验，asyncpg read-only transaction | 空权限或空连接默认关闭 |
-| RAG | BGE-M3 HTTP 批量返回 dense/sparse；Elasticsearch 并行召回；RRF；BGE-Reranker 批量重排；`_mget` 父块回填；LangGraph 知识问答及内容参考资料节点 | 独立检索 HTTP 返回 503；Agent 知识请求返回 `needs_configuration` 与 TODO |
+| RAG | BGE-M3 HTTP 批量返回 dense/sparse；Elasticsearch PIT 内并行召回；RRF；BGE-Reranker 批量重排；原版本索引 `_mget` 父块回填；LangGraph 知识问答及内容参考资料节点 | 独立检索 HTTP 返回 503；Agent 知识请求返回 `needs_configuration` 与 TODO |
 
 Postgres Checkpointer 的 schema setup 默认关闭；明确初始化数据库时才使用 `POSTGRES_CHECKPOINT_SETUP=true`。BI 使用独立的 `BI_DATABASE_URI` 和只读数据库账号；不共用 Checkpointer 的写权限。BI HTTP 使用每个 role 的独立 bearer key，角色由服务器 key 映射确定，不信任调用者自报角色头。Agent BI 只在配置 `AGENT_SQL_PRINCIPAL` 时启用对应服务角色。
 
@@ -96,7 +96,11 @@ SQL 校验来源是旧 `biGraph.ts` 和 Prisma schema 的五表：`market_produc
 
 BGE-M3 HTTP 契约：发送 `{"model":"<配置值>","input":["文本"],"returnDense":true,"returnSparse":true}`；返回 `{"data":[{"denseVector":[...],"sparseVector":{"token":0.1}}]}`。重排发送 model/query/documents/topN，返回 `{"results":[{"index":0,"relevanceScore":0.9}]}`。HTTP URL 是完整 endpoint。Elasticsearch chunk 索引字段使用 `dense_vector`、`sparse_vector`、`text`、`parent_id`，父块以 ID `_mget` 获取。填写服务地址前需让部署实现匹配这些明确契约。
 
-知识入库使用 UTF-8 文本，每个文件最多 1 MiB；父块 3000 字符，子块最多 800 字符、步长 700，每批最多 32 个子块一次嵌入并批量写 ES。固定文档 ID、版本和来源生成稳定块 ID；同版本不同正文或来源会拒绝，失败可使用原输入重试。新版本并存，生产发布应使用独立索引/别名控制生效版本，当前没有自动清理旧版本或全库重建。
+知识入库使用 UTF-8 文本，每个文件最多 1 MiB；父块 3000 字符，子块最多 800 字符、步长 700，每批最多 32 个子块一次嵌入并批量写 ES。`ELASTICSEARCH_INDEX` 是知识库名称前缀，只允许 1–80 个小写英文字母、数字、连字符或下划线，首字符必须为字母或数字。每个文档版本写入独立的 `<前缀>-doc-<hash>` 物理索引；`<前缀>-active-<文档hash>` 别名只指向该文档的一个已发布版本。首次建立的空 anchor 索引用于原子发布的基线，不含检索文本。旧的单索引数据不会自动迁移或被此路径查询，需要按新版本重新入库。
+
+所有批次成功后，入库使用 ES write block API 封存索引并等待正在进行的写入结束，刷新后核对父块和子块数量，再通过一次别名 remove/add 发布。清单保存内容指纹、来源、模型及首次入库时的发布基线；同版本不同内容/模型被拒绝。别名切换要求旧基线仍存在，其他版本已抢先发布时返回冲突，不能把旧重试静默回滚成当前版本。部分失败的 staging 索引不会被检索；使用相同输入重试可补写，已封存但发布响应丢失时重新核实别名并恢复发布；当前已发布同版本直接返回 `ALREADY_PUBLISHED`，不会重新计算向量。封存后计数不符需使用新版本排查重建，不自动解封或删除数据。
+
+每次检索通过已发布别名集合打开 PIT，将两路召回固定在同一时刻，并在成功或失败时关闭 PIT。父块按命中结果的物理索引批量读取；旧索引不自动删除，因此发布中途切换不会让父块落到新版本。不同文档按各自发布事务生效，当前没有跨全库版本事务。当前每个文档版本对应一个物理索引，生产启用前应确定文档规模、分片配额和旧版本保留/清理策略；真实集群的并发别名切换、write block 和 PIT 行为仍待联调，不把 HTTP 合同测试当作已完成生产验证。
 
 配置目标服务并明确授权写入后使用（本任务未执行真实入库）：
 
@@ -126,7 +130,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m unittest discover -s tests -v
 ```
 
-测试覆盖确认闸门、预算、状态刷新、报价幂等、run_id 冲突、并发查询/同 run 协调、失败节点与失败查询重试、独立槽位版本、修订并发控制、旧报价确认拒绝、DAG 依赖校验、模型/MCP/BGE/ES HTTP 合同、批量入库、RRF/父块、Text2SQL AST/权限、Windows PostgreSQL 事件循环及 API 输入。2026-11-17 使用上述 Python 3.12.14 环境运行 55 项测试全部通过，入库 CLI `--help` 和 `pip check` 通过。已检查 PostgreSQL/Langfuse 可选库接口；这不等于真实服务联调。当前未在真实 PostgreSQL、Langfuse、BGE 服务或 Elasticsearch 上联调；没有运行性能基准，不以简历历史数字冒充本次数据。
+测试覆盖确认闸门、预算、状态刷新、报价幂等、run_id 冲突、并发查询/同 run 协调、失败节点与失败查询重试、独立槽位版本、修订并发控制、旧报价确认拒绝、DAG 依赖校验、模型/MCP/BGE/ES HTTP 合同、批量入库及发布隔离、RRF/父块、Text2SQL AST/权限、连接池并发初始化、MCP 会话生命周期、Windows PostgreSQL 事件循环及 API 输入。2026-11-17 使用上述 Python 3.12.14 环境运行 68 项测试全部通过，入库 CLI `--help` 和 `pip check` 通过。已检查 PostgreSQL/Langfuse 可选库接口；这不等于真实服务联调。当前未在真实 PostgreSQL、Langfuse、BGE 服务或 Elasticsearch 上联调；没有运行性能基准，不以简历历史数字冒充本次数据。
 
 ## 待配置与未验证项
 

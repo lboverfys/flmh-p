@@ -43,14 +43,20 @@ async def hybrid_retrieve(
         raise ValueError("invalid retrieval bounds")
     dense_vector, sparse_vector = await embedder.encode(query)
     candidate_limit = limit * candidate_multiplier
-    dense, sparse = await asyncio.gather(
-        store.search_dense(dense_vector, candidate_limit),
-        store.search_sparse(sparse_vector, candidate_limit),
-    )
-    fused = reciprocal_rank_fusion(dense, sparse)
-    reranked = await reranker.rerank(query, fused, candidate_limit)
-    parent_ids = list(dict.fromkeys(chunk.parent_id for chunk in reranked[:limit] if chunk.parent_id))
-    parents = await store.get_parents(parent_ids) if parent_ids else []
+    async with store.snapshot() as published:
+        recalls = await asyncio.gather(
+            published.search_dense(dense_vector, candidate_limit),
+            published.search_sparse(sparse_vector, candidate_limit),
+            return_exceptions=True,
+        )
+        for recall in recalls:
+            if isinstance(recall, BaseException):
+                raise recall
+        dense, sparse = recalls
+        fused = reciprocal_rank_fusion(dense, sparse)
+        reranked = await reranker.rerank(query, fused, candidate_limit)
+        parent_ids = list(dict.fromkeys(chunk.parent_id for chunk in reranked[:limit] if chunk.parent_id))
+        parents = await published.get_parents(parent_ids) if parent_ids else []
     by_id = {chunk.chunk_id: chunk for chunk in parents}
     return [by_id[parent_id] for parent_id in parent_ids if parent_id in by_id]
 

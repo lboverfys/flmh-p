@@ -11,7 +11,7 @@ from flmh_agent.config import Settings
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Import one versioned UTF-8 text document into the configured knowledge index")
+    parser = argparse.ArgumentParser(description="Stage, seal and atomically publish one versioned UTF-8 knowledge document")
     parser.add_argument("--file", required=True, type=Path)
     parser.add_argument("--document-id", required=True)
     parser.add_argument("--version", required=True)

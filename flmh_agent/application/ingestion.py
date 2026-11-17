@@ -31,8 +31,20 @@ class KnowledgeIngestion:
     async def ingest(self, document_id: str, version: str, source_ref: str, text: str) -> dict:
         groups = chunk_document(document_id, version, source_ref, text)
         first = next(groups)
-        await self.store.ensure_index()
-        await self.store.reserve_document(document_id, version, source_ref, hashlib.sha256(text.encode("utf-8")).hexdigest())
+        await self.store.ensure_index(document_id, version)
+        reservation = await self.store.reserve_document(document_id, version, source_ref, hashlib.sha256(text.encode("utf-8")).hexdigest())
+        if reservation == "PUBLISHED":
+            return {"documentId": document_id, "version": version, "sourceRef": source_ref,
+                    "mode": "ALREADY_PUBLISHED", "source": "CONFIGURED_ADAPTERS"}
+        if reservation == "SEALED":
+            parent_count = child_count = 0
+            for parent, chunks in itertools.chain((first,), groups):
+                parent_count += 1
+                child_count += len(chunks)
+            await self.store.publish_document(document_id, version, parent_count, child_count)
+            return {"documentId": document_id, "version": version, "sourceRef": source_ref,
+                    "parents": parent_count, "children": child_count, "embeddingBatches": 0,
+                    "mode": "VERSIONED_ALIAS_PUBLICATION", "source": "CONFIGURED_ADAPTERS"}
         parents: list[Chunk] = []
         children: list[Chunk] = []
         parent_count = child_count = batch_count = 0
@@ -56,6 +68,7 @@ class KnowledgeIngestion:
             parents.append(parent)
             children.extend(chunks)
         await flush()
+        await self.store.publish_document(document_id, version, parent_count, child_count)
         return {"documentId": document_id, "version": version, "sourceRef": source_ref,
                 "parents": parent_count, "children": child_count, "embeddingBatches": batch_count,
-                "mode": "VERSIONED_UPSERT", "source": "CONFIGURED_ADAPTERS"}
+                "mode": "VERSIONED_ALIAS_PUBLICATION", "source": "CONFIGURED_ADAPTERS"}

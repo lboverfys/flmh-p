@@ -1,4 +1,5 @@
 import unittest
+from contextlib import asynccontextmanager
 
 from flmh_agent.application.rag import hybrid_retrieve, reciprocal_rank_fusion
 from flmh_agent.domain.rag import Chunk
@@ -20,6 +21,10 @@ class RagTests(unittest.IsolatedAsyncioTestCase):
         class Store:
             def __init__(self):
                 self.calls = []
+
+            @asynccontextmanager
+            async def snapshot(self):
+                yield self
 
             async def search_dense(self, vector, limit):
                 self.calls.append(("dense", vector, limit))

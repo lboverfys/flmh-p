@@ -4,6 +4,11 @@ from flmh_agent.config import ConfigurationError, Settings
 
 
 class SettingsTests(unittest.TestCase):
+    def test_knowledge_namespace_rejects_index_wildcards_and_paths(self):
+        for index in ("knowledge*", "other,index", "../index", "Uppercase"):
+            with self.subTest(index=index), self.assertRaises(ConfigurationError):
+                Settings.from_env({"ELASTICSEARCH_INDEX": index})
+
     def test_defaults_select_local_rule_and_template_adapters(self):
         settings = Settings.from_env({})
         self.assertEqual(settings.planner_backend, "rules")
