@@ -10,6 +10,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from flmh_agent.adapters.inbound.mcp_tools import create_mcp_server
 from flmh_agent.adapters.outbound.coordination import InMemoryRunCoordinator
+from flmh_agent.adapters.outbound.sessions import InMemorySessionDirectory
 from flmh_agent.adapters.outbound.java_gateway import JavaGatewayClient
 from flmh_agent.adapters.outbound.mcp_client import McpProductContentAdapter
 from flmh_agent.adapters.outbound.model_gateway import ModelGatewayClient, ModelGatewayPlanner
@@ -147,7 +148,7 @@ class ProductHistoryTests(IdentityTestCase):
             yield SimpleNamespace(get_product_history=history)
         return AgentApplication(settings=Settings(), planner=RuleBasedPlanner(), checkpointer=InMemorySaver(),
                                 tool_session_factory=tools, trace_factory=SimpleNamespace(create=lambda: None),
-                                run_coordinator=InMemoryRunCoordinator())
+                                run_coordinator=InMemoryRunCoordinator(), session_directory=InMemorySessionDirectory())
 
     async def test_workflow_returns_sourced_snapshots_without_inventing_daily_values(self):
         history = AsyncMock(side_effect=history_response)

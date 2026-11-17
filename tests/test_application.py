@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from langgraph.checkpoint.memory import InMemorySaver
 
 from flmh_agent.adapters.outbound.coordination import InMemoryRunCoordinator
+from flmh_agent.adapters.outbound.sessions import InMemorySessionDirectory
 from flmh_agent.application.service import AgentApplication, RunConflictError
 from flmh_agent.config import Settings
 from flmh_agent.domain.planning import RuleBasedPlanner
@@ -55,6 +56,7 @@ class ApplicationTests(IdentityTestCase):
             tool_session_factory=tool_session,
             trace_factory=NoTrace(),
             run_coordinator=InMemoryRunCoordinator(),
+            session_directory=InMemorySessionDirectory(),
         )
 
     async def test_run_identifier_replays_identical_input_but_conflicts_on_different_input(self):

@@ -18,8 +18,10 @@ from flmh_agent.domain.models import AgentInput, AgentState, ConfirmationInput, 
 from flmh_agent.domain.media_production import MEDIA_TERMINAL_STATUSES, media_status
 from flmh_agent.domain.slots import normalize_slots
 from flmh_agent.domain.identity import UserIdentity, bind_identity, current_identity, run_resource_key
+from flmh_agent.domain.sessions import SessionCursor, SessionNotFoundError, SessionRecord, session_title
 from flmh_agent.ports.observability import TraceHandlerFactory
 from flmh_agent.ports.coordination import RunCoordinatorPort
+from flmh_agent.ports.sessions import SessionDirectoryPort
 from flmh_agent.ports.workflow import BiQueryPort, KnowledgeQueryPort, PlannerPort, ProductContentPort
 from flmh_agent.resources import complete_cleanup
 
@@ -45,6 +47,7 @@ class AgentApplication:
         tool_session_factory: Callable[[], AbstractAsyncContextManager[ProductContentPort]],
         trace_factory: TraceHandlerFactory,
         run_coordinator: RunCoordinatorPort,
+        session_directory: SessionDirectoryPort,
         bi_query: BiQueryPort | None = None,
         knowledge_query: KnowledgeQueryPort | None = None,
     ) -> None:
@@ -56,6 +59,7 @@ class AgentApplication:
         self.run_coordinator = run_coordinator
         self.bi_query = bi_query
         self.knowledge_query = knowledge_query
+        self.session_directory = session_directory
 
     async def start(self, run_id: str, request: Mapping[str, Any], *, identity: UserIdentity | None = None) -> dict[str, Any]:
         self._validate_run_id(run_id)
@@ -64,6 +68,8 @@ class AgentApplication:
 
     async def _start_locked(self, run_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
         payload = AgentInput.model_validate(request)
+        await self.session_directory.reserve(current_identity().user_id, run_id,
+                                             " ".join(payload.user_request.split())[:80])
         state: AgentState = {
             "user_request": payload.user_request,
             "slot_updates": payload.slot_updates,
@@ -143,6 +149,68 @@ class AgentApplication:
             if not snapshot.values:
                 return None
             return await self._refresh_task(run_id, snapshot)
+
+    async def observe(self, run_id: str, *, identity: UserIdentity | None = None) -> dict[str, Any] | None:
+        self._validate_run_id(run_id)
+        async with self._run_scope(run_id, identity, synchronize=False):
+            snapshot = await self._graph(_DisconnectedTools()).aget_state(self._config(run_id, trace=False))
+            return _snapshot_response(run_id, snapshot) if snapshot.values else None
+
+    async def list_sessions(self, *, limit: int = 20, cursor: str | None = None,
+                            identity: UserIdentity | None = None) -> dict[str, Any]:
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 50:
+            raise ValueError("session page size must be between 1 and 50")
+        owner = identity or current_identity()
+        return (await self.session_directory.list(owner.user_id, limit, SessionCursor.decode(cursor))).view()
+
+    async def get_session(self, run_id: str, *, identity: UserIdentity | None = None) -> dict[str, Any]:
+        self._validate_run_id(run_id)
+        async with self._run_scope(run_id, identity, synchronize=False) as record:
+            snapshot = await self._graph(_DisconnectedTools()).aget_state(self._config(run_id, trace=False))
+            if snapshot.values:
+                record = await self._synchronize_snapshot(run_id, snapshot, record)
+            if record is None:
+                raise RunNotFoundError("session does not exist")
+            return {"session": record.view(), "run": _snapshot_response(run_id, snapshot) if snapshot.values else None}
+
+    async def rename_session(self, run_id: str, title: str, expected_version: int,
+                             *, identity: UserIdentity | None = None) -> dict[str, Any]:
+        self._validate_run_id(run_id)
+        _validate_session_version(expected_version)
+        title = session_title(title)
+        async with self._run_scope(run_id, identity, synchronize=False) as record:
+            await self._ensure_session(run_id, record)
+            return (await self.session_directory.rename(current_identity().user_id, run_id, title, expected_version)).view()
+
+    async def delete_session(self, run_id: str, expected_version: int,
+                             *, identity: UserIdentity | None = None) -> dict[str, Any]:
+        self._validate_run_id(run_id)
+        _validate_session_version(expected_version)
+        async with self._run_scope(run_id, identity, synchronize=False, allow_deleted=True) as record:
+            await self._ensure_session(run_id, record)
+            return (await self.session_directory.delete(current_identity().user_id, run_id, expected_version)).view()
+
+    async def _ensure_session(self, run_id: str, record: SessionRecord | None) -> SessionRecord:
+        if record is not None:
+            return record
+        snapshot = await self._graph(_DisconnectedTools()).aget_state(self._config(run_id, trace=False))
+        if not snapshot.values:
+            raise RunNotFoundError("session does not exist")
+        return await self._synchronize_snapshot(run_id, snapshot, record)
+
+    async def _synchronize_snapshot(self, run_id: str, snapshot: Any, record: SessionRecord | None) -> SessionRecord:
+        owner = current_identity().user_id
+        if record is None:
+            title = " ".join(snapshot.values["user_request"].split())[:80]
+            await self.session_directory.reserve(owner, run_id, title)
+        result = _snapshot_response(run_id, snapshot)
+        preview = " ".join((result["summary"] or snapshot.values["user_request"]).split())[:280]
+        return await self.session_directory.synchronize(owner, run_id, preview, result["status"])
+
+    async def _synchronize_session(self, run_id: str, record: SessionRecord | None) -> None:
+        snapshot = await self._graph(_DisconnectedTools()).aget_state(self._config(run_id, trace=False))
+        if snapshot.values:
+            await self._synchronize_snapshot(run_id, snapshot, record)
 
     async def revise(self, run_id: str, request: Mapping[str, Any], *, identity: UserIdentity | None = None) -> dict[str, Any]:
         self._validate_run_id(run_id)
@@ -233,11 +301,26 @@ class AgentApplication:
         return _LazyToolSession(self.tool_session_factory)
 
     @asynccontextmanager
-    async def _run_scope(self, run_id: str, identity: UserIdentity | None):
+    async def _run_scope(self, run_id: str, identity: UserIdentity | None, *, synchronize: bool = True,
+                         allow_deleted: bool = False):
         user = identity or current_identity()
         with bind_identity(user):
             async with self.run_coordinator.acquire(run_resource_key(user, run_id)):
-                yield
+                record = await self.session_directory.find(user.user_id, run_id)
+                if record is not None and record.deleted_at is not None and not allow_deleted:
+                    raise RunNotFoundError("run does not exist")
+                original = None
+                try:
+                    yield record
+                except SessionNotFoundError as failure:
+                    original = failure
+                    raise RunNotFoundError("session does not exist") from failure
+                except BaseException as failure:
+                    original = failure
+                    raise
+                finally:
+                    if synchronize:
+                        await complete_cleanup(self._synchronize_session(run_id, record), original)
 
     def _config(self, run_id: str, *, trace: bool = True) -> dict[str, Any]:
         config: dict[str, Any] = {
@@ -443,6 +526,11 @@ def _extract_products(result: Mapping[str, Any]) -> list[dict[str, Any]]:
 def _request_fingerprint(payload: Mapping[str, Any]) -> str:
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _validate_session_version(value: int) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 9223372036854775807:
+        raise ValueError("session version must be a positive integer")
 
 
 def _snapshot_response(run_id: str, snapshot: Any) -> dict[str, Any]:

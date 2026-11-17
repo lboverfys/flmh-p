@@ -11,6 +11,7 @@ from starlette.testclient import TestClient
 
 from flmh_agent.adapters.inbound.mcp_tools import create_mcp_server
 from flmh_agent.adapters.outbound.coordination import InMemoryRunCoordinator
+from flmh_agent.adapters.outbound.sessions import InMemorySessionDirectory
 from flmh_agent.adapters.outbound.java_gateway import JavaGatewayClient
 from flmh_agent.adapters.outbound.mcp_client import McpProductContentAdapter
 from flmh_agent.api import create_app
@@ -76,6 +77,7 @@ class MediaProductionTests(IdentityTestCase):
             settings=Settings(), planner=RuleBasedPlanner(), checkpointer=InMemorySaver(),
             tool_session_factory=session, trace_factory=SimpleNamespace(create=lambda: None),
             run_coordinator=InMemoryRunCoordinator(),
+            session_directory=InMemorySessionDirectory(),
         )
         self.request = {"user_request": "找一款美国杯子，制作商品图片和视频，预算10"}
 

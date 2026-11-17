@@ -10,6 +10,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from flmh_agent.adapters.inbound.mcp_tools import create_mcp_server
 from flmh_agent.adapters.outbound.coordination import InMemoryRunCoordinator
+from flmh_agent.adapters.outbound.sessions import InMemorySessionDirectory
 from flmh_agent.adapters.outbound.java_gateway import JavaGatewayClient
 from flmh_agent.adapters.outbound.mcp_client import McpProductContentAdapter
 from flmh_agent.adapters.outbound.model_gateway import ModelGatewayClient, ModelGatewayPlanner
@@ -145,7 +146,7 @@ class ProductDetailTests(IdentityTestCase):
 
         return AgentApplication(settings=Settings(), planner=planner or RuleBasedPlanner(), checkpointer=InMemorySaver(),
                                 tool_session_factory=tools, trace_factory=SimpleNamespace(create=lambda: None),
-                                run_coordinator=InMemoryRunCoordinator())
+                                run_coordinator=InMemoryRunCoordinator(), session_directory=InMemorySessionDirectory())
 
     async def test_workflow_preserves_source_unknown_values_and_unverified_links_as_data(self):
         detail = AsyncMock(side_effect=detail_response)

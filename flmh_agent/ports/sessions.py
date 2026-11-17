@@ -1,0 +1,19 @@
+from __future__ import annotations
+
+from typing import Protocol
+
+from flmh_agent.domain.sessions import SessionCursor, SessionPage, SessionRecord
+
+
+class SessionDirectoryPort(Protocol):
+    async def find(self, owner_id: str, run_id: str) -> SessionRecord | None: ...
+
+    async def reserve(self, owner_id: str, run_id: str, title: str) -> SessionRecord: ...
+
+    async def list(self, owner_id: str, limit: int, cursor: SessionCursor | None) -> SessionPage: ...
+
+    async def synchronize(self, owner_id: str, run_id: str, preview: str, status: str) -> SessionRecord: ...
+
+    async def rename(self, owner_id: str, run_id: str, title: str, expected_version: int) -> SessionRecord: ...
+
+    async def delete(self, owner_id: str, run_id: str, expected_version: int) -> SessionRecord: ...

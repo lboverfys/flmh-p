@@ -18,6 +18,7 @@ from flmh_agent.adapters.outbound.model_gateway import ModelGatewayClient, Model
 from flmh_agent.adapters.outbound.observability import LangfuseCallbackFactory
 from flmh_agent.adapters.outbound.postgres_sql import AsyncPostgresReadOnlyRunner
 from flmh_agent.adapters.outbound.sql_permissions import ConfiguredSqlPermissionPolicy
+from flmh_agent.adapters.outbound.sessions import open_session_directory
 from flmh_agent.application.service import AgentApplication
 from flmh_agent.application.rag import HybridKnowledgeService
 from flmh_agent.application.text2sql import TextToSqlService
@@ -49,7 +50,8 @@ async def open_runtime(settings: Settings) -> AsyncIterator[Runtime]:
     ) as model_http, httpx.AsyncClient(
         base_url=settings.identity_service_url, timeout=settings.request_timeout_seconds, trust_env=False,
     ) as identity_http:
-        async with open_checkpointer(settings) as checkpointer, open_run_coordinator(settings) as coordinator:
+        async with open_checkpointer(settings) as checkpointer, open_run_coordinator(settings) as coordinator, \
+                open_session_directory(settings) as session_directory:
             model_gateway = ModelGatewayClient(settings, client=model_http)
             planner = ModelGatewayPlanner(model_gateway) if settings.planner_backend == "model_gateway" else RuleBasedPlanner()
             runner = AsyncPostgresReadOnlyRunner(settings) if settings.bi_database_uri else None
@@ -76,6 +78,7 @@ async def open_runtime(settings: Settings) -> AsyncIterator[Runtime]:
                 run_coordinator=coordinator,
                 bi_query=text_to_sql,
                 knowledge_query=HybridKnowledgeService(**rag) if rag else None,
+                session_directory=session_directory,
             )
             try:
                 yield Runtime(agent, text_to_sql, sql_permissions, rag, JavaIdentityVerifier(settings, identity_http))

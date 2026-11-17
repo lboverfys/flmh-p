@@ -11,6 +11,7 @@ from starlette.testclient import TestClient
 
 from flmh_agent.adapters.inbound.mcp_tools import create_mcp_server
 from flmh_agent.adapters.outbound.coordination import InMemoryRunCoordinator
+from flmh_agent.adapters.outbound.sessions import InMemorySessionDirectory
 from flmh_agent.adapters.outbound.identity import JavaIdentityVerifier
 from flmh_agent.adapters.outbound.java_gateway import JavaGatewayClient
 from flmh_agent.adapters.outbound.model_gateway import ModelGatewayClient
@@ -72,7 +73,7 @@ def application():
 
     app = AgentApplication(settings=Settings(), planner=RuleBasedPlanner(), checkpointer=InMemorySaver(),
                            tool_session_factory=session, trace_factory=SimpleNamespace(create=lambda: None),
-                           run_coordinator=InMemoryRunCoordinator())
+                           run_coordinator=InMemoryRunCoordinator(), session_directory=InMemorySessionDirectory())
     return app, tools
 
 

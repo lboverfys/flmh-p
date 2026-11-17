@@ -10,6 +10,7 @@ import httpx
 from langgraph.checkpoint.memory import InMemorySaver
 
 from flmh_agent.adapters.outbound.coordination import InMemoryRunCoordinator
+from flmh_agent.adapters.outbound.sessions import InMemorySessionDirectory
 from flmh_agent.adapters.outbound.model_gateway import ModelGatewayClient, ModelGatewayPlanner
 from flmh_agent.application.service import AgentApplication
 from flmh_agent.application.workflow import _layered_search, build_workflow
@@ -178,7 +179,8 @@ class QueryBindingTests(IdentityTestCase):
         application = AgentApplication(
             settings=Settings(), planner=SimpleNamespace(plan=AsyncMock(return_value=binding_plan())),
             checkpointer=InMemorySaver(), tool_session_factory=tool_session,
-            trace_factory=SimpleNamespace(create=lambda: None), run_coordinator=InMemoryRunCoordinator())
+            trace_factory=SimpleNamespace(create=lambda: None), run_coordinator=InMemoryRunCoordinator(),
+            session_directory=InMemorySessionDirectory())
         first = await application.start("bound-slots", {"user_request": "跨地区同类选品",
             "slot_updates": {"product": "blue", "region": "GB", "budget_max": 60}})
         self.assertEqual(first["failedQueries"], {})
