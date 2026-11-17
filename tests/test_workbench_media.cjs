@@ -117,6 +117,15 @@ function mediaResult(status = "QUEUED", overall = "processing", overrides = {}) 
 
 async function settled() { await new Promise(resolve => setImmediate(resolve)); }
 
+function usageResult() {
+  const legacy = { total: 1, succeeded: 1, failed: 0, pending: 0 };
+  const ledger = { total: 2, succeeded: 0, failed: 1, pending: 1 };
+  return { total: 3, succeeded: 1, failed: 1, pending: 1, scope: "SOURCE_ROWS_NO_CROSS_SOURCE_DEDUP",
+    sources: { LEGACY_VIDEO_LOGS: legacy, CONTENT_GENERATION_LEDGER: ledger },
+    platforms: [{ platform: null, ...ledger, models: [{ model: null, ...ledger }] },
+      { platform: "<img src=x>", ...legacy, models: [{ model: "<script>private</script>", ...legacy }] }] };
+}
+
 test("未登录可显式申请恢复但不会登录或访问业务接口", async () => {
   const page = harness({ authenticated: false });
   assert.equal(page.ui("recovery-panel").hidden, false);
@@ -404,6 +413,103 @@ test("用户翻页失败保留已显示页码并重试同一页，未提交搜�
   page.response({ users: [], total: 1, page: 1, totalPages: 1 });
   page.submit("user-search-form"); await settled();
   assert.equal(page.calls[3].url, "/v1/identity/users?search=Bob&page=1&pageSize=10");
+});
+
+test("管理员列表展示生成登记行及来源计数，不逐用户请求详情", async () => {
+  const page = harness(); page.run('state.user.role="ADMIN"; updateControls();');
+  const usage = usageResult();
+  page.response({ users: [{ id: "target", name: "Target", role: "USER", points: 12, usage,
+    usageSources: usage.sources, usageScope: usage.scope }], total: 1, page: 1, totalPages: 1 });
+  page.submit("user-search-form"); await settled();
+  assert.equal(page.calls.length, 1);
+  assert.match(page.ui("user-rows").textContent, /总 3 \/ 成功 1 \/ 失败 1 \/ 待定或进行中 1/);
+  assert.match(page.ui("user-rows").textContent, /旧视频日志：总 1/);
+  assert.match(page.ui("user-rows").textContent, /内容生成账本：总 2/);
+  page.run("selectAccount(accounts.listing.users[0]);");
+  assert.equal(page.calls.length, 1);
+  assert.equal(page.ui("user-usage-summary").textContent, "");
+});
+
+test("用量详情只在主动读取时发送一次GET并将空平台模型显示为未知", async () => {
+  const page = harness(); page.run('state.user.role="ADMIN"; selectAccount({id:"target",name:"Target"});');
+  let complete;
+  page.respond(() => new Promise(resolve => { complete = resolve; }));
+  page.click("user-usage-load"); page.click("user-usage-load");
+  assert.equal(page.calls.length, 1);
+  assert.equal(page.calls[0].url, "/v1/identity/users/target/usage-stats");
+  assert.equal(page.calls[0].options.method, "GET");
+  complete({ ok: true, status: 200, json: async () => usageResult() }); await settled();
+  assert.match(page.ui("user-usage-summary").textContent, /旧视频日志/);
+  assert.match(page.ui("user-usage-summary").textContent, /内容生成账本/);
+  assert.match(page.ui("user-usage-summary").textContent, /未跨来源去重/);
+  assert.match(page.ui("user-usage-rows").textContent, /未知平台/);
+  assert.match(page.ui("user-usage-rows").textContent, /未知模型/);
+  assert.match(page.ui("user-usage-rows").textContent, /<img src=x>/);
+  assert.match(page.ui("user-usage-rows").textContent, /<script>private<\/script>/);
+  assert.equal(page.createdTags.includes("img"), false);
+  assert.equal(page.createdTags.includes("script"), false);
+  assert.match(page.ui("user-usage-message").textContent, /不表示金额、积分或送达次数/);
+  assert.equal(page.ui("user-usage-details").hidden, false);
+  assert.equal(page.calls.length, 1);
+  assert.equal(page.timers.size, 0);
+});
+
+test("用量超限422明确展示有界限制且不自动重试或保留旧统计", async () => {
+  const page = harness(); page.run('state.user.role="SUPER_ADMIN"; selectAccount({id:"target",name:"Target"});');
+  page.response(usageResult()); page.click("user-usage-load"); await settled();
+  assert.notEqual(page.ui("user-usage-summary").textContent, "");
+  page.response({ error: "account_query_limit_exceeded" }, 422);
+  page.click("user-usage-load"); await settled();
+  assert.match(page.ui("user-usage-message").textContent, /超过 1000 组/);
+  assert.match(page.ui("user-usage-message").textContent, /未自动重试/);
+  assert.equal(page.ui("user-usage-summary").textContent, "");
+  assert.equal(page.ui("user-usage-details").hidden, true);
+  assert.equal(page.run("accounts.usage"), null);
+  assert.equal(page.calls.length, 2);
+  assert.equal(page.timers.size, 0);
+});
+
+test("选择其他用户再选回时丢弃旧用量成功或失败响应", async () => {
+  for (const status of [200, 503]) {
+    const page = harness(); page.run('state.user.role="ADMIN"; selectAccount({id:"alice-target",name:"Alice Target"});');
+    let complete;
+    page.respond(() => new Promise(resolve => { complete = resolve; }));
+    page.click("user-usage-load");
+    page.run('selectAccount({id:"bob-target",name:"Bob Target"}); selectAccount({id:"alice-target",name:"Alice Target"});');
+    const currentMessage = page.ui("user-usage-message").textContent;
+    complete({ ok: status === 200, status, json: async () => status === 200 ? usageResult() : { error: "account_service_unavailable" } });
+    await settled();
+    assert.equal(page.ui("user-usage-message").textContent, currentMessage);
+    assert.equal(page.ui("user-usage-summary").textContent, "");
+    assert.equal(page.ui("user-usage-rows").textContent, "");
+    assert.equal(page.run("accounts.usage"), null);
+    assert.equal(page.calls.length, 1);
+  }
+});
+
+test("退出换账号后迟到用量不能恢复统计或旧管理员信息", async () => {
+  const page = harness(); page.run('state.user.role="ADMIN"; selectAccount({id:"target",name:"Private Target"});');
+  let complete;
+  page.respond(() => new Promise(resolve => { complete = resolve; }));
+  page.click("user-usage-load"); page.click("logout");
+  page.run('state.token="bob-jwt"; state.user={id:"bob",role:"USER"}; updateControls();');
+  complete({ ok: true, status: 200, json: async () => usageResult() }); await settled();
+  assert.equal(page.ui("user-usage-summary").textContent, "");
+  assert.equal(page.ui("user-usage-rows").textContent, "");
+  assert.doesNotMatch(page.ui("user-usage-message").textContent, /Private Target/);
+  assert.equal(page.run("accounts.selected"), null);
+  assert.equal(page.run("accounts.usage"), null);
+  assert.equal(page.ui("admin-users").hidden, true);
+  assert.equal(page.ui("user-usage-load").disabled, true);
+  assert.equal(page.calls.length, 1);
+});
+
+test("普通用户或未选择目标不能触发用量详情请求", () => {
+  const page = harness(); page.run('selectAccount({id:"target",name:"Target"});');
+  page.click("user-usage-load");
+  assert.equal(page.calls.length, 0);
+  page.run('state.user.role="ADMIN"; selectAccount(null);'); page.click("user-usage-load");
+  assert.equal(page.calls.length, 0);
 });
 
 test("积分结果未知阻止重发，重新读取并选择目标后只显示余额且清空旧调整", async () => {

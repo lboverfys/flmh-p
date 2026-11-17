@@ -35,7 +35,7 @@ from flmh_agent.adapters.inbound.products import product_routes
 from flmh_agent.adapters.outbound.products import JavaProductBrowser
 from flmh_agent.adapters.inbound.assets import asset_routes
 from flmh_agent.adapters.outbound.assets import JavaMediaAssets
-from flmh_agent.ports.identity import IdentityLoginPort, IdentityVerifierPort, IdentityRecoveryPort
+from flmh_agent.ports.identity import IdentityLoginPort, IdentityVerifierPort, IdentityRecoveryPort, UserAccountsPort
 
 
 logger = logging.getLogger("flmh.agent.api")
@@ -61,7 +61,7 @@ class LoginInput(BaseModel):
 
 
 def create_app(settings: Settings | None = None, *, identity_verifier: IdentityVerifierPort | None = None,
-               identity_login: IdentityLoginPort | None = None, accounts: JavaUserAccounts | None = None,
+               identity_login: IdentityLoginPort | None = None, accounts: UserAccountsPort | None = None,
                works: JavaWorkCatalog | None = None, workflows: JavaWorkflowClient | None = None,
                products: JavaProductBrowser | None = None, assets: JavaMediaAssets | None = None,
                identity_recovery: IdentityRecoveryPort | None = None) -> Starlette:

@@ -35,7 +35,8 @@ class JavaUserAccounts:
             raise AccountRequestError(503, "account_service_unavailable") from error
         if response.status_code not in {200, 201}:
             code = {400: "account_input_rejected", 401: "unauthorized", 403: "admin_required",
-                    404: "account_not_found", 409: "account_conflict", 429: "too_many_requests"}
+                    404: "account_not_found", 409: "account_conflict", 422: "account_query_limit_exceeded",
+                    429: "too_many_requests"}
             status = response.status_code if response.status_code in code else 503
             raise AccountRequestError(status, code.get(status, "account_service_unavailable"))
         try:

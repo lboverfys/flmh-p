@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, ValidationError, model_validator
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -89,10 +89,39 @@ class ProfileView(AccountView):
 
 
 class UsageView(BaseModel):
-    total: int
-    succeeded: int
-    failed: int
-    pending: int
+    total: StrictInt = Field(ge=0)
+    succeeded: StrictInt = Field(ge=0)
+    failed: StrictInt = Field(ge=0)
+    pending: StrictInt = Field(ge=0)
+
+
+UsageScope = Literal["SOURCE_ROWS_NO_CROSS_SOURCE_DEDUP"]
+
+
+class UsageSourcesView(BaseModel):
+    LEGACY_VIDEO_LOGS: UsageView
+    CONTENT_GENERATION_LEDGER: UsageView
+
+
+class ModelUsageView(UsageView):
+    model: str | None
+
+
+class PlatformUsageView(UsageView):
+    platform: str | None
+    models: list[ModelUsageView] = Field(max_length=1000)
+
+
+class UsageStatistics(UsageView):
+    platforms: list[PlatformUsageView] = Field(max_length=1000)
+    sources: UsageSourcesView
+    scope: UsageScope
+
+    @model_validator(mode="after")
+    def bounded_model_groups(self):
+        if sum(len(platform.models) for platform in self.platforms) > 1000:
+            raise ValueError("usage_model_group_limit_exceeded")
+        return self
 
 
 class ParentView(BaseModel):
@@ -102,6 +131,8 @@ class ParentView(BaseModel):
 class ListedAccount(AccountView):
     parentAgent: ParentView | None = None
     usage: UsageView | None = None
+    usageSources: UsageSourcesView
+    usageScope: UsageScope
 
 
 class UserPage(BaseModel):
@@ -133,13 +164,13 @@ def account_routes(read_json) -> list[Route]:
             if admin and identity.role not in {"ADMIN", "SUPER_ADMIN"}:
                 return JSONResponse({"error": "admin_required"}, status_code=403, headers=headers)
             target = request.path_params.get("user_id")
-            if target is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", target):
+            if target is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,95}", target):
                 return JSONResponse({"error": "invalid_account_id"}, status_code=400, headers=headers)
             try:
                 payload = None
                 params = None
                 input_model = inputs.get(request.method)
-                if input_model is UserQuery:
+                if request.method == "GET" and input_model is not None:
                     params = input_model.model_validate(dict(request.query_params)).model_dump(exclude_none=True)
                 elif input_model is not None:
                     payload = input_model.model_validate(await read_json(request)).model_dump(exclude_unset=True)
@@ -168,6 +199,7 @@ def account_routes(read_json) -> list[Route]:
         ("/password", {"PUT": PasswordUpdate}, Success, False),
         ("/users", {"GET": UserQuery, "POST": UserCreate}, {"GET": UserPage, "POST": AccountView}, True),
         ("/users/stats", {"GET": None}, Statistics, True),
+        ("/users/{user_id}/usage-stats", {"GET": Input}, UsageStatistics, True),
         ("/users/{user_id}", {"PUT": UserUpdate, "DELETE": None}, {"PUT": AccountView, "DELETE": Success}, True),
         ("/users/{user_id}/points", {"PUT": PointAdjustment}, Balance, True),
         ("/users/{user_id}/membership", {"PUT": MembershipUpdate}, AccountView, True),

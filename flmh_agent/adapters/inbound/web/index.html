@@ -42,7 +42,8 @@
         <section id="admin-users" hidden>
           <div class="section-heading"><h2>用户管理</h2><button id="user-new" class="secondary" type="button">新建用户</button></div>
           <form id="user-search-form" class="inline"><input id="user-search" maxlength="200" aria-label="按姓名、邮箱或电话搜索用户" placeholder="姓名 / 邮箱 / 电话"><button class="secondary" type="submit">查询</button></form>
-          <div class="table-scroll"><table><thead><tr><th>用户</th><th>角色 / 状态</th><th>积分 / 来源</th><th>操作</th></tr></thead><tbody id="user-rows"></tbody></table></div>
+          <p class="help">用量按生成请求登记行计数。旧视频日志与内容账本分别计数，未跨来源去重；这些计数不是金额、积分或送达次数。待定或进行中包含提交结果未知、尚未确认供应商是否受理的请求。</p>
+          <div class="table-scroll"><table><thead><tr><th>用户</th><th>角色 / 状态</th><th>积分 / 来源</th><th>生成请求登记行</th><th>操作</th></tr></thead><tbody id="user-rows"></tbody></table></div>
           <div class="button-row"><button id="users-prev" type="button" class="secondary">上一页</button><span id="users-page" class="help"></span><button id="users-next" type="button" class="secondary">下一页</button></div>
           <form id="user-form">
             <p id="user-edit-target" class="help">创建新用户</p>
@@ -52,6 +53,12 @@
             <button id="user-save" class="primary full-width" type="submit">创建用户</button>
           </form>
           <div id="user-adjustments" hidden>
+            <section id="user-usage-panel" aria-labelledby="user-usage-title">
+              <div class="section-heading"><h3 id="user-usage-title">生成请求用量</h3><button id="user-usage-load" type="button" class="secondary">读取用量明细</button></div>
+              <p id="user-usage-message" class="help" role="status" aria-live="polite">点击后读取所选用户的统计；每次最多 1000 个平台与模型组合。</p>
+              <div id="user-usage-summary" class="key-values"></div>
+              <div id="user-usage-details" class="table-scroll" hidden><table><thead><tr><th>平台</th><th>模型</th><th>登记行数</th><th>成功</th><th>失败</th><th>待定或进行中</th></tr></thead><tbody id="user-usage-rows"></tbody></table></div>
+            </section>
             <form id="points-form"><div class="field-pair"><div><label for="points-amount">调整积分（负数为扣减）</label><input id="points-amount" type="number" step="1" min="-2147483648" max="2147483647" required></div><div><label for="points-reason">调整原因</label><input id="points-reason" maxlength="500" required></div></div><p id="points-status" class="help" role="status" aria-live="polite">先从用户列表选择目标。</p><button id="points-save" class="secondary full-width" type="submit">保存积分调整</button></form>
             <form id="membership-form"><div class="field-pair"><div><label for="membership-level">会员等级</label><select id="membership-level"><option>FREE</option><option>BASIC</option><option>PRO</option><option>VOICE_AGENT</option><option>ENTERPRISE</option><option>ENTERPRISE_SUPREME</option></select></div><div><label for="membership-expiry">到期时间（本地时间，可留空）</label><input id="membership-expiry" type="datetime-local"></div></div><button class="secondary full-width" type="submit">保存会员设置</button></form>
             <label class="delete-confirm"><input id="user-delete-confirm" type="checkbox">确认删除当前选中的用户</label><button id="user-delete" type="button" class="secondary">删除所选用户</button>

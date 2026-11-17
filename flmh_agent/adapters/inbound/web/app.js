@@ -26,7 +26,8 @@ let workflowEditor;
 let sessionsPanel;
 let productCatalog;
 let mediaAssets;
-const accounts = { profile: null, selected: null, listing: null, page: 1, search: "", listingVersion: 0, pointsUncertain: new Map() };
+const accounts = { profile: null, selected: null, listing: null, page: 1, search: "", listingVersion: 0,
+  pointsUncertain: new Map(), usage: null, usageVersion: 0 };
 const works = { listing: null, page: 1, selected: null, lineage: null, pendingSave: null };
 const recovery = { cooldowns: new Map(), timer: null };
 
@@ -94,6 +95,7 @@ function updateControls() {
   for (const id of ["profile-name", "profile-phone", "current-password", "new-password", "user-search", "user-name", "user-email", "user-phone", "user-password", "user-role", "user-status", "points-amount", "points-reason", "membership-level", "membership-expiry", "user-delete-confirm"]) ui[id].disabled = blocked;
   ui["users-prev"].disabled = blocked || !isAdministrator() || accounts.page <= 1;
   ui["users-next"].disabled = blocked || !isAdministrator() || !accounts.listing || accounts.page >= accounts.listing.totalPages;
+  ui["user-usage-load"].disabled = blocked || !isAdministrator() || !accounts.selected;
   const pointsPending = accounts.selected && accounts.pointsUncertain.has(accounts.selected.id);
   const pointsBlocked = blocked || !isAdministrator() || !accounts.selected || pointsPending;
   for (const id of ["points-amount", "points-reason", "points-save"]) ui[id].disabled = Boolean(pointsBlocked);
@@ -142,6 +144,7 @@ function errorMessage(status, data) {
       account_not_found: "用户已不存在，请重新查询。", admin_required: "当前账号没有管理员权限。",
       account_input_rejected: "账号服务拒绝本次输入，请检查邮箱、密码、积分或会员信息。",
       invalid_account_input: "账号输入格式无效，请检查必填项与长度。",
+      account_query_limit_exceeded: "该用户的平台与模型统计超过 1000 组，当前无法展示完整明细。请等待支持分页的统计功能；未自动重试。",
       account_service_unavailable: "账号服务暂时不可用。变更可能已被接收，请先重新读取，勿重复提交积分调整。" }[data.error] || "账号操作未完成，请重新读取后核对。";
   }
   if (status === 401) return "登录已失效或访问凭据不匹配，请重新登录；服务要求 Agent 访问凭据时，也需填写访问设置。";
@@ -458,6 +461,7 @@ function isAdministrator() { return ["ADMIN", "SUPER_ADMIN"].includes(state.user
 function clearAccounts() {
   accounts.profile = null; accounts.selected = null; accounts.listing = null; accounts.page = 1;
   accounts.search = ""; accounts.listingVersion = 0; accounts.pointsUncertain.clear();
+  clearAccountUsage();
   for (const id of ["profile-fields", "user-rows", "users-page", "account-message"]) ui[id].replaceChildren();
   for (const id of ["profile-name", "profile-phone", "current-password", "new-password", "user-search", "user-name", "user-email", "user-phone", "user-password", "points-amount", "points-reason", "membership-expiry"]) ui[id].value = "";
   ui["user-delete-confirm"].checked = false;
@@ -490,6 +494,7 @@ function selectAccount(user) {
   if (user && accounts.pointsUncertain.has(user.id) && accounts.listingVersion > accounts.pointsUncertain.get(user.id)
       && accounts.listing.users.includes(user)) accounts.pointsUncertain.delete(user.id);
   accounts.selected = user;
+  clearAccountUsage();
   ui["user-edit-target"].textContent = user ? `正在编辑：${user.name}（${user.id}）` : "创建新用户";
   for (const [field, key] of [["user-name", "name"], ["user-email", "email"], ["user-phone", "phone"]]) ui[field].value = user?.[key] || "";
   ui["user-role"].value = user?.role || "USER"; ui["user-status"].value = user?.status || "ACTIVE";
@@ -501,6 +506,54 @@ function selectAccount(user) {
   ui["user-save"].textContent = user ? "保存用户变更" : "创建用户";
   updateControls();
 }
+function usageCounts(value) {
+  return value ? `总 ${value.total} / 成功 ${value.succeeded} / 失败 ${value.failed} / 待定或进行中 ${value.pending}` : "未提供";
+}
+function usageSourceEntries(sources) {
+  return [["旧视频日志", usageCounts(sources?.LEGACY_VIDEO_LOGS)], ["内容生成账本", usageCounts(sources?.CONTENT_GENERATION_LEDGER)]];
+}
+function clearAccountUsage() {
+  accounts.usage = null; accounts.usageVersion += 1;
+  ui["user-usage-summary"].replaceChildren(); ui["user-usage-rows"].replaceChildren();
+  visible("user-usage-details", false);
+  ui["user-usage-message"].textContent = accounts.selected
+    ? `所选用户：${accounts.selected.name}（${accounts.selected.id}）。点击读取用量明细，最多 1000 个平台与模型组合。` : "先从用户列表选择目标。";
+}
+function renderAccountUsage(result) {
+  fields(ui["user-usage-summary"], [["登记行数", result.total], ["成功", result.succeeded], ["失败", result.failed],
+    ["待定或进行中", result.pending], ...usageSourceEntries(result.sources), ["统计口径", "按来源登记行相加，未跨来源去重"]]);
+  ui["user-usage-rows"].replaceChildren();
+  for (const platform of result.platforms) {
+    const platformName = platform.platform ?? "未知平台";
+    const row = node("tr", undefined, "usage-platform");
+    row.append(node("td", platformName), node("td", "平台合计"), ...[platform.total, platform.succeeded, platform.failed, platform.pending].map(value => node("td", value)));
+    ui["user-usage-rows"].append(row);
+    for (const model of platform.models) {
+      const child = node("tr");
+      child.append(node("td", platformName), node("td", model.model ?? "未知模型"), ...[model.total, model.succeeded, model.failed, model.pending].map(value => node("td", value)));
+      ui["user-usage-rows"].append(child);
+    }
+  }
+  visible("user-usage-details", result.platforms.length > 0);
+}
+async function loadAccountUsage() {
+  if (state.busy || state.authBusy || !isAdministrator() || !accounts.selected || !requireUser()) return;
+  clearAccountUsage();
+  const version = state.sessionVersion, selection = accounts.usageVersion, id = accounts.selected.id;
+  const current = () => version === state.sessionVersion && selection === accounts.usageVersion && accounts.selected?.id === id && isAdministrator();
+  state.busy = true; stopPolling(); updateControls();
+  ui["user-usage-message"].textContent = `正在读取 ${accounts.selected.name}（${id}）的用量明细…`;
+  try {
+    const result = await request(`/v1/identity/users/${encodeURIComponent(id)}/usage-stats`);
+    if (!current()) return;
+    accounts.usage = result; renderAccountUsage(result);
+    ui["user-usage-message"].textContent = `已读取 ${accounts.selected.name}（${id}）的 ${result.total} 条生成请求登记。计数不表示金额、积分或送达次数。`;
+  } catch (error) {
+    if (current()) ui["user-usage-message"].textContent = error.message;
+  } finally {
+    if (version === state.sessionVersion) { state.busy = false; updateControls(); }
+  }
+}
 async function loadAccounts(page = accounts.page, search = accounts.search) {
   const result = await request(`/v1/identity/users?search=${encodeURIComponent(search)}&page=${page}&pageSize=10`);
   accounts.listing = result; accounts.page = result.page; accounts.search = search; accounts.listingVersion += 1;
@@ -510,7 +563,9 @@ async function loadAccounts(page = accounts.page, search = accounts.search) {
     const row = node("tr"); const name = node("td", user.name); name.append(node("small", user.email));
     const controls = node("td"); const edit = node("button", "编辑"); edit.type = "button";
     edit.addEventListener("click", () => { if (!state.busy && isAdministrator()) selectAccount(user); }); controls.append(edit);
-    row.append(name, node("td", `${user.role} / ${user.status}`), node("td", `${user.points} / ${user.source}`), controls); ui["user-rows"].append(row);
+    const usage = node("td", usageCounts(user.usage));
+    for (const [source, value] of usageSourceEntries(user.usageSources)) usage.append(node("small", `${source}：${value}`));
+    row.append(name, node("td", `${user.role} / ${user.status}`), node("td", `${user.points} / ${user.source}`), usage, controls); ui["user-rows"].append(row);
   }
 }
 async function login() {
@@ -798,6 +853,7 @@ for (const [id, delta] of [["users-prev", -1], ["users-next", 1]]) ui[id].addEve
   accountAction(() => loadAccounts(next), "已读取用户列表。");
 });
 ui["user-new"].addEventListener("click", () => { if (!state.busy && isAdministrator()) selectAccount(null); });
+ui["user-usage-load"].addEventListener("click", loadAccountUsage);
 ui["user-form"].addEventListener("submit", event => {
   event.preventDefault(); if (!isAdministrator()) return;
   const selected = accounts.selected;
