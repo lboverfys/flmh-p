@@ -259,7 +259,8 @@ def build_workflow(
             lines = [f"商品 {plan['product_history_id']} 返回 {len(metrics)} 条指标快照，按指标版本倒序。",
                      f"商品来源：{product.get('source') if product.get('source') is not None else '未提供'}；"
                      f"商品来源引用：{product.get('sourceRef') if product.get('sourceRef') is not None else '未提供'}。",
-                     "这些是来源采集快照，不是逐日统计；快照差值按实际采集时间计算，不外推日增长率。"]
+                     "这些是来源采集快照，不是逐日统计；快照差值按实际采集时间计算，不外推日增长率。",
+                     "salesAmount7d：逐快照未保存币种，不计算金额变化。"]
             if trend["status"] == "AVAILABLE":
                 lines.append(f"观察区间：{trend['previousCapturedAt']} 至 {trend['currentCapturedAt']}，"
                              f"实际间隔 {trend['elapsedHours']:.2f} 小时。")
@@ -276,8 +277,12 @@ def build_workflow(
                 lines.append("最新快照只有同一采集时间，无法计算快照差值。")
             elif trend["status"] == "INVALID_TIMESTAMP":
                 lines.append("快照时间无效，无法计算快照差值。")
+            elif trend["status"] == "MISSING_SOURCE":
+                lines.append("比较区间的快照来源缺失，无法确认统计口径，未计算差值。")
+            elif trend["status"] == "SOURCE_CHANGED":
+                lines.append("比较区间的快照来源不同，未跨来源计算差值。")
             else:
-                lines.append("两条最新快照均缺少可比较的销量、销售额或关联达人指标。")
+                lines.append("两条最新快照均缺少可比较的销量或关联达人指标。")
             for metric in metrics:
                 observed = {name: metric.get(name) for name in ("price", "sales7d", "salesAmount7d", "trendScore")}
                 lines.append(f"版本 {metric['metricVersion']}；采集时间：{metric.get('capturedAt')}；"

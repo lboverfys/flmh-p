@@ -6,11 +6,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-TREND_METRICS = ("sales7d", "salesAmount7d", "relatedAuthorCount")
+TREND_METRICS = ("sales7d", "relatedAuthorCount")
 
 
 def compare_product_snapshots(metrics: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """Compare two distinct observed snapshots without extrapolating daily rates."""
+    """Compare same-source count snapshots; historical currency is unavailable."""
     if len(metrics) < 2:
         return {"status": "INSUFFICIENT_SNAPSHOTS", "changes": {}, "unavailableMetrics": list(TREND_METRICS)}
 
@@ -29,6 +29,22 @@ def compare_product_snapshots(metrics: Sequence[Mapping[str, Any]]) -> dict[str,
 
     (previous_at, previous), (current_at, current) = ordered[-2:]
     elapsed_hours = (current_at - previous_at).total_seconds() / 3600
+    observation = {
+        "previousCapturedAt": previous_at.isoformat(),
+        "currentCapturedAt": current_at.isoformat(),
+        "elapsedHours": elapsed_hours,
+        "previousSource": previous.get("source"),
+        "currentSource": current.get("source"),
+        "previousSourceRef": previous.get("sourceRef"),
+        "currentSourceRef": current.get("sourceRef"),
+    }
+    sources = (previous.get("source"), current.get("source"))
+    if any(not isinstance(source, str) or not source.strip() for source in sources):
+        return {**observation, "status": "MISSING_SOURCE", "changes": {},
+                "unavailableMetrics": list(TREND_METRICS)}
+    if sources[0] != sources[1]:
+        return {**observation, "status": "SOURCE_CHANGED", "changes": {},
+                "unavailableMetrics": list(TREND_METRICS)}
     changes: dict[str, dict[str, float | None]] = {}
     unavailable: list[str] = []
     for name in TREND_METRICS:
@@ -45,10 +61,8 @@ def compare_product_snapshots(metrics: Sequence[Mapping[str, Any]]) -> dict[str,
         }
 
     return {
+        **observation,
         "status": "AVAILABLE" if changes else "MISSING_METRIC_VALUES",
-        "previousCapturedAt": previous_at.isoformat(),
-        "currentCapturedAt": current_at.isoformat(),
-        "elapsedHours": elapsed_hours,
         "changes": changes,
         "unavailableMetrics": unavailable,
     }

@@ -168,9 +168,9 @@ class ProductHistoryTests(unittest.IsolatedAsyncioTestCase):
         response = history_response("p-1")
         response["metrics"] = [
             {"metricVersion": 2, "capturedAt": "2026-11-17T12:00:00Z", "sales7d": 24,
-             "salesAmount7d": None, "relatedAuthorCount": 5, "source": "LOCAL_FIXTURE"},
+             "salesAmount7d": 200, "relatedAuthorCount": 5, "source": "LOCAL_FIXTURE", "sourceRef": "fixture:second"},
             {"metricVersion": 1, "capturedAt": "2026-11-17T06:00:00Z", "sales7d": 20,
-             "salesAmount7d": None, "relatedAuthorCount": None, "source": "LOCAL_FIXTURE"},
+             "salesAmount7d": 100, "relatedAuthorCount": None, "source": "LOCAL_FIXTURE", "sourceRef": "fixture:first"},
         ]
         response["nextBeforeVersion"] = None
         history = AsyncMock(return_value=response)
@@ -179,7 +179,27 @@ class ProductHistoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("实际间隔 6.00 小时", result["summary"])
         self.assertIn("sales7d：20.0 → 24.0，变化 4.0（20.00%）", result["summary"])
         self.assertIn("不外推日增长率", result["summary"])
+        self.assertIn("逐快照未保存币种，不计算金额变化", result["summary"])
+        self.assertNotIn("salesAmount7d：100", result["summary"])
+        self.assertIn("fixture:first", result["summary"])
+        self.assertIn("fixture:second", result["summary"])
         self.assertEqual(result["productHistory"], response)
+
+    async def test_workflow_refuses_changes_when_snapshot_sources_are_missing_or_different(self):
+        for source, message in ((None, "快照来源缺失"), ("ANOTHER_SOURCE", "快照来源不同")):
+            with self.subTest(source=source):
+                response = history_response("p-1")
+                response["metrics"] = [
+                    {"metricVersion": 2, "capturedAt": "2026-11-17T12:00:00Z", "sales7d": 24,
+                     "source": source, "sourceRef": "fixture:second"},
+                    {"metricVersion": 1, "capturedAt": "2026-11-17T06:00:00Z", "sales7d": 20,
+                     "source": "LOCAL_FIXTURE", "sourceRef": "fixture:first"},
+                ]
+                application = self.application(AsyncMock(return_value=response))
+                result = await application.start("history-source", {"user_request": "查 p-1 的历史趋势"})
+                self.assertIn(message, result["summary"])
+                self.assertNotIn("sales7d：20.0 → 24.0", result["summary"])
+                self.assertEqual(result["productHistory"], response)
 
     async def test_product_revision_invalidates_history_and_switching_plan_clears_it(self):
         history = AsyncMock(side_effect=history_response)
@@ -216,19 +236,21 @@ class ProductHistoryTests(unittest.IsolatedAsyncioTestCase):
     def test_snapshot_comparison_uses_actual_capture_interval_and_only_supplied_values(self):
         trend = compare_product_snapshots([
             {"metricVersion": 3, "capturedAt": "2026-11-17T12:00:00Z", "sales7d": 24,
-             "salesAmount7d": None, "relatedAuthorCount": 5},
+             "salesAmount7d": 120, "relatedAuthorCount": 5, "source": "LOCAL_FIXTURE", "sourceRef": "fixture:3"},
             {"metricVersion": 1, "capturedAt": "2026-11-17T00:00:00Z", "sales7d": 20,
-             "salesAmount7d": 100, "relatedAuthorCount": 4},
+             "salesAmount7d": 100, "relatedAuthorCount": 4, "source": "LOCAL_FIXTURE", "sourceRef": "fixture:1"},
             {"metricVersion": 2, "capturedAt": "2026-11-17T06:00:00Z", "sales7d": 22,
-             "salesAmount7d": 110, "relatedAuthorCount": None},
+             "salesAmount7d": 110, "relatedAuthorCount": None, "source": "LOCAL_FIXTURE", "sourceRef": "fixture:2"},
         ])
         self.assertEqual(trend["status"], "AVAILABLE")
         self.assertEqual(trend["elapsedHours"], 6.0)
         self.assertEqual(trend["changes"]["sales7d"], {
             "previous": 22.0, "current": 24.0, "delta": 2.0, "relativeChange": 2 / 22,
         })
-        self.assertIn("salesAmount7d", trend["unavailableMetrics"])
+        self.assertNotIn("salesAmount7d", trend["changes"])
         self.assertIn("relatedAuthorCount", trend["unavailableMetrics"])
+        self.assertEqual(trend["previousSourceRef"], "fixture:2")
+        self.assertEqual(trend["currentSourceRef"], "fixture:3")
 
     def test_snapshot_comparison_marks_sparse_invalid_and_zero_baseline_without_fabrication(self):
         one = [{"metricVersion": 1, "capturedAt": "2026-11-17T00:00:00Z", "sales7d": 10}]
@@ -238,7 +260,23 @@ class ProductHistoryTests(unittest.IsolatedAsyncioTestCase):
         invalid_time = [dict(one[0]), {**one[0], "metricVersion": 2, "capturedAt": "unknown"}]
         self.assertEqual(compare_product_snapshots(invalid_time)["status"], "INVALID_TIMESTAMP")
         zero_baseline = compare_product_snapshots([
-            {"metricVersion": 1, "capturedAt": "2026-11-16T00:00:00Z", "sales7d": 0},
-            {"metricVersion": 2, "capturedAt": "2026-11-17T00:00:00Z", "sales7d": 4},
+            {"metricVersion": 1, "capturedAt": "2026-11-16T00:00:00Z", "sales7d": 0, "source": "LOCAL_FIXTURE"},
+            {"metricVersion": 2, "capturedAt": "2026-11-17T00:00:00Z", "sales7d": 4, "source": "LOCAL_FIXTURE"},
         ])
         self.assertIsNone(zero_baseline["changes"]["sales7d"]["relativeChange"])
+
+    def test_snapshot_comparison_rejects_missing_or_different_sources(self):
+        previous = {"metricVersion": 1, "capturedAt": "2026-11-16T00:00:00Z", "sales7d": 10,
+                    "source": "LOCAL_FIXTURE", "sourceRef": "fixture:old"}
+        current = {"metricVersion": 2, "capturedAt": "2026-11-17T00:00:00Z", "sales7d": 20,
+                   "sourceRef": "fixture:new"}
+        for source in (None, "", " "):
+            with self.subTest(source=source):
+                trend = compare_product_snapshots([previous, {**current, "source": source}])
+                self.assertEqual(trend["status"], "MISSING_SOURCE")
+                self.assertEqual(trend["changes"], {})
+        changed = compare_product_snapshots([previous, {**current, "source": "FAST_MOSS"}])
+        self.assertEqual(changed["status"], "SOURCE_CHANGED")
+        self.assertEqual(changed["changes"], {})
+        self.assertEqual(changed["previousSourceRef"], "fixture:old")
+        self.assertEqual(changed["currentSourceRef"], "fixture:new")
