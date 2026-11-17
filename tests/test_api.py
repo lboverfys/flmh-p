@@ -7,6 +7,47 @@ from flmh_agent.config import Settings
 
 
 class ApiTests(unittest.TestCase):
+    def test_workbench_entry_and_assets_support_get_and_head(self):
+        with TestClient(create_app(Settings())) as client:
+            page = client.get("/")
+            self.assertEqual(page.status_code, 200)
+            self.assertIn("text/html", page.headers["content-type"])
+            self.assertIn("FLMH", page.text)
+
+            page_head = client.head("/")
+            self.assertEqual(page_head.status_code, 200)
+            self.assertEqual(page_head.content, b"")
+
+            asset = client.get("/assets/app.js")
+            self.assertEqual(asset.status_code, 200)
+            self.assertIn("text/javascript", asset.headers["content-type"])
+            self.assertIn("use strict", asset.text)
+
+            asset_head = client.head("/assets/app.css")
+            self.assertEqual(asset_head.status_code, 200)
+            self.assertEqual(asset_head.content, b"")
+
+    def test_unknown_workbench_asset_returns_not_found(self):
+        with TestClient(create_app(Settings())) as client:
+            response = client.get("/assets/missing.css")
+            self.assertEqual(response.status_code, 404)
+
+    def test_api_key_keeps_workbench_public_and_agent_routes_protected(self):
+        with TestClient(create_app(Settings(agent_api_key="agent-secret"))) as client:
+            self.assertEqual(client.get("/").status_code, 200)
+            self.assertEqual(client.head("/").status_code, 200)
+            self.assertEqual(client.get("/assets/app.css").status_code, 200)
+            self.assertEqual(client.head("/assets/app.js").status_code, 200)
+
+            self.assertEqual(client.get("/v1/agent/runs/missing").status_code, 401)
+            self.assertEqual(
+                client.get(
+                    "/v1/agent/runs/missing",
+                    headers={"authorization": "Bearer agent-secret"},
+                ).status_code,
+                404,
+            )
+
     def test_lifespan_starts_without_opening_external_services(self):
         with TestClient(create_app(Settings())) as client:
             self.assertEqual(client.get("/health/live").status_code, 200)
