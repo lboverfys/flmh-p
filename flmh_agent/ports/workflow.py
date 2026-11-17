@@ -1,0 +1,32 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any, Protocol
+
+from flmh_agent.domain.models import AgentPlan
+
+
+class PlannerPort(Protocol):
+    async def plan(self, user_request: str, slots: Mapping[str, object]) -> AgentPlan: ...
+
+
+class ProductContentPort(Protocol):
+    async def search_products(self, query: Mapping[str, Any]) -> Mapping[str, Any]: ...
+    async def create_quote(self, request: Mapping[str, Any]) -> Mapping[str, Any]: ...
+    async def confirm_quote(self, quote_id: str) -> Mapping[str, Any]: ...
+    async def submit_task(self, request: Mapping[str, Any], idempotency_key: str) -> Mapping[str, Any]: ...
+    async def get_task(self, task_id: str) -> Mapping[str, Any]: ...
+
+
+class ToolSessionFactory(Protocol):
+    def session(self) -> Any: ...
+
+
+class SqlModelPort(Protocol):
+    async def generate_sql(
+        self, question: str, schema_context: str, *, previous_sql: str = "", error: str = ""
+    ) -> Mapping[str, Any]: ...
+
+
+class BiQueryPort(Protocol):
+    async def query(self, question: str, principal: str) -> Mapping[str, Any]: ...

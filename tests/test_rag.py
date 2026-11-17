@@ -1,37 +1,46 @@
-import asyncio
 import unittest
 
-from flmh_agent.rag import Chunk, reciprocal_rank_fusion, rerank_and_backfill_parents
+from flmh_agent.application.rag import hybrid_retrieve, reciprocal_rank_fusion
+from flmh_agent.domain.rag import Chunk
 
 
-class RagBoundaryTests(unittest.TestCase):
-    def test_rrf_fuses_dense_and_sparse_rankings_without_claiming_retrieval(self):
+class RagTests(unittest.IsolatedAsyncioTestCase):
+    async def test_rrf_merges_dense_and_sparse_rankings(self):
         dense = [Chunk("a", "pa", "A"), Chunk("b", "pb", "B")]
         sparse = [Chunk("b", "pb", "B"), Chunk("c", "pc", "C")]
-        fused = reciprocal_rank_fusion(dense, sparse, rank_constant=0)
-        self.assertEqual([chunk.chunk_id for chunk in fused], ["b", "a", "c"])
+        result = reciprocal_rank_fusion(dense, sparse, rank_constant=1)
+        self.assertEqual([chunk.chunk_id for chunk in result], ["b", "a", "c"])
 
-    def test_reranked_children_are_backfilled_with_parent_blocks(self):
-        class Reranker:
-            async def rerank(self, query, chunks, limit):
-                return list(chunks)[:limit]
+    async def test_dense_sparse_rerank_and_parent_fetch_use_batch_calls(self):
+        class Embedder:
+            async def encode(self, text):
+                self.text = text
+                return [0.1, 0.2], {"word": 0.5}
 
-        class ParentStore:
+        class Store:
+            def __init__(self):
+                self.calls = []
+
+            async def search_dense(self, vector, limit):
+                self.calls.append(("dense", vector, limit))
+                return [Chunk("d1", "parent-1", "Dense child")]
+
+            async def search_sparse(self, vector, limit):
+                self.calls.append(("sparse", vector, limit))
+                return [Chunk("s1", "parent-1", "Sparse child")]
+
             async def get_parents(self, parent_ids):
-                self.parent_ids = list(parent_ids)
+                self.calls.append(("parents", list(parent_ids)))
                 return [Chunk("parent-1", "", "Parent block")]
 
-        store = ParentStore()
-        result = asyncio.run(rerank_and_backfill_parents(
-            "query",
-            [Chunk("child-1", "parent-1", "child")],
-            Reranker(),
-            store,
-            limit=3,
-        ))
-        self.assertEqual(store.parent_ids, ["parent-1"])
+        class Reranker:
+            async def rerank(self, query, chunks, limit):
+                self.calls = (query, list(chunks), limit)
+                return list(chunks)[:limit]
+
+        store = Store()
+        reranker = Reranker()
+        result = await hybrid_retrieve("query", Embedder(), store, reranker, limit=2)
         self.assertEqual([chunk.chunk_id for chunk in result], ["parent-1"])
-
-
-if __name__ == "__main__":
-    unittest.main()
+        self.assertEqual([call[0] for call in store.calls], ["dense", "sparse", "parents"])
+        self.assertEqual(len(store.calls[-1][1]), 1)

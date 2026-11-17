@@ -1,1 +1,1 @@
-"""FLMH local Demo Agent package."""
+"""FLMH Agent application."""
