@@ -16,6 +16,7 @@ from flmh_agent.application.service import AgentApplication
 from flmh_agent.config import Settings
 from flmh_agent.domain.models import AgentPlan, ProductHistoryQuery, ProductQuery
 from flmh_agent.domain.planning import RuleBasedPlanner
+from flmh_agent.domain.product_trend import compare_product_snapshots
 
 
 def history_response(product_id, *, limit=30, before_version=None):
@@ -156,12 +157,29 @@ class ProductHistoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("采集时间：2026-11-17T00:00:00Z", result["summary"])
         self.assertIn('"price": null', result["summary"])
         self.assertIn("不是逐日统计", result["summary"])
-        self.assertIn("未计算增长率", result["summary"])
+        self.assertIn("历史样本不足两次", result["summary"])
         self.assertEqual(result["products"], [])
         self.assertEqual(result["contentTask"], {})
         history.assert_awaited_once_with("p-1", limit=30, before_version=None)
         await application.get("history-run")
         self.assertEqual(history.await_count, 1)
+
+    async def test_workflow_reports_observed_snapshot_change_with_real_elapsed_time(self):
+        response = history_response("p-1")
+        response["metrics"] = [
+            {"metricVersion": 2, "capturedAt": "2026-11-17T12:00:00Z", "sales7d": 24,
+             "salesAmount7d": None, "relatedAuthorCount": 5, "source": "LOCAL_FIXTURE"},
+            {"metricVersion": 1, "capturedAt": "2026-11-17T06:00:00Z", "sales7d": 20,
+             "salesAmount7d": None, "relatedAuthorCount": None, "source": "LOCAL_FIXTURE"},
+        ]
+        response["nextBeforeVersion"] = None
+        history = AsyncMock(return_value=response)
+        application = self.application(history)
+        result = await application.start("history-observed-change", {"user_request": "查 p-1 的历史趋势"})
+        self.assertIn("实际间隔 6.00 小时", result["summary"])
+        self.assertIn("sales7d：20.0 → 24.0，变化 4.0（20.00%）", result["summary"])
+        self.assertIn("不外推日增长率", result["summary"])
+        self.assertEqual(result["productHistory"], response)
 
     async def test_product_revision_invalidates_history_and_switching_plan_clears_it(self):
         history = AsyncMock(side_effect=history_response)
@@ -194,3 +212,33 @@ class ProductHistoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(retry["status"], "completed")
         self.assertEqual(retry["productHistory"], history_response("p-1"))
         self.assertEqual(history.await_count, 2)
+
+    def test_snapshot_comparison_uses_actual_capture_interval_and_only_supplied_values(self):
+        trend = compare_product_snapshots([
+            {"metricVersion": 3, "capturedAt": "2026-11-17T12:00:00Z", "sales7d": 24,
+             "salesAmount7d": None, "relatedAuthorCount": 5},
+            {"metricVersion": 1, "capturedAt": "2026-11-17T00:00:00Z", "sales7d": 20,
+             "salesAmount7d": 100, "relatedAuthorCount": 4},
+            {"metricVersion": 2, "capturedAt": "2026-11-17T06:00:00Z", "sales7d": 22,
+             "salesAmount7d": 110, "relatedAuthorCount": None},
+        ])
+        self.assertEqual(trend["status"], "AVAILABLE")
+        self.assertEqual(trend["elapsedHours"], 6.0)
+        self.assertEqual(trend["changes"]["sales7d"], {
+            "previous": 22.0, "current": 24.0, "delta": 2.0, "relativeChange": 2 / 22,
+        })
+        self.assertIn("salesAmount7d", trend["unavailableMetrics"])
+        self.assertIn("relatedAuthorCount", trend["unavailableMetrics"])
+
+    def test_snapshot_comparison_marks_sparse_invalid_and_zero_baseline_without_fabrication(self):
+        one = [{"metricVersion": 1, "capturedAt": "2026-11-17T00:00:00Z", "sales7d": 10}]
+        self.assertEqual(compare_product_snapshots(one)["status"], "INSUFFICIENT_SNAPSHOTS")
+        same_time = [dict(one[0]), {**one[0], "metricVersion": 2, "sales7d": 20}]
+        self.assertEqual(compare_product_snapshots(same_time)["status"], "NO_ELAPSED_INTERVAL")
+        invalid_time = [dict(one[0]), {**one[0], "metricVersion": 2, "capturedAt": "unknown"}]
+        self.assertEqual(compare_product_snapshots(invalid_time)["status"], "INVALID_TIMESTAMP")
+        zero_baseline = compare_product_snapshots([
+            {"metricVersion": 1, "capturedAt": "2026-11-16T00:00:00Z", "sales7d": 0},
+            {"metricVersion": 2, "capturedAt": "2026-11-17T00:00:00Z", "sales7d": 4},
+        ])
+        self.assertIsNone(zero_baseline["changes"]["sales7d"]["relativeChange"])

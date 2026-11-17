@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from flmh_agent.domain.idempotency import idempotency_key
 from flmh_agent.domain.content import build_content_request
 from flmh_agent.domain.models import AgentPlan, AgentState, ContentBrief, ProductQuery
+from flmh_agent.domain.product_trend import compare_product_snapshots
 from flmh_agent.domain.slots import INVALIDATION_ORDER, SLOT_NAMES, SLOT_DEPENDENCIES, normalize_slots, update_slots
 from flmh_agent.ports.workflow import BiQueryPort, KnowledgeQueryPort, PlannerPort, ProductContentPort
 
@@ -254,10 +255,29 @@ def build_workflow(
             history = state["product_history"]
             metrics = history["metrics"]
             product = history["product"]
+            trend = compare_product_snapshots(metrics)
             lines = [f"商品 {plan['product_history_id']} 返回 {len(metrics)} 条指标快照，按指标版本倒序。",
                      f"商品来源：{product.get('source') if product.get('source') is not None else '未提供'}；"
                      f"商品来源引用：{product.get('sourceRef') if product.get('sourceRef') is not None else '未提供'}。",
-                     "这些是采集快照，不是逐日统计；缺失值不补全，未计算增长率。"]
+                     "这些是来源采集快照，不是逐日统计；快照差值按实际采集时间计算，不外推日增长率。"]
+            if trend["status"] == "AVAILABLE":
+                lines.append(f"观察区间：{trend['previousCapturedAt']} 至 {trend['currentCapturedAt']}，"
+                             f"实际间隔 {trend['elapsedHours']:.2f} 小时。")
+                for name, change in trend["changes"].items():
+                    relative = (f"{change['relativeChange'] * 100:.2f}%" if change["relativeChange"] is not None
+                                else "基线为 0，比例变化不可计算")
+                    lines.append(f"{name}：{change['previous']} → {change['current']}，"
+                                 f"变化 {change['delta']}（{relative}）。")
+                if trend["unavailableMetrics"]:
+                    lines.append(f"因快照缺值未比较：{', '.join(trend['unavailableMetrics'])}。")
+            elif trend["status"] == "INSUFFICIENT_SNAPSHOTS":
+                lines.append("历史样本不足两次，无法计算快照差值。")
+            elif trend["status"] == "NO_ELAPSED_INTERVAL":
+                lines.append("最新快照只有同一采集时间，无法计算快照差值。")
+            elif trend["status"] == "INVALID_TIMESTAMP":
+                lines.append("快照时间无效，无法计算快照差值。")
+            else:
+                lines.append("两条最新快照均缺少可比较的销量、销售额或关联达人指标。")
             for metric in metrics:
                 observed = {name: metric.get(name) for name in ("price", "sales7d", "salesAmount7d", "trendScore")}
                 lines.append(f"版本 {metric['metricVersion']}；采集时间：{metric.get('capturedAt')}；"
