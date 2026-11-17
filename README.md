@@ -10,7 +10,7 @@ flmh_agent/
   ports/               # 规划、内容、MCP工具、检索、观测和运行协调端口
   application/         # LangGraph 工作流、Agent use case、Text2SQL 与 RAG pipeline
   adapters/
-    inbound/           # MCP 工具桥：Java REST → MCP tools
+    inbound/           # MCP 工具桥、工作台与同源账号/作品/工作流/会话 HTTP 入口
     outbound/          # MCP client、Java Model Gateway、Postgres、Langfuse、BGE、ES
   api.py               # ASGI HTTP 应用组合与输入校验
   cli.py               # 交互式 CLI
@@ -28,14 +28,19 @@ MCP 工具桥仅允许绑定本机回环地址。CLI 和 API 在 Windows 启用 
 
 ## 本机启动
 
-本机已验证 Python 为 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`（3.12.14）。包缓存放在 `D:\rubbish\zhongjian\caches\python\flmh`，临时文件放在 `D:\rubbish\zhongjian\temp\flmh\agent-arch`。不需要下载任何模型权重。
+本机已验证 Python 为 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`（3.12.14）。包缓存放在 `D:\rubbish\zhongjian\caches\python\flmh`，本轮临时与验收目录为 `D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\final`；Java构建目录为 `D:\rubbish\zhongjian\build\flmh\enterprise-20261117\final`。不需要下载任何模型权重，不把依赖、缓存或临时数据写入C盘。
 
-先按 Java 工程说明启动 Gateway 和服务。复制 `.env.example` 为 `.env` 后按需填写，已有 `.env` 不要覆盖；环境变量优先于 `.env`。默认值适用于本地适配器。
+最简整链启动使用 [Java README](../flmh-j/README.md#本机启动) 的 `verify-local.ps1` 命令，它会启动六个Java服务、MCP和Agent，完成验证后自动收尾；手动体验时显式追加 `-KeepAlive`，结束后在原终端输入 `stop`。该脚本已经启动Python服务时，不再执行下面两组命令。
+
+分开启动时，先按Java说明启动Gateway和服务，并给MCP/Agent传入同一任务服务密钥对应的 `JAVA_GATEWAY_API_KEY`/`MODEL_GATEWAY_API_KEY`；服务密钥不能代替用户JWT。需要自定义配置时再复制 `.env.example` 为 `.env`，已有 `.env` 不覆盖；环境变量优先于 `.env`。模型和外部组件空配置保持TODO，本地适配器不需要真实模型凭据。
 
 窗口一：启动 MCP 工具桥。
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\final'
+$env:TMP = $env:TEMP
+if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m flmh_agent.adapters.inbound.mcp_tools
 ```
@@ -44,11 +49,16 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\final'
+$env:TMP = $env:TEMP
+if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m flmh_agent.api
 ```
 
-启动后在本机浏览器打开 `http://127.0.0.1:8090/`，先登录再使用中文工作台；它复用同一 Agent API，无需额外前端服务或依赖。页面提供选品与内容、商品历史、商品详情示例，内容报价必须点击“确认并创建任务”后才提交。本机Mock账号为 `alice@demo.flmh.invalid` / `DemoAlice2026!`、`bob@demo.flmh.invalid` / `DemoBob2026!`；管理员为 `admin@demo.flmh.invalid` / `DemoAdmin2026!`。用户JWT只在页面内存中，换用户会清空结果与运行编号。配置了 `AGENT_API_KEY` 时还需在访问设置填写独立的Agent访问凭据，使用 `X-Agent-Key` 发送；Java服务key不会进入浏览器。超时或连接中断后先用保留的运行编号读取状态，避免盲目新建重复请求。
+启动后在本机浏览器打开 `http://127.0.0.1:8090/`，先登录再使用中文工作台；它复用同一 Agent API，无需额外前端服务或依赖。页面提供选品与内容、商品历史/详情、作品目录、可编辑工作流和会话目录，内容报价必须点击“确认并创建任务”后才提交。本机Mock账号为 `alice@demo.flmh.invalid` / `DemoAlice2026!`、`bob@demo.flmh.invalid` / `DemoBob2026!`；管理员为 `admin@demo.flmh.invalid` / `DemoAdmin2026!`。用户JWT只在页面内存中，换用户会清空结果与运行编号。配置了 `AGENT_API_KEY` 时还需在访问设置填写独立的Agent访问凭据，使用 `X-Agent-Key` 发送；Java服务key不会进入浏览器。超时或连接中断后先用保留的运行编号读取状态，避免盲目新建重复请求。
+
+Java账户和业务资源保存在H2文件中，手动启动复用同一 `LOCAL_STATE_DIR` 才保留原状态；验收脚本每次建立独立状态目录。Python默认 `CHECKPOINTER_BACKEND=memory`，检查点、会话目录和运行锁随进程退出消失。关闭本次手动服务时分别在原终端按 `Ctrl+C`，核实8001/8090监听已消失；不要停止任务开始前已有的服务。
 
 或先登录并把JWT仅保存到当前PowerShell进程，再使用 CLI/示例：
 
@@ -121,12 +131,12 @@ Invoke-RestMethod -Method Post 'http://127.0.0.1:8090/v1/agent/runs/local-reques
 | 规划 / Text2SQL | Java Model Gateway `/api/v1/models/completions`，请求带 purpose/messages/temperature/maxTokens/responseFormat | `rules` 可运行本地商品链路；BI 必须配置 |
 | 内容生产 | 确认后经 MCP 创建 Java 内容任务，provider 由内容服务配置 | 输入摘要只整理用户需求，不伪造生成结果 |
 | 商品 / 内容工具 | MCP Streamable HTTP；桥接 Java Gateway API | 工具服务不可达时报错，不伪造商品或任务 |
-| Checkpoint | `langgraph-checkpoint-postgres` 的 AsyncPostgresSaver | 默认 InMemorySaver；进程退出后状态消失 |
+| Checkpoint / 会话目录 | `langgraph-checkpoint-postgres` 的 AsyncPostgresSaver、Postgres会话目录和advisory lock | 默认 InMemorySaver、内存目录与进程内锁；进程退出后状态消失 |
 | 观测 | Langfuse v3 CallbackHandler；按配置启用并在退出时 flush/shutdown | 无 key 时禁用 |
 | Text2SQL | Java Model Gateway 生成，SQLGlot AST 校验，asyncpg read-only transaction | 空权限或空连接默认关闭 |
 | RAG | BGE-M3 HTTP 批量返回 dense/sparse；Elasticsearch PIT 内并行召回；RRF；BGE-Reranker 批量重排；原版本索引 `_mget` 父块回填；LangGraph 知识问答及内容参考资料节点 | 独立检索 HTTP 返回 503；Agent 知识请求返回 `needs_configuration` 与 TODO |
 
-Postgres Checkpointer 的 schema setup 默认关闭；明确初始化数据库时才使用 `POSTGRES_CHECKPOINT_SETUP=true`。BI 使用独立的 `BI_DATABASE_URI` 和只读数据库账号；不共用 Checkpointer 的写权限。BI HTTP和Agent BI都使用核实后的用户角色，`BI_SQL_ROLE_TABLES_JSON`只配置 `USER`/`ADMIN`/`SUPER_ADMIN` 的表权限。角色头、旧共享role token和 `AGENT_SQL_PRINCIPAL` 不能提升权限。
+Postgres Checkpointer与会话目录的schema setup默认关闭；明确初始化数据库时才使用 `POSTGRES_CHECKPOINT_SETUP=true`，会话目录使用独立连接池和 `agent_session_directory` 表。旧的持久检查点只有经owner访问后才登记到目录，不自动认领无归属状态。BI 使用独立的 `BI_DATABASE_URI` 和只读数据库账号；不共用 Checkpointer 的写权限。BI HTTP和Agent BI都使用核实后的用户角色，`BI_SQL_ROLE_TABLES_JSON`只配置 `USER`/`ADMIN`/`SUPER_ADMIN` 的表权限。角色头、旧共享role token和 `AGENT_SQL_PRINCIPAL` 不能提升权限。
 
 SQL 校验来源是旧 `biGraph.ts` 和 Prisma schema 的五表：`market_products`、`market_product_daily_stats`、`market_radar_metrics`、`market_canonical_categories`、`market_source_categories`。运行时角色权限只能进一步收缩，不能扩大 allowlist。校验拒绝多语句、非 SELECT、SELECT *、危险函数、越权表/非 public schema、超过 50 的 LIMIT；缺少 LIMIT 时补 20。CTE/JOIN 使用 AST scope 分辨真实表；每个雷达指标分支必须限定 `score_version='v2'`，除非明确请求评分版本比较。Postgres `round(x, precision)` 转为 numeric/decimal，执行事务只读且超时为 5 秒。生成/执行失败会携带错误原因最多修正 3 次。
 
@@ -152,9 +162,11 @@ Agent 请求“从知识库查询采集说明”进入检索路径并输出带�
 核心依赖在 `pyproject.toml`，`requirements.txt` 引用项目。可选 `postgres`、`observability` extras 只在启用相关适配器时需要；未安装也可运行本地链路。安装前按会话规则检查现有环境与目录，示例：
 
 ```powershell
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\agent-arch'
+Set-Location 'D:\Happy\芳\flmh-p'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\final'
 $env:TMP = $env:TEMP
 $env:PIP_CACHE_DIR = 'D:\rubbish\zhongjian\caches\python\flmh'
+if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m pip install -e .
 # 接入 PostgreSQL / Langfuse 时分别安装 -e '.[postgres]' / -e '.[observability]'
 ```
@@ -162,11 +174,16 @@ $env:PIP_CACHE_DIR = 'D:\rubbish\zhongjian\caches\python\flmh'
 运行测试：
 
 ```powershell
+Set-Location 'D:\Happy\芳\flmh-p'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\final'
+$env:TMP = $env:TEMP
+if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m unittest discover -s tests -v
+& 'D:\Code\nodejs\node.exe' --test tests/test_workbench_media.cjs tests/test_workflow_editor.cjs tests/test_sessions_ui.cjs
 ```
 
-测试覆盖确认闸门、预算/币种、幂等、查询DAG、槽位失效、日统计、媒体未知结果恢复、MCP确认、HTTP协议、RAG、Text2SQL以及账号权限和工作台。2026-11-17本轮Python3.12.14全量176项通过、Node工作台23项通过，日志在`D:\rubbish\zhongjian\temp\flmh\accounts-audit-20261117`；pip check通过。本轮最终跨进程58/58通过，包含原Agent链路及账号创建/资料/改密/禁用即时生效/当前角色/积分/会员/重启/删除和采集模板。Chrome实际完成管理员开户、编辑、积分、会员、普通用户资料改密、新密码重登、退出清空和删除；临时页面与服务已收尾。此前媒体和双用户隔离浏览器证据保留在Java交付记录的历史产物中。真实PostgreSQL、Langfuse、BGE及ES未联调，没有性能基准或召回效果指标。完整证据见[Java交付记录](../flmh-j/docs/delivery.md)。
+测试覆盖确认闸门、预算/币种、幂等、查询DAG、槽位失效、日统计、媒体未知结果恢复、MCP确认、HTTP协议、RAG、Text2SQL、账号权限、作品、通用工作流及会话/SSE。本轮验收与产物见[Java交付记录](../flmh-j/docs/delivery.md)，以其中绑定的提交、实际测试数、跨进程与浏览器记录为准；本页不提前宣称尚未执行的结果。真实PostgreSQL、Langfuse、BGE及ES未联调，没有性能基准或召回效果指标，完整生产级重构尚未完成。
 
 ## 待配置与未验证项
 
@@ -176,7 +193,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 
 `.env.example` 中所有服务地址/凭据空项由部署时填写。明天需决定 PostgreSQL Checkpointer 与只读 BI 库、Langfuse、BGE-M3/BGE-Reranker 服务、ES chunk 索引与认证方式。真实模型供应商与模型参数由 Java Model Gateway 维护。真实外部 adapter 联调、数据库权限/索引执行计划验证、跨主机负载和性能基准尚未运行。不得把本地 adapter 或 HTTP contract 测试当作生产数据、实际召回效果或完整生产部署验收。
 
-Agent API与MCP使用用户JWT逐请求核实身份，检查点与锁按用户隔离；可选X-Agent-Key仍只是额外服务访问边界。MCP仅绑定本机。商品历史和日统计工具均已接通，资料与管理员用户管理已接入同源工作台；完整旧前端、密码找回及工作流编辑仍未迁移。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。
+Agent API与MCP使用用户JWT逐请求核实身份，检查点、会话目录与锁按用户隔离；可选X-Agent-Key仍只是额外服务访问边界。MCP仅绑定本机。商品历史和日统计工具、资料与管理员用户管理、作品和通用工作流已接入同源工作台；完整旧前端/富筛选、密码找回与改密撤销旧JWT、新任务计入旧视频用量聚合、支付等业务仍未完成。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。
 
 ## 图片与视频工作流状态验证
 
@@ -202,9 +219,104 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 - `POST /v1/agent/runs/{runId}/media/advance`：推进一次提交、存储或查询阶段，不携带正文。
 - `POST /v1/agent/runs/{runId}/media/verify`：只核实 `SUBMISSION_UNKNOWN`，不重新提交付费请求。
 
-工作台展示逐节点状态、来源、报价规格和产物记录，地址仅作文本。`MOCK_ONLY/MOCKED` 明确没有图片或视频文件。推进响应丢失后先读取状态；未知结果禁止直接推进，只有核实入口。Java 提供 OpenAI Images/Responses、Gemini generateContent、旧项目 TOAPIS xai/volcengine 视频协议及 OSS HTTP 适配，所有端点、模型、价格和凭据在 Java `.env.example` 留空；本任务只运行本机合同测试。视频转存 OSS、工作流编辑和供应商丢失任务 ID 后的真实对账仍未完成。
+工作台展示逐节点状态、来源、报价规格和产物记录，地址仅作文本。`MOCK_ONLY/MOCKED` 明确没有图片或视频文件。推进响应丢失后先读取状态；未知结果禁止直接推进，只有核实入口。Java 提供 OpenAI Images/Responses、Gemini generateContent、旧项目 TOAPIS xai/volcengine 视频协议及私有OSS上传/下载适配；视频供应商成功先进入 `VIDEO_GENERATED`，转存成功才进入 `SUCCEEDED` 并归档作品。所有端点、模型、价格、凭据和视频结果origin白名单在Java `.env.example` 留空；本任务只运行本机合同测试。真实素材编辑上传/参考图生成、可灵/AGE执行，以及供应商丢失任务ID后的真实对账仍未完成。
 
 MCP还提供`media_production_revise`：先以`origin_run_id`申请失败运行的新报价，经独立确认后传原运行、新报价和幂等键提交。Java只允许明确FAILED的原运行，禁止未知结果重投；未变化的成功图片可复用。该分支完成接口合同与Java状态机测试，未接工作台自然语言自动修订，也未作真实供应商端到端验证。
+
+## 我的作品与私有媒体
+
+工作台“我的作品目录”通过同源 `/v1/works` 访问Java作品服务，可按模块/类型筛选、分页排序、读取正文和生产血缘、手动保存报告/脚本，以及勾选确认后软删除。列表每页最多50件且不包含正文大字段，血缘单独分页；`CONTENT_TASK`、`MEDIA_NODE`、`WORKFLOW_NODE`分别指向实际的内容任务、固定媒体节点和通用工作流节点。资源只对当前owner可见，管理员不默认获得他人的作品。
+
+下面沿用登录时的 `$headers`，演示手动文本与同键重放；`reused=true`表示复用已有作品，来源为 `USER_SAVED`：
+
+```powershell
+$workHeaders = $headers.Clone()
+$workHeaders['Idempotency-Key'] = 'work-' + [Guid]::NewGuid().ToString('N')
+$workBody = @{module='manual-notes'; title='演示说明'; type='report'; content='用户保存的演示文字，不是模型输出。'} | ConvertTo-Json
+$saved = Invoke-RestMethod -Method Post 'http://127.0.0.1:8090/v1/works' -Headers $workHeaders -ContentType 'application/json; charset=utf-8' -Body $workBody
+Invoke-RestMethod -Method Post 'http://127.0.0.1:8090/v1/works' -Headers $workHeaders -ContentType 'application/json; charset=utf-8' -Body $workBody
+Invoke-RestMethod 'http://127.0.0.1:8090/v1/works?type=report&page=1&pageSize=20&sort=createdAt_desc' -Headers $headers
+Invoke-RestMethod "http://127.0.0.1:8090/v1/works/$($saved.record.id)" -Headers $headers
+Invoke-RestMethod "http://127.0.0.1:8090/v1/works/$($saved.record.id)/lineage?page=1&pageSize=20" -Headers $headers
+```
+
+同一 `POST /v1/works` 也接受本人已完成文本任务引用 `{taskId}`，或固定媒体成功节点引用 `{runId,nodeKey:"image"|"video"}`；不能混合手动文本字段，也不能提交用户ID、任意媒体URL或base64。正常成功任务自动归档，引用保存会复用已有作品。`DELETE /v1/works/{id}`保留幂等墓碑、任务和血缘，重放已删除作品返回409，不重新创建，也不删除共享OSS对象。
+
+真实媒体归档后可在工作台“下载文件”：`GET /v1/works/{id}/file`先核对归属，再通过Java读取私有OSS稳定路径，按64KiB分块转发，最大200MiB。Chrome文件保存选择器直接写入选定文件，未提供该能力的浏览器会明确提示；不创建完整文件大小的内存Blob。Java转存视频只允许配置的精确结果origin，不跟重定向，下载/上传共用最多60秒期限；D盘 `MEDIA_TRANSFER_TEMP_DIR` 中的临时文件在响应结束后清理。Mock媒体没有作品或可下载文件，真实供应商/OSS只完成本机HTTP合同验证，未对外联调。
+
+## 通用可编辑工作流
+
+工作台“可编辑工作流”提供定义目录、节点/连线/位置编辑、版本更新、报价与确认创建、逐次推进/核实/取消以及历史运行。此入口通过Python同源HTTP转发到Java；不经过LLM规划或MCP自动执行。定义限制20节点/400边，保存时校验环、引用及输入口；节点或商品/预算/来源运行变化会清除旧报价。定义创建没有服务端幂等键，保存响应未知时先重新读取目录核实，不盲目重复创建。
+
+能力目录 `GET /v1/workflows/meta/capabilities`保留旧12种能力、历史启用标记和输入约束；旧AGE关闭时实际开放4种。全部支持无文件Mock演示，真实adapter目前只支持无参考图文生图，以及单个上游已归档图片的xai/volcengine视频。固定素材URL只校验保存，不自动读取，真实执行明确拒绝；可灵/AGE、参考图生成及未适配参数不会静默降级。完整能力表见[Java README](../flmh-j/README.md#通用可编辑工作流)。
+
+默认本地模式的两节点示例先创建定义并展示报价：
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8090/v1/workflows/meta/capabilities' -Headers $headers
+$graph = @{name='本地图片到视频'; definition=@{nodes=@(
+  @{key='image'; capability='gemini:image'; prompt='生成商品封面'; params=@{aspectRatio='9:16'}},
+  @{key='video'; capability='xai:video'; prompt='让封面展示商品特点'; params=@{aspectRatio='9:16'; duration=6}}
+); edges=@(@{parent='image'; child='video'; order=0})}}
+$workflow = Invoke-RestMethod -Method Post 'http://127.0.0.1:8090/v1/workflows' -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ($graph | ConvertTo-Json -Depth 10)
+$quote = Invoke-RestMethod -Method Post "http://127.0.0.1:8090/v1/workflows/$($workflow.id)/quotes" -Headers $headers -ContentType 'application/json' -Body (@{definitionVersion=$workflow.version; productId='camping-lamp-001'; budgetMax=10} | ConvertTo-Json)
+$quote
+```
+
+核对金额、币种、执行模式、商品与定义版本后，再单独执行明确确认。创建请求响应未知时保留相同 `$workflowHeaders` 与报价重放；不得通过换键重投绕过结果核实：
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:8090/v1/workflow-quotes/$($quote.quoteId)/confirmation" -Headers $headers -ContentType 'application/json' -Body '{"confirmed":true}'
+$workflowHeaders = $headers.Clone()
+$workflowHeaders['Idempotency-Key'] = 'workflow-' + [Guid]::NewGuid().ToString('N')
+$workflowRun = Invoke-RestMethod -Method Post "http://127.0.0.1:8090/v1/workflows/$($workflow.id)/runs" -Headers $workflowHeaders -ContentType 'application/json' -Body (@{quoteId=$quote.quoteId} | ConvertTo-Json)
+Invoke-RestMethod -Method Post "http://127.0.0.1:8090/v1/workflow-runs/$($workflowRun.runId)/advance" -Headers $headers
+Invoke-RestMethod -Method Post "http://127.0.0.1:8090/v1/workflow-runs/$($workflowRun.runId)/advance" -Headers $headers
+Invoke-RestMethod "http://127.0.0.1:8090/v1/workflow-runs/$($workflowRun.runId)" -Headers $headers
+Invoke-RestMethod "http://127.0.0.1:8090/v1/workflows/$($workflow.id)/runs?page=1&pageSize=20" -Headers $headers
+```
+
+本地终态为 `MOCKED`且 `artifacts=[]`。`PUT /v1/workflows/{id}`更新时携带`expectedVersion`及完整定义，`GET /v1/workflows/{id}/versions/{version}`读取旧版本，`DELETE`只归档定义并保留历史。运行快照、租约、心跳和fencing token由Java持久化，最多并行3个节点，每用户最多3个活跃运行、每定义最多1个活跃运行。
+
+`POST /v1/workflow-runs/{id}/verify`只核实或转存已有结果，不提交新生成；`/cancel`阻止新提交，但不能撤销供应商已接受的任务，已有查询/转存仍可核实收尾。修订报价可传同定义已明确结束运行的`originRunId`，只复用成功且输入/依赖未变的节点；无供应商任务ID的未知提交保持阻塞。三种操作均不带正文。
+
+## 会话目录与状态订阅
+
+“我的会话”可以读取目录、选择会话、读取已有结果、改名、勾选确认删除，以及订阅/停止状态。目录使用游标分页，工作台每页10项，API `limit`为1–50；Postgres实现使用单条有界查询，不逐会话加载检查点。列表返回`{sessions,nextCursor}`，会话元数据含`runId/title/preview/status/version/createdAt/updatedAt/deleted`，尚未实现完整消息历史。
+
+下面读取前面创建的 `local-request-001` 并改名。`expectedVersion`来自最新会话元数据，冲突返回409后应重新读取再决定，不自动覆盖：
+
+```powershell
+$sessionPage = Invoke-RestMethod 'http://127.0.0.1:8090/v1/agent/sessions?limit=20' -Headers $headers
+$sessionPage
+if ($sessionPage.nextCursor) {
+  $cursor = [Uri]::EscapeDataString($sessionPage.nextCursor)
+  Invoke-RestMethod "http://127.0.0.1:8090/v1/agent/sessions?limit=20&cursor=$cursor" -Headers $headers
+}
+$sessionRunId = 'local-request-001'
+$session = Invoke-RestMethod "http://127.0.0.1:8090/v1/agent/sessions/$sessionRunId" -Headers $headers
+$session.run
+$renamed = Invoke-RestMethod -Method Patch "http://127.0.0.1:8090/v1/agent/sessions/$sessionRunId" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body (@{title='露营灯演示'; expectedVersion=$session.session.version} | ConvertTo-Json)
+```
+
+`GET /v1/agent/sessions/{runId}`返回`{session,run}`，只读取已有checkpoint；与可能刷新Java任务状态的 `GET /v1/agent/runs/{runId}`含义不同。`GET /v1/agent/runs/{runId}/events`是SSE状态流，同样不连接MCP刷新、不确认报价、不推进生产、不触发付费请求；每2秒重新核实身份并观察检查点，10秒无变化发心跳，正常观察60秒结束并发送`end`；发送阻塞最多额外5秒后断开。前端65秒自停，由用户手动重连，不后台无限轮询。
+
+在当前PowerShell进程以请求头携带凭据订阅一次；不要把JWT或Agent key放入URL：
+
+```powershell
+$streamHeaders = @('-H', "Authorization: Bearer $($login.token)")
+if ($env:AGENT_API_KEY) { $streamHeaders += @('-H', "X-Agent-Key: $env:AGENT_API_KEY") }
+& curl.exe -N --max-time 70 @streamHeaders "http://127.0.0.1:8090/v1/agent/runs/$sessionRunId/events"
+```
+
+事件为`status`、`heartbeat`和`end`；`Last-Event-ID`可携带上次状态的哈希以抑制相同状态，不代表可回放全部历史事件。订阅响应未知或断开时先重新读取会话。改名/删除响应未知时，工作台锁定修改并要求重读；退出、换用户或切换会话会中止流并清空显示。
+
+确实需要删除该演示会话时，再单独执行下列命令。软删除保留检查点和Java任务，不取消供应商请求；旧`runId`不能通过启动、确认、重试或修订复活。首次删除检查版本，重复删除返回同一墓碑；非owner和读取已删会话均返回404。
+
+```powershell
+$session = Invoke-RestMethod "http://127.0.0.1:8090/v1/agent/sessions/$sessionRunId" -Headers $headers
+Invoke-RestMethod -Method Delete "http://127.0.0.1:8090/v1/agent/sessions/${sessionRunId}?expectedVersion=$($session.session.version)" -Headers $headers
+```
 
 ## 来源日统计与评分
 
