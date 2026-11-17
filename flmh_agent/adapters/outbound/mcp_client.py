@@ -72,6 +72,21 @@ class McpProductContentAdapter:
     async def get_task(self, task_id: str) -> dict[str, Any]:
         return await self._call("content_task_get", {"task_id": task_id})
 
+    async def media_workflow_capabilities(self) -> dict[str, Any]:
+        return await self._call("media_workflow_capabilities", {})
+
+    async def start_media_workflow(self, request: dict[str, Any], idempotency_key: str) -> dict[str, Any]:
+        return await self._call("media_workflow_start", {**request, "idempotency_key": idempotency_key})
+
+    async def simulate_media_workflow(self, run_id: str) -> dict[str, Any]:
+        return await self._call("media_workflow_simulate", {"run_id": run_id})
+
+    async def get_media_workflow(self, run_id: str) -> dict[str, Any]:
+        return await self._call("media_workflow_get", {"run_id": run_id})
+
+    async def cancel_media_workflow(self, run_id: str) -> dict[str, Any]:
+        return await self._call("media_workflow_cancel", {"run_id": run_id})
+
     async def _call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._session is None:
             raise RuntimeError("MCP adapter is not connected")

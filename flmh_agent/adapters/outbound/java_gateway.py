@@ -63,6 +63,30 @@ class JavaGatewayClient:
     async def get_task(self, task_id: str) -> dict[str, Any]:
         return await self._request("GET", f"/api/v1/content/tasks/{quote(task_id, safe='')}")
 
+    async def media_workflow_capabilities(self) -> dict[str, Any]:
+        return await self._request("GET", "/api/v1/content/media-workflows/meta/capabilities")
+
+    async def start_media_workflow(self, request: Mapping[str, Any], idempotency_key: str) -> dict[str, Any]:
+        return await self._request(
+            "POST", "/api/v1/content/media-workflows/runs",
+            json={"productId": request["product_id"], "prompt": request["prompt"],
+                  "mockExecutionConfirmed": request["mock_execution_confirmed"]},
+            headers={"Idempotency-Key": idempotency_key},
+        )
+
+    async def simulate_media_workflow(self, run_id: str) -> dict[str, Any]:
+        return await self._request(
+            "POST", f"/api/v1/content/media-workflows/runs/{quote(run_id, safe='')}/simulate"
+        )
+
+    async def get_media_workflow(self, run_id: str) -> dict[str, Any]:
+        return await self._request("GET", f"/api/v1/content/media-workflows/runs/{quote(run_id, safe='')}")
+
+    async def cancel_media_workflow(self, run_id: str) -> dict[str, Any]:
+        return await self._request(
+            "POST", f"/api/v1/content/media-workflows/runs/{quote(run_id, safe='')}/cancel"
+        )
+
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         headers = kwargs.pop("headers", {})
         if self.settings.gateway_api_key:

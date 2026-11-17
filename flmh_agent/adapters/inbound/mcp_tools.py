@@ -4,7 +4,7 @@ from typing import Any
 from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
-from pydantic import Field
+from pydantic import Field, StrictBool
 
 from flmh_agent.adapters.outbound.java_gateway import JavaGatewayClient
 from flmh_agent.config import Settings
@@ -98,6 +98,42 @@ def create_mcp_server(settings: Settings | None = None) -> FastMCP:
     async def content_task_get(task_id: str) -> dict[str, Any]:
         """Read the current task state from the content service."""
         return await gateway.get_task(task_id)
+
+    @server.tool(name="media_workflow_capabilities")
+    async def media_workflow_capabilities() -> dict[str, Any]:
+        """List local media workflow capabilities; the current provider is MOCK_ONLY and creates no assets."""
+        return await gateway.media_workflow_capabilities()
+
+    @server.tool(name="media_workflow_start")
+    async def media_workflow_start(
+        product_id: Annotated[str, Field(min_length=1, max_length=96, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$")],
+        prompt: Annotated[str, Field(min_length=1, max_length=2000)],
+        idempotency_key: Annotated[str, Field(min_length=1, max_length=145)],
+        mock_execution_confirmed: StrictBool,
+    ) -> dict[str, Any]:
+        """Create an explicitly local MOCK_ONLY image-to-video workflow run; it does not create media files or URLs."""
+        if not prompt.strip() or not idempotency_key.strip() or idempotency_key != idempotency_key.strip():
+            raise ValueError("prompt and idempotency_key must be non-blank; key cannot have surrounding whitespace")
+        if mock_execution_confirmed is not True:
+            raise ValueError("mock_execution_confirmed must be explicitly true; this is a zero-cost state simulation")
+        return await gateway.start_media_workflow(
+            {"product_id": product_id, "prompt": prompt, "mock_execution_confirmed": True}, idempotency_key
+        )
+
+    @server.tool(name="media_workflow_simulate")
+    async def media_workflow_simulate(run_id: Annotated[str, Field(min_length=1, max_length=96)]) -> dict[str, Any]:
+        """Advance a queued local MOCK_ONLY media workflow; no model or object storage is called."""
+        return await gateway.simulate_media_workflow(run_id)
+
+    @server.tool(name="media_workflow_get")
+    async def media_workflow_get(run_id: Annotated[str, Field(min_length=1, max_length=96)]) -> dict[str, Any]:
+        """Read a media workflow run and its persisted node states."""
+        return await gateway.get_media_workflow(run_id)
+
+    @server.tool(name="media_workflow_cancel")
+    async def media_workflow_cancel(run_id: Annotated[str, Field(min_length=1, max_length=96)]) -> dict[str, Any]:
+        """Cancel a media workflow that is still queued."""
+        return await gateway.cancel_media_workflow(run_id)
 
     return server
 
