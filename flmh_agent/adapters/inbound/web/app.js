@@ -175,7 +175,14 @@ function render(fillRevision) {
     : result.status === "retryable" ? "部分步骤未完成，可以重试失败步骤。"
     : result.status === "processing" ? "内容任务已提交，正在读取处理进度。" : "本次处理已结束，结果如下。";
   ui["submission-note"].textContent = "当前运行编号已保留。调整条件请使用修订；新的需求请点击“新请求”。";
-  ui.summary.textContent = result.summary || "当前步骤暂无汇总，请查看任务状态或重试失败步骤。";
+  if (currentTask.taskId) {
+    const status = labels[currentTask.status] || text(currentTask.status);
+    const source = currentTask.generationSource ? `生成来源：${currentTask.generationSource}。` : "";
+    ui.summary.textContent = [`商品查询返回 ${(result.products || []).length} 项。`, `内容任务状态：${status}。`, source]
+      .filter(Boolean).join("\n");
+  } else {
+    ui.summary.textContent = result.summary || "当前步骤暂无汇总，请查看任务状态或重试失败步骤。";
+  }
   ui["plan-source"].textContent = result.plan?.source === "RULES" ? "本地规则规划" : text(result.plan?.source);
   const todos = result.configurationTodos || [];
   ui["configuration-todos"].replaceChildren(...todos.map(item => node("li", item)));
@@ -193,7 +200,7 @@ function render(fillRevision) {
   if (currentTask.taskId) {
     ui["task-status"].textContent = labels[currentTask.status] || text(currentTask.status);
     ui["task-status"].className = `badge ${currentTask.status === "SUCCEEDED" ? "good" : currentTask.status === "FAILED" ? "bad" : "amber"}`;
-    fields(ui["task-fields"], [["任务编号", currentTask.taskId], ["生成来源", currentTask.generatedSource], ["供应商", currentTask.generatedProvider]]);
+    fields(ui["task-fields"], [["任务编号", currentTask.taskId], ["生成来源", currentTask.generationSource], ["适配器", currentTask.generationProvider]]);
     visible("generated-content", Boolean(currentTask.generatedContent));
     ui["generated-content"].textContent = currentTask.generatedContent || "";
     visible("task-failure", Boolean(currentTask.failureReason));
