@@ -103,7 +103,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         settings = Settings(
             embedding_backend="bge_m3_http", bge_m3_url="https://embed.test", bge_m3_model="bge-m3",
             bge_reranker_url="https://rerank.test", bge_reranker_model="reranker",
-            elasticsearch_url="https://search.test", elasticsearch_index="chunks",
+            elasticsearch_url="https://search.test", elasticsearch_index="chunks", embedding_dimension=1,
         )
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
             reranked = await BgeRerankerHttpAdapter(settings, client=http).rerank("query", [Chunk("c", "p", "text")], 1)
