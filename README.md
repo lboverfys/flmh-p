@@ -78,7 +78,7 @@ Invoke-RestMethod 'http://127.0.0.1:8090/v1/agent/runs/local-request-001'
   --request '查询 camping-lamp-001 的历史趋势'
 ```
 
-该请求经 LangGraph 的 `read_product_history` 节点调用 MCP `product_history`，返回 Java 持久化的指标快照、采集时间、评分版本及各条来源。默认取最近 30 个版本；MCP 可传 `limit`（1–100）和 `before_version` 翻页，Agent 不自动加载全部历史。`productHistory` 保留原始 nullable 字段，汇总不补值、不计算增长率，也不把采集快照视为日统计。商品槽位修订会失效旧历史并重新读取；未提供明确商品 ID 的请求保留原有检索/BI 行为。
+该请求经 LangGraph 的 `read_product_history` 节点调用 MCP `product_history`，返回 Java 持久化的指标快照、采集时间、评分版本及各条来源。默认取最近 30 个版本；MCP 可传 `limit`（1–100）和 `before_version` 翻页，Agent 不自动加载全部历史。`productHistory` 保留原始 nullable 字段；摘要比较采集时间最新的两个不同快照，仅在来源相同且数值完整时计算销量、关联达人数的差值及相对变化，并显示实际时间间隔和两条引用。来源缺失/变化、样本或字段不足、零基线均明确标注；逐快照未保存币种，因此不计算金额变化。不把这些快照差值外推成日增长、7 日增长或旧版综合趋势评分。商品槽位修订会失效旧历史并重新读取；未提供明确商品 ID 的请求保留原有检索/BI 行为。
 
 将请求改为“查询 camping-lamp-001 的详情”，会经 MCP `product_detail` 返回 `productDetail`：商品、店铺、卖家、来源类目以及原始图片/详情链接。链接只作为数据保留，未自动访问；未知字段保持 null。商品槽位变化会清空旧详情再读取，失败时可重试对应节点。
 
@@ -154,10 +154,24 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m unittest discover -s tests -v
 ```
 
-测试覆盖确认闸门、预算、状态刷新、报价幂等、run_id 冲突、并发查询/同 run 协调、失败节点与失败查询重试、独立槽位版本、修订并发控制、旧报价确认拒绝、DAG 类目绑定/缓存失效/并行校验、商品历史及详情计划/工具/失败重试、模型/MCP/BGE/ES HTTP 合同、批量入库及发布隔离、RRF/父块、Text2SQL AST/权限、连接池并发初始化、MCP 会话生命周期与重复取消、advisory lock/PIT 清理失败、Windows PostgreSQL 事件循环及 API 输入。2026-11-17 使用上述 Python 3.12.14 环境运行 110 项测试全部通过，`pip check` 通过；日志为 `D:\rubbish\zhongjian\temp\flmh\agent-arch\query-binding-full-tests.log`。此前入库 CLI `--help` 也已通过。已检查 PostgreSQL/Langfuse 可选库接口；这不等于真实服务联调。当前未在真实 PostgreSQL、Langfuse、BGE 服务或 Elasticsearch 上联调；没有运行性能基准，不以简历历史数字冒充本次数据。
+测试覆盖确认闸门、预算、状态刷新、报价幂等、run_id 冲突、并发查询/同 run 协调、失败节点与失败查询重试、独立槽位版本、修订并发控制、旧报价确认拒绝、DAG 类目绑定/缓存失效/并行校验、商品历史及详情计划/工具/失败重试、模型/MCP/BGE/ES HTTP 合同、批量入库及发布隔离、RRF/父块、Text2SQL AST/权限、连接池并发初始化、MCP 会话生命周期与重复取消、advisory lock/PIT 清理失败、Windows PostgreSQL 事件循环及 API 输入。2026-11-17 使用上述 Python 3.12.14 环境运行 127 项测试全部通过，`pip check` 通过；日志为 `D:\rubbish\zhongjian\temp\flmh\media-final-20261117\python-unittest.log`。本机工作台 API 与静态资源边界测试 7/7 通过，JavaScript 语法及 CSS 约束检查通过。此前入库 CLI `--help` 也已通过。已检查 PostgreSQL/Langfuse 可选库接口；这不等于真实服务联调。当前未在真实 PostgreSQL、Langfuse、BGE 服务或 Elasticsearch 上联调；没有运行性能基准，不以简历历史数字冒充本次数据。
 
 ## 待配置与未验证项
 
 `.env.example` 中所有服务地址/凭据空项由部署时填写。明天需决定 PostgreSQL Checkpointer 与只读 BI 库、Langfuse、BGE-M3/BGE-Reranker 服务、ES chunk 索引与认证方式。真实模型供应商与模型参数由 Java Model Gateway 维护。真实外部 adapter 联调、数据库权限/索引执行计划验证、跨主机负载和性能基准尚未运行。不得把本地 adapter 或 HTTP contract 测试当作生产数据、实际召回效果或完整生产部署验收。
 
 当前 Agent API 的 bearer key 是服务边界认证，尚未接入最终用户身份系统及租户隔离；MCP 仅绑定本机。商品历史工具已接通；旧系统日统计、完整增长评分和排名趋势仍未迁移。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。上述限制不影响本机商品 → 报价 → 确认 → 内容任务链路。
+
+## 图片与视频工作流状态验证
+
+`application/media_workflow.py` 提供独立 LangGraph 用例，经 `MediaWorkflowPort` → MCP → Java 内容服务执行固定的图片、视频两节点状态流程。请求必须显式给出布尔值 `mock_execution_confirmed=true`；节点依赖、定义/输入快照、运行状态、幂等回放和取消都持久化到 Java 内容数据库。终态为 `MOCKED`，`artifacts=[]`、`artifactCreated=false`、`outputUrl=null`，不生成文件，也不产生外部供应商费用。
+
+本地服务启动后可执行下面的验收示例；它显式确认零成本状态模拟，并核对未确认拒绝、幂等冲突及取消后禁止执行：
+
+```powershell
+Set-Location 'D:\Happy\芳\flmh-p'
+$env:PYTHONDONTWRITEBYTECODE = '1'
+& 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m examples.media_workflow
+```
+
+此入口尚未接入自然语言工作台，不能把它称为已完成真实图片/视频生产。真实媒体提交、异步轮询、结果未知核实、付费报价和 OSS/其他对象存储仍未迁移；配置项在 Java `.env.example` 中保留空值及 TODO，目前填写它们不会启用真实媒体生成。生产 profile 的执行器返回明确的未配置错误，不运行本地 Mock。
