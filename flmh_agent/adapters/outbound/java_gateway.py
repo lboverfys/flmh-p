@@ -54,7 +54,8 @@ class JavaGatewayClient:
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         headers = kwargs.pop("headers", {})
         if self.settings.gateway_api_key:
-            headers["Authorization"] = f"Bearer {self.settings.gateway_api_key}"
+            headers["X-Service-Key"] = self.settings.gateway_api_key
+            headers["X-Client-Id"] = "flmh-agent"
         kwargs["headers"] = headers
         if self._client is not None:
             response = await self._client.request(method, path, **kwargs)

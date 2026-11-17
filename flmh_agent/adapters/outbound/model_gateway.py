@@ -31,7 +31,7 @@ class ModelGatewayClient:
             "maxTokens": max_tokens,
             "responseFormat": response_format,
         }
-        headers = {"Authorization": f"Bearer {self.settings.model_gateway_api_key}"} if self.settings.model_gateway_api_key else {}
+        headers = {"X-Service-Key": self.settings.model_gateway_api_key, "X-Client-Id": "flmh-agent"} if self.settings.model_gateway_api_key else {}
         result = await self._post("/api/v1/models/completions", payload, headers)
         content = result.get("content")
         if not isinstance(content, str) or not content.strip():
