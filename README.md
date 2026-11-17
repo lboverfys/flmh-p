@@ -166,13 +166,17 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m unittest discover -s tests -v
 ```
 
-测试覆盖确认闸门、预算/币种、幂等、查询DAG、槽位失效、来源日统计、媒体未知结果及响应丢失恢复、MCP严格布尔确认、HTTP协议、RAG发布/召回和Text2SQL权限。2026-11-17在现有Python3.12.14环境本轮全量168项通过，`pip check`通过；日志为`D:\rubbish\zhongjian\temp\flmh\identity-20261117\python\login-all-tests.log`。Node工作台14项与语法检查通过；此前媒体报价→确认→两次推进→MOCKED在Chrome实际点击通过，未生成真实文件；本轮身份跨进程验收48/48通过；Chrome实际验证Alice媒体流程、退出清空、Bob不可读取Alice运行及刷新重登，临时页面和服务已关闭。真实PostgreSQL、Langfuse、BGE及ES尚未联调，没有性能基准或召回效果指标。
+测试覆盖确认闸门、预算/币种、幂等、查询DAG、槽位失效、日统计、媒体未知结果恢复、MCP确认、HTTP协议、RAG、Text2SQL以及账号权限和工作台。2026-11-17本轮Python3.12.14全量176项通过、Node工作台23项通过，日志在`D:\rubbish\zhongjian\temp\flmh\accounts-audit-20261117`；pip check通过。本轮最终跨进程58/58通过，包含原Agent链路及账号创建/资料/改密/禁用即时生效/当前角色/积分/会员/重启/删除和采集模板。Chrome实际完成管理员开户、编辑、积分、会员、普通用户资料改密、新密码重登、退出清空和删除；临时页面与服务已收尾。此前媒体和双用户隔离浏览器证据保留在Java交付记录的历史产物中。真实PostgreSQL、Langfuse、BGE及ES未联调，没有性能基准或召回效果指标。完整证据见[Java交付记录](../flmh-j/docs/delivery.md)。
 
 ## 待配置与未验证项
 
+登录后可展开“账号资料与用户管理”：自己资料与旧密码校验改密使用 `/v1/identity/profile`、`/v1/identity/password`；管理员通过 `/v1/identity/users` 及其子路径完成分页查询、创建、角色/状态/密码修改、积分与会员设置、删除。管理操作走受限HTTP入口，不暴露给LLM或MCP；Java再次核实当前目录角色，Python只转发服务端配置的内部凭据和当前用户JWT，响应按安全字段白名单输出。
+
+账号数据由Java持久化到本地H2，重启不覆盖已有资料或密码；JWT仍随身份进程重启失效。工作台积分请求结果未知后清空原调整并锁定目标，重新读取并选择用户后才允许下一次操作；**当前余额不能判断上一笔是否成功，积分API没有服务端幂等键**。页面离开/退出清空账号列表、资料和密码；请求不会自动重发。
+
 `.env.example` 中所有服务地址/凭据空项由部署时填写。明天需决定 PostgreSQL Checkpointer 与只读 BI 库、Langfuse、BGE-M3/BGE-Reranker 服务、ES chunk 索引与认证方式。真实模型供应商与模型参数由 Java Model Gateway 维护。真实外部 adapter 联调、数据库权限/索引执行计划验证、跨主机负载和性能基准尚未运行。不得把本地 adapter 或 HTTP contract 测试当作生产数据、实际召回效果或完整生产部署验收。
 
-Agent API与MCP使用用户JWT逐请求核实身份，检查点与锁按用户隔离；可选X-Agent-Key仍只是额外服务访问边界。MCP仅绑定本机。商品历史和日统计工具均已接通，完整旧前端、用户管理、密码找回及工作流编辑仍未迁移。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。
+Agent API与MCP使用用户JWT逐请求核实身份，检查点与锁按用户隔离；可选X-Agent-Key仍只是额外服务访问边界。MCP仅绑定本机。商品历史和日统计工具均已接通，资料与管理员用户管理已接入同源工作台；完整旧前端、密码找回及工作流编辑仍未迁移。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。
 
 ## 图片与视频工作流状态验证
 
@@ -198,7 +202,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 - `POST /v1/agent/runs/{runId}/media/advance`：推进一次提交、存储或查询阶段，不携带正文。
 - `POST /v1/agent/runs/{runId}/media/verify`：只核实 `SUBMISSION_UNKNOWN`，不重新提交付费请求。
 
-工作台展示逐节点状态、来源、报价规格和产物记录，地址仅作文本。`MOCK_ONLY/MOCKED` 明确没有图片或视频文件。推进响应丢失后先读取状态；未知结果禁止直接推进，只有核实入口。Java 提供 OpenAI Images、旧项目 TOAPIS xai/volcengine 视频协议及 OSS HTTP 适配，所有端点、模型、价格和凭据在 Java `.env.example` 留空；本任务只运行本机合同测试。Gemini/Responses 图片、视频转存 OSS、工作流编辑和供应商丢失任务 ID 后的真实对账仍未完成。
+工作台展示逐节点状态、来源、报价规格和产物记录，地址仅作文本。`MOCK_ONLY/MOCKED` 明确没有图片或视频文件。推进响应丢失后先读取状态；未知结果禁止直接推进，只有核实入口。Java 提供 OpenAI Images/Responses、Gemini generateContent、旧项目 TOAPIS xai/volcengine 视频协议及 OSS HTTP 适配，所有端点、模型、价格和凭据在 Java `.env.example` 留空；本任务只运行本机合同测试。视频转存 OSS、工作流编辑和供应商丢失任务 ID 后的真实对账仍未完成。
 
 MCP还提供`media_production_revise`：先以`origin_run_id`申请失败运行的新报价，经独立确认后传原运行、新报价和幂等键提交。Java只允许明确FAILED的原运行，禁止未知结果重投；未变化的成功图片可复用。该分支完成接口合同与Java状态机测试，未接工作台自然语言自动修订，也未作真实供应商端到端验证。
 
