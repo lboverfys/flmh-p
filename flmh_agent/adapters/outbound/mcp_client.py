@@ -91,6 +91,9 @@ class McpProductContentAdapter:
     async def verify_media_run(self, run_id: str) -> dict[str, Any]:
         return await self._call("media_production_verify", {"run_id": run_id})
 
+    async def revise_media_run(self, run_id: str, quote_id: str, idempotency_key: str) -> dict[str, Any]:
+        return await self._call("media_production_revise", {"run_id": run_id, "quote_id": quote_id, "idempotency_key": idempotency_key})
+
     async def media_workflow_capabilities(self) -> dict[str, Any]:
         return await self._call("media_workflow_capabilities", {})
 

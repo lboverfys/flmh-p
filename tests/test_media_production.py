@@ -229,12 +229,16 @@ class MediaProductionTests(unittest.IsolatedAsyncioTestCase):
             await gateway.get_media_run("r/1")
             await gateway.advance_media_run("r/1")
             await gateway.verify_media_run("r/1")
+            await gateway.revise_media_run("r/1", "q-revision", "revision-key")
         self.assertEqual(json.loads(seen[0].content), {"productId": "p-1", "imagePrompt": "image", "videoPrompt": "video",
                          "aspectRatio": "9:16", "durationSeconds": 6, "budgetMax": 10})
         self.assertEqual(seen[1].headers["Idempotency-Key"], "stable-key")
-        self.assertEqual([r.url.raw_path for r in seen[2:]], [b"/api/v1/content/media-productions/runs/r%2F1",
+        self.assertEqual([r.url.raw_path for r in seen[2:5]], [b"/api/v1/content/media-productions/runs/r%2F1",
                          b"/api/v1/content/media-productions/runs/r%2F1/advance", b"/api/v1/content/media-productions/runs/r%2F1/verify"])
-        self.assertEqual([r.method for r in seen[2:]], ["GET", "POST", "POST"])
+        self.assertEqual([r.method for r in seen[2:5]], ["GET", "POST", "POST"])
+        self.assertEqual(seen[5].url.raw_path, b"/api/v1/content/media-productions/runs/r%2F1/revisions")
+        self.assertEqual(json.loads(seen[5].content), {"quoteId": "q-revision"})
+        self.assertEqual(seen[5].headers["Idempotency-Key"], "revision-key")
 
     async def test_mcp_media_tool_validation_and_client_mapping(self):
         with patch("flmh_agent.adapters.inbound.mcp_tools.JavaGatewayClient.create_media_quote", new_callable=AsyncMock) as quote:
@@ -276,6 +280,13 @@ class MediaProductionTests(unittest.IsolatedAsyncioTestCase):
             submit.assert_not_awaited()
             await server.call_tool("media_production_submit", {"quote_id": "q" * 96, "idempotency_key": "k" * 140})
             self.assertEqual(submit.await_count, 1)
+
+    async def test_media_revision_tool_passes_only_confirmed_quote_reference(self):
+        with patch("flmh_agent.adapters.inbound.mcp_tools.JavaGatewayClient.revise_media_run", new_callable=AsyncMock) as revise:
+            revise.return_value = {"runId": "new-run"}
+            await create_mcp_server(Settings()).call_tool("media_production_revise", {
+                "run_id": "old-run", "quote_id": "confirmed-quote", "idempotency_key": "revision-key"})
+            revise.assert_awaited_once_with("old-run", "confirmed-quote", "revision-key")
 
     def test_mock_output_and_unknown_status_cannot_be_reported_as_completion(self):
         base = {"runId": "r", "status": "MOCKED", "executionMode": "MOCK_ONLY", "artifacts": [], "nodes": []}

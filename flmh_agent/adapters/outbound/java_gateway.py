@@ -91,6 +91,10 @@ class JavaGatewayClient:
     async def verify_media_run(self, run_id: str) -> dict[str, Any]:
         return await self._request("POST", f"/api/v1/content/media-productions/runs/{quote(run_id, safe='')}/verify")
 
+    async def revise_media_run(self, run_id: str, quote_id: str, idempotency_key: str) -> dict[str, Any]:
+        return await self._request("POST", f"/api/v1/content/media-productions/runs/{quote(run_id, safe='')}/revisions",
+                                   json={"quoteId": quote_id}, headers={"Idempotency-Key": idempotency_key})
+
     async def media_workflow_capabilities(self) -> dict[str, Any]:
         return await self._request("GET", "/api/v1/content/media-workflows/meta/capabilities")
 

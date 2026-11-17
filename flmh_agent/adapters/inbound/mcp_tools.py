@@ -146,6 +146,17 @@ def create_mcp_server(settings: Settings | None = None) -> FastMCP:
         """Read persisted media status without submitting, polling a provider, or retrying."""
         return await gateway.get_media_run(run_id)
 
+    @server.tool(name="media_production_revise")
+    async def media_production_revise(
+        run_id: Annotated[str, Field(min_length=1, max_length=96)],
+        quote_id: Annotated[str, Field(min_length=1, max_length=96)],
+        idempotency_key: Annotated[str, Field(min_length=1, max_length=140)],
+    ) -> dict[str, Any]:
+        """Revise an explicitly failed media run using a new confirmed quote bound to origin_run_id; never retries unknown outcomes."""
+        if not quote_id.strip() or not run_id.strip() or not idempotency_key.strip() or idempotency_key != idempotency_key.strip():
+            raise ValueError("run, quote and idempotency key are required; key cannot have surrounding whitespace")
+        return await gateway.revise_media_run(run_id, quote_id, idempotency_key)
+
     @server.tool(name="media_production_advance")
     async def media_production_advance(run_id: Annotated[str, Field(min_length=1, max_length=96)]) -> dict[str, Any]:
         """Advance one confirmed media node stage; unknown submissions cannot be resubmitted."""
