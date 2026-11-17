@@ -582,6 +582,18 @@ test("删除用户需选中目标并明确勾选，禁止删除当前登录用�
   page.click("user-delete"); assert.equal(page.calls.length, 2);
 });
 
+test("口播报价返回空媒体对象时显示文本简报和预算", () => {
+  const page = harness();
+  page.show({runId: "copy-1", status: "awaiting_confirmation", plan: {content_type: "product_script"}, products: [],
+    contentBrief: {body: "写露营灯口播"}, confirmationRequest: {quoteId: "q1", mediaRequest: {},
+      quote: {quoteId: "q1", amount: 3.99, currency: "USD", budgetMax: 30, pricingSource: "LOCAL_RULE"}}});
+  assert.equal(page.ui("quote-title").textContent, "确认内容报价");
+  assert.equal(page.ui("quote-brief").textContent, "写露营灯口播");
+  assert.match(page.ui("quote-fields").textContent, /3.99 USD/);
+  assert.doesNotMatch(page.ui("quote-fields").textContent, /视频时长|复用节点/);
+  assert.equal(page.ui("confirm").disabled, false);
+});
+
 test("零元媒体报价保留显式确认并展示已报价的规格", async () => {
   const page = harness();
   page.show({

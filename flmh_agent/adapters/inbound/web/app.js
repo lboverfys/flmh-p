@@ -705,7 +705,8 @@ function render(fillRevision) {
   visible("configuration-todos", todos.length > 0);
   ui["raw-response"].textContent = JSON.stringify(result, null, 2);
   const quote = result.confirmationRequest?.quote || result.quote || {};
-  const mediaRequest = result.confirmationRequest?.mediaRequest;
+  const quotedMedia = result.confirmationRequest?.mediaRequest;
+  const mediaRequest = quotedMedia?.image_prompt ? quotedMedia : null;
   const awaiting = result.status === "awaiting_confirmation" && Boolean(result.confirmationRequest?.quoteId);
   visible("confirmation-panel", awaiting);
   if (awaiting) {
