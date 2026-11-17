@@ -28,7 +28,7 @@ MCP 工具桥仅允许绑定本机回环地址。CLI 和 API 在 Windows 启用 
 
 ## 本机启动
 
-本机已验证 Python 为 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`（3.12.14）。包缓存放在 `D:\rubbish\zhongjian\caches\python\flmh`，本轮临时与验收目录为 `D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v14`；Java构建目录为 `D:\rubbish\zhongjian\build\flmh\enterprise-20261117\v14`。不需要下载任何模型权重，不把依赖、缓存或临时数据写入C盘。
+本机已验证 Python 为 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`（3.12.14）。包缓存放在 `D:\rubbish\zhongjian\caches\python\flmh`，本轮临时与验收目录为 `D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v15`；Java构建目录为 `D:\rubbish\zhongjian\build\flmh\enterprise-20261117\v15`。不需要下载任何模型权重，不把依赖、缓存或临时数据写入C盘。
 
 最简整链启动使用 [Java README](../flmh-j/README.md#本机启动) 的 `verify-local.ps1` 命令，它会启动六个Java服务、MCP和Agent，完成验证后自动收尾；手动体验时显式追加 `-KeepAlive`，结束后在原终端输入 `stop`。该脚本已经启动Python服务时，不再执行下面两组命令。
 
@@ -38,7 +38,7 @@ MCP 工具桥仅允许绑定本机回环地址。CLI 和 API 在 Windows 启用 
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v14'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v15'
 $env:TMP = $env:TEMP
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
@@ -49,7 +49,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v14'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v15'
 $env:TMP = $env:TEMP
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
@@ -175,7 +175,7 @@ Agent 请求“从知识库查询采集说明”进入检索路径并输出带�
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v14'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v15'
 $env:TMP = $env:TEMP
 $env:PIP_CACHE_DIR = 'D:\rubbish\zhongjian\caches\python\flmh'
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
@@ -187,7 +187,7 @@ if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $e
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v14'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v15'
 $env:TMP = $env:TEMP
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
@@ -195,7 +195,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\Code\nodejs\node.exe' --test tests/test_workbench_media.cjs tests/test_workflow_editor.cjs tests/test_sessions_ui.cjs tests/test_product_catalog.cjs tests/test_assets_ui.cjs
 ```
 
-测试覆盖确认闸门、预算/币种、幂等、查询DAG、槽位失效、日统计、FAILED媒体修订、未知结果恢复、MCP、RAG、Text2SQL、账号权限、商品目录、素材/作品、工作流及会话/SSE。v14补齐视频额度等待的Agent摘要与两个入口提示，不重新报价、确认或自动提交。实际通过Python 276项、Node 95项及pip check；Java 507项/82个测试集和本机整链111/111通过，10组22个登记进程退出。Chrome和独立Redis本轮未重跑，v13结果仅属于历史记录；完整边界见[Java交付记录](../flmh-j/docs/delivery.md)。
+测试覆盖确认闸门、预算/币种、幂等、查询DAG、槽位失效、日统计、FAILED媒体修订、未知结果恢复、MCP、RAG、Text2SQL、账号权限、商品目录、素材/作品、工作流及会话/SSE。v15新增管理员用量详情BFF及来源统计页面，保留422有界限制与会话/所选用户迟到响应隔离。实际通过Python 282项、Node 101项及pip check；Java 575项/87个测试集和本机整链118/118通过，10组22个登记进程退出。Chrome8项观察通过，临时page13已关闭；独立Redis本轮未重跑，v13结果仅属于历史记录；完整边界见[Java交付记录](../flmh-j/docs/delivery.md)。
 
 **历史v11本机整合验证记录：Python 253项、Node最终62项和 `pip check` 通过；Java 360项/68个suite零失败、错误或跳过，六JAR离线构建通过；跨进程验收92/92通过。** 对应Java `d7c2692`、Python `5091363`。这些是历史v11结果，不代表v12已完成验收。真实PostgreSQL、Langfuse、BGE及ES未联调，没有性能基准或召回效果指标，完整生产级重构尚未完成。
 
@@ -209,7 +209,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 
 `.env.example` 中所有服务地址/凭据空项由部署时填写。明天需决定 PostgreSQL Checkpointer 与只读 BI 库、Langfuse、BGE-M3/BGE-Reranker 服务、ES chunk 索引与认证方式。真实模型供应商与模型参数由 Java Model Gateway 维护。真实外部 adapter 联调、数据库权限/索引执行计划验证、跨主机负载和性能基准尚未运行。不得把本地 adapter 或 HTTP contract 测试当作生产数据、实际召回效果或完整生产部署验收。
 
-Agent API与MCP使用用户JWT逐请求核实身份，检查点、会话目录与锁按用户隔离；可选X-Agent-Key仍只是额外服务访问边界。MCP仅绑定本机。商品目录、历史和日统计、资料与用户管理、密码恢复、作品和通用工作流已接入工作台。Java v14已实现跨入口每用户3个真实视频在途额度，UNKNOWN不释放，额度等待仍保持排队；Agent与工作台展示等待原因并保留手动操作。完整旧前端全部页面、新任务视频用量聚合、旧可调上限及支付等仍未完成。旧内部版禁用自动扣积分，未擅自新增生成扣费或虚构套餐额度。改密撤销已实现，但无单设备登出或独立撤销列表。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。
+Agent API与MCP使用用户JWT逐请求核实身份，检查点、会话目录与锁按用户隔离；可选X-Agent-Key仍只是额外服务访问边界。MCP仅绑定本机。商品目录、历史和日统计、资料与用户管理、密码恢复、作品和通用工作流已接入工作台。Java v14已实现跨入口每用户3个真实视频在途额度，UNKNOWN不释放，额度等待仍保持排队；Agent与工作台展示等待原因并保留手动操作。v15恢复旧可调视频上限并接入新用量投影；完整旧前端、独立参考图生成/微调入口和旧后台套餐/财务/菜单权限等仍未完成。旧内部版禁用自动扣积分，未擅自新增生成扣费或虚构套餐额度。改密撤销已实现，但无单设备登出或独立撤销列表。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。
 
 ## 图片与视频工作流状态验证
 
@@ -382,3 +382,5 @@ Invoke-RestMethod -Method Delete "http://127.0.0.1:8090/v1/agent/sessions/${sess
 输入 `查询 camping-lamp-001 的日统计`，Agent 先读取商品来源，再按该来源调用 MCP `product_daily_statistics`；每次固定两次工具调用，日统计最多返回 30 条，MCP 可传 `limit`（1–100）和 `before_date`。响应 `productDaily` 保留评分版本、观测、趋势、限制说明与日期游标，不随条数增加请求或自动翻完全部历史。商品槽位更新会失效旧日统计。
 
 日统计由 Java 内部重算用例生成，Agent 只读；没有已保存统计时明确返回空，不把快照差值冒充日报。`radar-v2-exact-date` 延续旧版分项评分，但 7/30 天增长要求精确日期基线；缺失基线保持 null。金额和类目聚合按来源、币种隔离，原始滚动 7 天销量不会改称当天销量。真实数据库查询计划及生产规模未验证。
+
+管理员用户页可手动读取 `/v1/identity/users/{id}/usage-stats`。列表按当前页展示旧视频日志与新内容账本的四计数，详情最多1000个平台/模型组合，未知值保留并显示未知；不会逐用户请求明细。统计为来源登记行数相加，未做历史跨源去重，不代表金额、积分、Token或供应商受理次数。待定包括UNKNOWN；切换所选用户或退出清空明细，迟到响应不会回填。用量事件在Java内部通过持久Outbox批量HTTP投影，不经浏览器发送。真实数据库联调、人工重投UI与容量测试未完成。
