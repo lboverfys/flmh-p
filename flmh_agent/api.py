@@ -36,7 +36,8 @@ logger = logging.getLogger("flmh.agent.api")
 MAX_JSON_BODY_BYTES = 64 * 1024
 WORKBENCH_ROOT = Path(__file__).parent / "adapters" / "inbound" / "web"
 WORKBENCH_ASSETS = {"app.css": "text/css", "app.js": "text/javascript",
-                    "workflows.css": "text/css", "workflows.js": "text/javascript"}
+                    "workflows.css": "text/css", "workflows.js": "text/javascript",
+                    "sessions.css": "text/css", "sessions.js": "text/javascript"}
 WORKBENCH_HEADERS = {
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",

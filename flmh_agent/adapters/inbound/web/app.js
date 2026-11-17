@@ -23,6 +23,7 @@ const state = { current: null, submission: null, busy: false, controller: null, 
   pollCount: 0, productionLocked: false, uncertain: false, closing: false,
   token: "", user: null, authBusy: false, sessionVersion: 0 };
 let workflowEditor;
+let sessionsPanel;
 const accounts = { profile: null, selected: null, listing: null, page: 1, search: "", listingVersion: 0, pointsUncertain: new Map() };
 const works = { listing: null, page: 1, selected: null, lineage: null, pendingSave: null };
 
@@ -104,6 +105,7 @@ function updateControls() {
   }
   visible("revision-panel", canRevise());
   workflowEditor?.updateControls(blocked);
+  sessionsPanel?.updateControls(blocked);
 }
 function errorMessage(status, data) {
   if (data.error?.startsWith("work_") || data.error?.startsWith("invalid_work_")) {
@@ -270,6 +272,7 @@ function clearSession(message = "已退出。请登录后继续；旧结果与�
   clearAccounts();
   clearWorks();
   workflowEditor?.reset();
+  sessionsPanel?.reset();
   ui.results.removeAttribute("aria-busy");
   resetRun();
   ui["auth-status"].textContent = message;
@@ -852,6 +855,17 @@ async function checkConnection() {
 workflowEditor = globalThis.FlmhWorkflowEditor?.mount(ui["workflow-panel"], {
   request, authenticated: () => Boolean(state.user && state.token), blocked: () => state.busy || state.authBusy,
   version: () => state.sessionVersion, busy: value => { state.busy = value; updateControls(); },
+});
+sessionsPanel = globalThis.FlmhSessions?.mount(ui["agent-sessions-panel"], {
+  request, authenticated: () => Boolean(state.user && state.token), blocked: () => state.busy || state.authBusy,
+  version: () => state.sessionVersion, busy: value => { state.busy = value; updateControls(); },
+  streamHeaders: () => ({ Authorization: `Bearer ${state.token}`, ...(ui["api-key"].value.trim() ? { "X-Agent-Key": ui["api-key"].value.trim() } : {}) }),
+  clearSession,
+  openRun: result => {
+    stopPolling(); state.current = result; state.submission = null; state.uncertain = false;
+    state.productionLocked = Boolean(result.contentTask?.taskId || result.mediaRun?.runId || result.mediaStatus?.runId || result.conclusionDependencies?.confirmed_quote);
+    render(true); stopPolling(); updateControls();
+  },
 });
 updateControls();
 checkConnection();
