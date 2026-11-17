@@ -32,9 +32,10 @@ class JavaGatewayClient:
         return await self._request("POST", "/api/v1/content/quotes", json=payload)
 
     async def confirm_quote(self, quote_id: str) -> dict[str, Any]:
-        return await self._request(
+        response = await self._request(
             "POST", f"/api/v1/content/quotes/{quote(quote_id, safe='')}/confirm", json={"confirmed": True}
         )
+        return {**response, "confirmed": response.get("status") == "CONFIRMED"}
 
     async def submit_task(self, request: Mapping[str, Any], idempotency_key: str) -> dict[str, Any]:
         payload = {

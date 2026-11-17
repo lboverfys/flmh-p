@@ -5,8 +5,9 @@ import json
 from typing import Any
 
 
-def idempotency_key(*, user_request: str, product_id: str, content_type: str, budget_max: float | None, region: str) -> str:
+def idempotency_key(*, quote_id: str, user_request: str, product_id: str, content_type: str, budget_max: float | None, region: str) -> str:
     payload: dict[str, Any] = {
+        "quote_id": quote_id,
         "user_request": " ".join(user_request.split()),
         "product_id": product_id.strip(),
         "content_type": content_type.strip(),

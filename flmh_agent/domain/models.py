@@ -111,6 +111,7 @@ class AgentState(TypedDict, total=False):
     bi_result: dict[str, Any]
     confirmation_request: dict[str, Any]
     request_fingerprint: str
+    required_slots: list[str]
 
 
 class PlanResponse(BaseModel):

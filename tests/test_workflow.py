@@ -116,8 +116,9 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
 class IdempotencyTests(unittest.TestCase):
     def test_same_normalized_input_has_same_key_and_changed_input_does_not(self):
         values = {
-            "user_request": "  写一段 口播 ", "product_id": "p-1", "content_type": "product_script",
+            "quote_id": "q-1", "user_request": "  写一段 口播 ", "product_id": "p-1", "content_type": "product_script",
             "budget_max": 50.0, "region": "id",
         }
         self.assertEqual(idempotency_key(**values), idempotency_key(**{**values, "user_request": "写一段 口播"}))
         self.assertNotEqual(idempotency_key(**values), idempotency_key(**{**values, "product_id": "p-2"}))
+        self.assertNotEqual(idempotency_key(**values), idempotency_key(**{**values, "quote_id": "q-2"}))

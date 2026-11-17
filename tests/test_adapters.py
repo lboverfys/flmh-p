@@ -8,12 +8,22 @@ from flmh_agent.adapters.outbound.bge_http import BgeM3HttpAdapter, BgeRerankerH
 from flmh_agent.adapters.inbound.mcp_tools import create_mcp_server
 from flmh_agent.adapters.outbound.mcp_client import McpProductContentAdapter
 from flmh_agent.adapters.outbound.model_gateway import ModelGatewayClient, ModelGatewayPlanner
+from flmh_agent.adapters.outbound.java_gateway import JavaGatewayClient
 from flmh_agent.config import Settings
 from flmh_agent.domain.rag import Chunk
 from flmh_agent.domain.models import ProductQuery
 
 
 class AdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_java_confirmation_status_is_mapped_to_mcp_contract(self):
+        async def handler(request):
+            self.assertEqual(request.url.path, "/api/v1/content/quotes/q-1/confirm")
+            return httpx.Response(200, json={"quoteId": "q-1", "status": "CONFIRMED", "amount": 3.99})
+        async with httpx.AsyncClient(base_url="http://gateway", transport=httpx.MockTransport(handler)) as client:
+            response = await JavaGatewayClient(Settings(), client).confirm_quote("q-1")
+        self.assertTrue(response["confirmed"])
+        self.assertEqual(response["status"], "CONFIRMED")
+
     async def test_mcp_bridge_accepts_nullable_plan_search_fields(self):
         requests = []
 

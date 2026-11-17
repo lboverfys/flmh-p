@@ -64,8 +64,30 @@ class ApplicationTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RunConflictError, "different request"):
             await self.application.start("run-1", {"user_request": "查询印尼耳机"})
 
+    async def test_missing_budget_is_explicit_and_never_requests_a_quote(self):
+        result = await self.application.start("budget-missing", {"user_request": "给我露营灯写口播"})
+        self.assertEqual(result["status"], "needs_input")
+        self.assertEqual(result["requiredSlots"], ["budget_max"])
+        self.assertEqual(self.tools.calls, ["search"])
+
+    async def test_read_refreshes_pending_task_without_resubmission(self):
+        status = "QUEUED"
+        async def get_task(task_id):
+            self.tools.calls.append("get")
+            return {"taskId": task_id, "status": status}
+        self.tools.get_task = get_task
+        await self.application.start("pending", {"user_request": "给我露营灯写口播，预算 50"})
+        first = await self.application.confirm("pending", {"confirmed": True})
+        self.assertEqual(first["status"], "processing")
+        status = "SUCCEEDED"
+        result = await self.application.get("pending")
+        self.assertEqual(result["taskStatus"]["status"], "SUCCEEDED")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(self.tools.calls.count("submit"), 1)
+        self.assertEqual(self.tools.calls.count("get"), 2)
+
     async def test_confirmation_resume_and_repeated_confirmation_are_idempotent(self):
-        started = await self.application.start("run-2", {"user_request": "给我露营灯写口播"})
+        started = await self.application.start("run-2", {"user_request": "给我露营灯写口播，预算 50"})
         self.assertEqual(started["status"], "awaiting_confirmation")
         self.assertTrue(started["confirmationRequest"])
         finished = await self.application.confirm("run-2", {"confirmed": True})
@@ -74,7 +96,7 @@ class ApplicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.tools.calls, ["search", "quote", "confirm", "submit", "get"])
 
     async def test_get_reports_interrupted_checkpoint_without_reopening_external_tools(self):
-        await self.application.start("run-3", {"user_request": "给我露营灯写口播"})
+        await self.application.start("run-3", {"user_request": "给我露营灯写口播，预算 50"})
         result = await self.application.get("run-3")
         self.assertEqual(result["status"], "awaiting_confirmation")
         self.assertTrue(result["confirmationRequest"])
@@ -100,7 +122,7 @@ class ApplicationTests(unittest.IsolatedAsyncioTestCase):
             return await original_get(task_id)
 
         self.tools.get_task = fail_once
-        await self.application.start("retry-1", {"user_request": "给我露营灯写口播"})
+        await self.application.start("retry-1", {"user_request": "给我露营灯写口播，预算 50"})
         with self.assertRaisesRegex(RuntimeError, "temporary status failure"):
             await self.application.confirm("retry-1", {"confirmed": True})
         result = await self.application.retry("retry-1")

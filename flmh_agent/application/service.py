@@ -116,7 +116,7 @@ class AgentApplication:
             if "request_confirmation" in previous.next:
                 raise RunConflictError("waiting for confirmation; use the confirmation endpoint")
             if not previous.next:
-                return _response(run_id, previous.values)
+                return await self._refresh_task(run_id, previous)
             async with self.tool_session_factory() as tools:
                 graph = self._graph(tools)
                 result = await graph.ainvoke(None, config=graph_config)
@@ -124,11 +124,25 @@ class AgentApplication:
 
     async def get(self, run_id: str) -> dict[str, Any] | None:
         self._validate_run_id(run_id)
-        graph = self._graph(_DisconnectedTools())
-        snapshot = await graph.aget_state(self._config(run_id, trace=False))
-        if not snapshot.values:
-            return None
-        return _snapshot_response(run_id, snapshot)
+        async with self.run_coordinator.acquire(run_id):
+            graph = self._graph(_DisconnectedTools())
+            snapshot = await graph.aget_state(self._config(run_id, trace=False))
+            if not snapshot.values:
+                return None
+            return await self._refresh_task(run_id, snapshot)
+
+    async def _refresh_task(self, run_id: str, snapshot: Any) -> dict[str, Any]:
+        task = snapshot.values.get("content_task") or {}
+        status = snapshot.values.get("task_status", {}).get("status")
+        if snapshot.next or not task or status in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+            return _snapshot_response(run_id, snapshot)
+        task_id = task["taskId"]
+        async with self.tool_session_factory() as tools:
+            graph = self._graph(tools)
+            current = dict(await tools.get_task(task_id))
+            await graph.aupdate_state(self._config(run_id, trace=False), {"task_status": current}, as_node="read_task_status")
+            result = await graph.ainvoke(None, self._config(run_id, trace=False))
+        return _response(run_id, result)
 
     def _graph(self, tools: ProductContentPort):
         return build_workflow(
@@ -189,7 +203,9 @@ def _response(run_id: str, result: Mapping[str, Any]) -> dict[str, Any]:
     ]
     return {
         "runId": run_id,
-        "status": "awaiting_confirmation" if pending_confirmation else "completed",
+        "status": ("needs_input" if values.get("required_slots") else "awaiting_confirmation" if pending_confirmation
+                   else "processing" if values.get("content_task") and values.get("task_status", {}).get("status") not in {"SUCCEEDED", "FAILED", "CANCELLED"}
+                   else "completed"),
         "plan": plan,
         "slotValues": values.get("slot_values", {}),
         "slotVersion": values.get("slot_version", 0),
@@ -204,6 +220,7 @@ def _response(run_id: str, result: Mapping[str, Any]) -> dict[str, Any]:
         "summary": values.get("summary", ""),
         "error": values.get("error", ""),
         "biResult": values.get("bi_result", {}),
+        "requiredSlots": values.get("required_slots", []),
     }
 
 

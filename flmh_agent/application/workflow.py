@@ -67,6 +67,7 @@ def build_workflow(
             "error": "",
             "summary": "",
             "bi_result": {},
+            "required_slots": [],
         }
 
     async def run_bi_query(state: AgentState) -> dict[str, Any]:
@@ -95,6 +96,11 @@ def build_workflow(
             return {"error": f"{reason}；未创建内容任务。"}
         if not selected.get("id"):
             return {"error": "商品服务返回记录缺少 ID；未创建内容任务。"}
+        if state["plan"]["create_content"] and (
+            state["plan"]["budget_max"] is None or state["plan"]["budget_max"] < 0.01
+        ):
+            return {"selected_product": selected, "required_slots": ["budget_max"],
+                    "error": "内容生产需要明确且至少为 0.01 的预算上限；尚未创建报价或任务。"}
         return {"selected_product": selected}
 
     def prepare_content_request(state: AgentState) -> dict[str, Any]:
@@ -106,13 +112,6 @@ def build_workflow(
     async def create_quote(state: AgentState) -> dict[str, Any]:
         product = state["selected_product"]
         query = state["plan"]["queries"][0]
-        key = idempotency_key(
-            user_request=state["user_request"],
-            product_id=str(product["id"]),
-            content_type=state["plan"]["content_type"],
-            budget_max=state["plan"]["budget_max"],
-            region=str(product.get("region") or query["region"]),
-        )
         quote = await tools.create_quote({
             "product_id": str(product["id"]),
             "content_type": state["plan"]["content_type"],
@@ -120,6 +119,15 @@ def build_workflow(
             "budget_max": state["plan"]["budget_max"],
         })
         amount = _quote_amount(quote)
+        quote_id = _required_identifier(quote, "quoteId", "id", "quote_id")
+        key = idempotency_key(
+            quote_id=quote_id,
+            user_request=state["user_request"],
+            product_id=str(product["id"]),
+            content_type=state["plan"]["content_type"],
+            budget_max=state["plan"]["budget_max"],
+            region=str(product.get("region") or query["region"]),
+        )
         budget = state["plan"]["budget_max"]
         within_budget = budget is None or amount <= Decimal(str(budget))
         prompt = {
