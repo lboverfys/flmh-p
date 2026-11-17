@@ -3,15 +3,17 @@
 const ui = Object.fromEntries([...document.querySelectorAll("[id]")].map(element => [element.id, element]));
 const examples = {
   selection: "请帮我在美国查露营灯并写口播脚本，预算不超过 30",
+  media: "查美国旅行杯并制作图片和视频，预算10",
   history: "查询 camping-lamp-001 的历史趋势",
   detail: "查询 camping-lamp-001 的详情",
 };
 const labels = {
   awaiting_confirmation: "等待确认", processing: "生产中", completed: "已完成",
-  needs_input: "需补充条件", needs_configuration: "等待配置", retryable: "可重试",
-  QUEUED: "已排队", SUBMITTING: "正在提交", SUBMISSION_UNKNOWN: "提交结果待核实",
-  SUCCEEDED: "生产成功", FAILED: "生产失败", CANCELLED: "已取消",
+  needs_input: "需补充条件", needs_configuration: "等待配置", needs_verification: "等待核实", retryable: "可重试",
+  QUEUED: "已排队", RUNNING: "执行中", SUBMITTING: "正在提交", SUBMISSION_UNKNOWN: "提交结果待核实",
+  UNKNOWN: "结果未知", MOCKED: "模拟完成", SUCCEEDED: "生产成功", FAILED: "生产失败", CANCELLED: "已取消",
 };
+const mediaNodeLabels = { image: "图片", video: "视频" };
 const state = { current: null, submission: null, busy: false, controller: null, pollTimer: null,
   pollCount: 0, productionLocked: false, uncertain: false, closing: false };
 
@@ -32,9 +34,15 @@ function stopPolling() { clearTimeout(state.pollTimer); state.pollTimer = null; 
 function runId() { return state.current?.runId || state.submission?.run_id || ui["run-id"].value.trim(); }
 function validRunId(value) { return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value); }
 function task() { return state.current?.taskStatus?.taskId ? state.current.taskStatus : state.current?.contentTask || {}; }
+function media() { return state.current?.mediaStatus?.runId ? state.current.mediaStatus : state.current?.mediaRun || {}; }
+function canAdvanceMedia() {
+  return Boolean(media().runId) && ["QUEUED", "RUNNING"].includes(media().status)
+    && state.current?.status !== "needs_verification" && !state.uncertain;
+}
+function canVerifyMedia() { return Boolean(media().runId) && media().status === "SUBMISSION_UNKNOWN" && !state.uncertain; }
 function canRevise() {
   return Boolean(state.current) && !state.productionLocked && !state.current.contentTask?.taskId
-    && !state.current.conclusionDependencies?.confirmed_quote && !state.uncertain;
+    && !media().runId && !state.current.conclusionDependencies?.confirmed_quote && !state.uncertain;
 }
 function updateControls() {
   document.querySelectorAll("button").forEach(button => { button.disabled = state.busy; });
@@ -46,7 +54,16 @@ function updateControls() {
   ui.reject.disabled = state.busy || state.uncertain;
   ui["api-key"].disabled = state.busy;
   ui["run-id"].disabled = state.busy;
-  visible("retry", state.current?.status === "retryable" && !state.uncertain);
+  visible("retry", state.current?.status === "retryable" && !media().runId && !state.uncertain);
+  ui["media-advance"].disabled = state.busy || !canAdvanceMedia();
+  ui["media-verify"].disabled = state.busy || !canVerifyMedia();
+  if (media().runId) {
+    ui["media-action-note"].textContent = state.uncertain ? "上次操作结果尚未确认，请先刷新状态。"
+      : canVerifyMedia() ? "提交结果未知，只能核实已有请求；核实不会重新提交。"
+      : canAdvanceMedia() ? "点击一次只推进一步。刷新状态只读取记录，不推进任务。"
+      : ["MOCKED", "SUCCEEDED", "FAILED", "CANCELLED"].includes(media().status) ? "本次媒体流程已结束，无需继续推进或核实。"
+      : "当前状态不允许推进，请刷新状态查看服务返回的最新记录。";
+  }
   visible("revision-panel", canRevise());
 }
 function errorMessage(status, data) {
@@ -100,7 +117,8 @@ async function perform(operation, activity, { mutation = false, poll = false } =
     const result = await operation();
     state.current = result;
     state.uncertain = false;
-    state.productionLocked = Boolean(result.contentTask?.taskId || result.conclusionDependencies?.confirmed_quote);
+    state.productionLocked = Boolean(result.contentTask?.taskId || result.mediaRun?.runId || result.mediaStatus?.runId
+      || result.conclusionDependencies?.confirmed_quote);
     render(!poll);
   } catch (error) {
     if (!state.closing) {
@@ -117,6 +135,7 @@ async function perform(operation, activity, { mutation = false, poll = false } =
   schedulePoll();
 }
 function schedulePoll() {
+  if (media().runId) { ui["poll-note"].textContent = "媒体任务需手动推进或核实；刷新状态只读取记录。"; return; }
   if (state.closing || state.current?.status !== "processing") { ui["poll-note"].textContent = ""; return; }
   if (state.pollCount >= 20) { ui["poll-note"].textContent = "自动刷新已结束；任务仍在处理时，可点击“刷新状态”。"; return; }
   ui["poll-note"].textContent = `正在自动刷新（${state.pollCount}/20）。离开页面会停止刷新。`;
@@ -150,7 +169,7 @@ function resetRun(prompt = "") {
   ui.request.value = prompt;
   ui["run-id"].value = "";
   setError("");
-  for (const id of ["summary-panel", "confirmation-panel", "task-panel", "products-panel", "detail-panel", "history-panel", "technical-panel", "revision-panel"]) visible(id, false);
+  for (const id of ["summary-panel", "confirmation-panel", "task-panel", "media-panel", "products-panel", "detail-panel", "history-panel", "technical-panel", "revision-panel"]) visible(id, false);
   visible("empty-state", true);
   ui["run-status"].textContent = "尚未开始";
   ui["run-status"].className = "badge";
@@ -163,19 +182,27 @@ function resetRun(prompt = "") {
 function render(fillRevision) {
   const result = state.current;
   const currentTask = task();
+  const currentMedia = media();
   visible("empty-state", false);
   visible("summary-panel", true);
   visible("technical-panel", true);
   ui["run-id"].value = result.runId;
   ui["run-status"].textContent = labels[result.status] || result.status;
-  ui["run-status"].className = `badge ${result.status === "completed" ? "good" : result.status === "awaiting_confirmation" ? "amber" : ""}`;
+  ui["run-status"].className = `badge ${result.status === "completed" ? "good" : ["awaiting_confirmation", "needs_verification"].includes(result.status) ? "amber" : ""}`;
   ui.activity.textContent = result.status === "awaiting_confirmation" ? "查询与报价已完成，请在右侧确认或拒绝。"
     : result.status === "needs_input" ? "请在下方补充条件后重新查询。"
     : result.status === "needs_configuration" ? "所需能力尚未配置；具体待办见结果。"
+    : result.status === "needs_verification" ? "媒体提交结果待核实，请使用右侧的核实按钮。"
     : result.status === "retryable" ? "部分步骤未完成，可以重试失败步骤。"
+    : result.status === "processing" && currentMedia.runId ? "媒体任务已创建，请按当前状态手动推进或核实。"
     : result.status === "processing" ? "内容任务已提交，正在读取处理进度。" : "本次处理已结束，结果如下。";
   ui["submission-note"].textContent = "当前运行编号已保留。调整条件请使用修订；新的需求请点击“新请求”。";
-  if (currentTask.taskId) {
+  if (currentMedia.runId) {
+    ui.summary.textContent = [`商品查询返回 ${(result.products || []).length} 项。`,
+      `媒体任务状态：${labels[currentMedia.status] || text(currentMedia.status)}。`,
+      `执行模式：${text(currentMedia.executionMode)}；返回产物 ${(currentMedia.artifacts || []).length} 项。`,
+      currentMedia.status === "MOCKED" ? "本次仅完成模拟流程，未生成真实图片或视频文件。" : ""].filter(Boolean).join("\n");
+  } else if (currentTask.taskId) {
     const status = labels[currentTask.status] || text(currentTask.status);
     const source = currentTask.generationSource ? `生成来源：${currentTask.generationSource}。` : "";
     ui.summary.textContent = [`商品查询返回 ${(result.products || []).length} 项。`, `内容任务状态：${status}。`, source]
@@ -189,12 +216,28 @@ function render(fillRevision) {
   visible("configuration-todos", todos.length > 0);
   ui["raw-response"].textContent = JSON.stringify(result, null, 2);
   const quote = result.confirmationRequest?.quote || result.quote || {};
+  const mediaRequest = result.confirmationRequest?.mediaRequest;
   const awaiting = result.status === "awaiting_confirmation" && Boolean(result.confirmationRequest?.quoteId);
   visible("confirmation-panel", awaiting);
   if (awaiting) {
-    fields(ui["quote-fields"], [["报价", `${text(quote.amount)} ${text(quote.currency)}`], ["预算上限", `${text(quote.budgetMax)} ${text(quote.currency)}`],
-      ["商品", result.confirmationRequest?.product?.title || quote.productId], ["报价依据", quote.pricingSource], ["报价编号", quote.quoteId]]);
-    ui["quote-brief"].textContent = quote.brief || result.contentBrief?.body || "未提供内容要求";
+    const entries = [["报价", `${text(quote.amount)} ${text(quote.currency)}`], ["预算上限", `${text(quote.budgetMax ?? mediaRequest?.budget_max)} ${text(quote.currency)}`],
+      ["商品", result.confirmationRequest?.product?.title || quote.productId], ["报价依据", quote.pricingSource], ["报价编号", quote.quoteId]];
+    ui["quote-title"].textContent = mediaRequest ? "确认图片与视频报价" : "确认内容报价";
+    ui["quote-notice"].textContent = mediaRequest
+      ? "请核对图片、视频要求和规格。即使模拟报价为零，也需要确认后才创建媒体任务。" : "请核对以下信息。点击确认后才提交内容生产。";
+    if (mediaRequest) {
+      entries.push(["执行模式", quote.executionMode], ["画面比例", quote.input?.aspectRatio ?? mediaRequest.aspect_ratio],
+        ["视频时长", `${text(quote.input?.durationSeconds ?? mediaRequest.duration_seconds)} 秒`]);
+      for (const [key, amount] of Object.entries(quote.nodePrices || {})) {
+        entries.push([`${mediaNodeLabels[key] || key}节点报价`, `${text(amount)} ${text(quote.currency)}`]);
+      }
+      entries.push(["复用节点", quote.reusedNodes?.length === 0 ? "无" : quote.reusedNodes?.map(key => mediaNodeLabels[key] || key).join("、")]);
+      if (quote.originRunId) entries.push(["重跑来源", quote.originRunId]);
+    }
+    fields(ui["quote-fields"], entries);
+    ui["quote-brief"].textContent = mediaRequest
+      ? `图片要求：${text(quote.input?.imagePrompt ?? mediaRequest.image_prompt)}\n视频要求：${text(quote.input?.videoPrompt ?? mediaRequest.video_prompt)}`
+      : quote.brief || result.contentBrief?.body || "未提供内容要求";
   }
   visible("task-panel", Boolean(currentTask.taskId));
   if (currentTask.taskId) {
@@ -206,6 +249,7 @@ function render(fillRevision) {
     visible("task-failure", Boolean(currentTask.failureReason));
     ui["task-failure"].textContent = currentTask.failureReason || "";
   }
+  renderMedia(currentMedia);
   renderProducts(result.products || []);
   renderDetail(result.productDetail);
   renderHistory(result.productHistory);
@@ -214,6 +258,32 @@ function render(fillRevision) {
     ui["rev-region"].value = result.slotValues?.region || "";
     ui["rev-budget"].value = result.slotValues?.budget_max ?? "";
   }
+}
+function renderMedia(currentMedia) {
+  visible("media-panel", Boolean(currentMedia.runId));
+  ui["media-nodes"].replaceChildren();
+  ui["media-artifacts"].replaceChildren();
+  if (!currentMedia.runId) return;
+  const artifacts = currentMedia.artifacts || [];
+  ui["media-status"].textContent = labels[currentMedia.status] || text(currentMedia.status);
+  ui["media-status"].className = `badge ${currentMedia.status === "SUCCEEDED" ? "good" : currentMedia.status === "FAILED" ? "bad" : "amber"}`;
+  ui["media-notice"].textContent = currentMedia.status === "MOCKED" || currentMedia.executionMode === "MOCK_ONLY"
+    ? "本次使用本地模拟适配器，未生成真实图片或视频文件。MOCKED 表示模拟流程完成。"
+    : "媒体状态和产物均以服务实际返回为准。地址只显示文本，本页面不会自动打开或加载媒体。";
+  fields(ui["media-fields"], [["媒体运行编号", currentMedia.runId], ["报价编号", currentMedia.quoteId],
+    ["执行模式", currentMedia.executionMode], ["产物数量", artifacts.length]]);
+  for (const item of currentMedia.nodes || []) {
+    const card = node("article", undefined, "media-node");
+    const heading = node("div", undefined, "section-heading");
+    heading.append(node("h3", mediaNodeLabels[item.nodeKey] || item.nodeKey), node("span", labels[item.status] || text(item.status), "badge"));
+    const info = node("div", undefined, "key-values");
+    fields(info, [["执行次数", item.attempt], ["请求编号", item.requestId], ["供应商任务编号", item.providerTaskId],
+      ["输出地址", item.outputUrl], ["来源", item.source], ["错误代码", item.errorCode]]);
+    card.append(heading, info);
+    ui["media-nodes"].append(card);
+  }
+  ui["media-artifact-note"].textContent = artifacts.length ? "以下为服务返回的产物记录，地址仅作文本展示。" : "暂无图片或视频文件。";
+  for (const artifact of artifacts) ui["media-artifacts"].append(node("pre", typeof artifact === "string" ? artifact : JSON.stringify(artifact, null, 2), "media-artifact"));
 }
 function renderProducts(products) {
   ui.products.replaceChildren();
@@ -280,7 +350,19 @@ ui["lookup-form"].addEventListener("submit", event => {
 });
 ui.refresh.addEventListener("click", () => refresh());
 ui["run-id"].addEventListener("input", updateControls);
-ui.retry.addEventListener("click", () => perform(() => request(`/v1/agent/runs/${encodeURIComponent(runId())}/retry`, {}), "正在恢复失败步骤…", { mutation: true }));
+ui.retry.addEventListener("click", () => {
+  if (state.current?.status !== "retryable" || media().runId || state.uncertain) return;
+  perform(() => request(`/v1/agent/runs/${encodeURIComponent(runId())}/retry`, {}), "正在恢复失败步骤…", { mutation: true });
+});
+for (const [id, action, allowed, activity] of [
+  ["media-advance", "advance", canAdvanceMedia, "正在推进媒体任务一步…"],
+  ["media-verify", "verify", canVerifyMedia, "正在核实已有媒体请求…"],
+]) {
+  ui[id].addEventListener("click", () => {
+    if (!allowed()) return;
+    perform(() => request(`/v1/agent/runs/${encodeURIComponent(runId())}/media/${action}`, undefined, "POST"), activity, { mutation: true });
+  });
+}
 for (const [id, confirmed] of [["confirm", true], ["reject", false]]) {
   ui[id].addEventListener("click", () => {
     const quoteId = state.current?.confirmationRequest?.quoteId;
