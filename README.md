@@ -28,7 +28,9 @@ MCP 工具桥仅允许绑定本机回环地址。CLI 和 API 在 Windows 启用 
 
 ## 本机启动
 
-本机已验证 Python 为 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`（3.12.14）。包缓存放在 `D:\rubbish\zhongjian\caches\python\flmh`，本轮临时与验收目录为 `D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v15`；Java构建目录为 `D:\rubbish\zhongjian\build\flmh\enterprise-20261117\v15`。不需要下载任何模型权重，不把依赖、缓存或临时数据写入C盘。
+最新本机验收与两行启动命令见 [v16 交付说明](../flmh-j/docs/delivery.md)。独立改图从“我的上传素材 → 用于模特适配”进入，单独核算预算、确认并推进。再次精修仍取初始素材与输出比例；按报价编号可以只读恢复原任务。`MOCK_ONLY` 完成时不会生成图片。
+
+本机已验证 Python 为 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`（3.12.14）。包缓存放在 `D:\rubbish\zhongjian\caches\python\flmh`，本轮临时与验收目录为 `D:\rubbish\zhongjian\temp\flmh\enterprise-20261118\v16`；Java构建目录为 `D:\rubbish\zhongjian\build\flmh\enterprise-20261118\v16`。不需要下载任何模型权重，不把依赖、缓存或临时数据写入C盘。
 
 最简整链启动使用 [Java README](../flmh-j/README.md#本机启动) 的 `verify-local.ps1` 命令，它会启动六个Java服务、MCP和Agent，完成验证后自动收尾；手动体验时显式追加 `-KeepAlive`，结束后在原终端输入 `stop`。该脚本已经启动Python服务时，不再执行下面两组命令。
 
@@ -38,7 +40,7 @@ MCP 工具桥仅允许绑定本机回环地址。CLI 和 API 在 Windows 启用 
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v15'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261118\v16'
 $env:TMP = $env:TEMP
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
@@ -49,7 +51,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v15'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261118\v16'
 $env:TMP = $env:TEMP
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
@@ -175,7 +177,7 @@ Agent 请求“从知识库查询采集说明”进入检索路径并输出带�
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v15'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261118\v16'
 $env:TMP = $env:TEMP
 $env:PIP_CACHE_DIR = 'D:\rubbish\zhongjian\caches\python\flmh'
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
@@ -187,7 +189,7 @@ if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $e
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v15'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261118\v16'
 $env:TMP = $env:TEMP
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
@@ -209,7 +211,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 
 `.env.example` 中所有服务地址/凭据空项由部署时填写。明天需决定 PostgreSQL Checkpointer 与只读 BI 库、Langfuse、BGE-M3/BGE-Reranker 服务、ES chunk 索引与认证方式。真实模型供应商与模型参数由 Java Model Gateway 维护。真实外部 adapter 联调、数据库权限/索引执行计划验证、跨主机负载和性能基准尚未运行。不得把本地 adapter 或 HTTP contract 测试当作生产数据、实际召回效果或完整生产部署验收。
 
-Agent API与MCP使用用户JWT逐请求核实身份，检查点、会话目录与锁按用户隔离；可选X-Agent-Key仍只是额外服务访问边界。MCP仅绑定本机。商品目录、历史和日统计、资料与用户管理、密码恢复、作品和通用工作流已接入工作台。Java v14已实现跨入口每用户3个真实视频在途额度，UNKNOWN不释放，额度等待仍保持排队；Agent与工作台展示等待原因并保留手动操作。v15恢复旧可调视频上限并接入新用量投影；完整旧前端、独立参考图生成/微调入口和旧后台套餐/财务/菜单权限等仍未完成。旧内部版禁用自动扣积分，未擅自新增生成扣费或虚构套餐额度。改密撤销已实现，但无单设备登出或独立撤销列表。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。
+Agent API与MCP使用用户JWT逐请求核实身份，检查点、会话目录与锁按用户隔离；可选X-Agent-Key仍只是额外服务访问边界。MCP仅绑定本机。商品目录、历史和日统计、资料与用户管理、密码恢复、作品和通用工作流已接入工作台。Java v14已实现跨入口每用户3个真实视频在途额度，UNKNOWN不释放，额度等待仍保持排队；Agent与工作台展示等待原因并保留手动操作。v15恢复旧可调视频上限并接入新用量投影；完整旧前端、试衣微调、批量矩阵和旧后台套餐/财务/菜单权限等仍未完成。旧内部版禁用自动扣积分，未擅自新增生成扣费或虚构套餐额度。改密撤销已实现，但无单设备登出或独立撤销列表。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。
 
 ## 图片与视频工作流状态验证
 
@@ -295,7 +297,7 @@ ConvertTo-Json -InputObject $nodeAssets -Compress
 
 成功响应为 `{asset,reused}`，重放返回原素材及 `reused=true`。目录每页最多50项，工作台每页20项；`GET /v1/assets/{id}`读信息，`GET /v1/assets/{id}/file`鉴权下载，其他用户资源返回404；当前不提供删除或覆盖素材。浏览器在上传响应未知时保留原文件与幂等键，“重试同一上传”不会创建另一份。
 
-节点固定素材JSON格式为 `[{"type":"image","assetId":"<返回的UUID>"}]`，或视频的 `type:"video"`；`assetId`与旧`url`二选一。“用于当前节点”只把引用填入当前节点编辑框，仍须手动点击应用节点、保存定义，再重新报价和确认。报价与运行按owner批量核实素材，输入指纹包含不可变素材ID及类型；SHA-256由素材元数据保存；真实执行只接受本人私有OSS素材或本运行上游已归档产物，固定外链仍拒绝，本地路径不会发送给供应商。独立图片编辑/遮罩流程尚未实现，工作流参考图生成协议见下一节。
+节点固定素材JSON格式为 `[{"type":"image","assetId":"<返回的UUID>"}]`，或视频的 `type:"video"`；`assetId`与旧`url`二选一。“用于当前节点”只把引用填入当前节点编辑框，仍须手动点击应用节点、保存定义，再重新报价和确认。报价与运行按owner批量核实素材，输入指纹包含不可变素材ID及类型；SHA-256由素材元数据保存；真实执行只接受本人私有OSS素材或本运行上游已归档产物，固定外链仍拒绝，本地路径不会发送给供应商。v16支持独立单原图模特适配，不要求编辑DAG；旧试衣微调尚未迁移。工作流参考图协议见下一节。
 
 ## 通用可编辑工作流
 
@@ -303,7 +305,7 @@ ConvertTo-Json -InputObject $nodeAssets -Compress
 
 能力目录 `GET /v1/workflows/meta/capabilities`保留旧12种能力、历史启用标记和输入约束；旧AGE关闭时实际开放4种。全部支持零生成文件的Mock演示。Java通用DAG提供Kling文生/参考图视频，以及AGE分镜、文生、图生、首尾帧、混合参考和复刻协议adapter；支持本人上传的固定素材ID与本运行上游已归档私有OSS产物，固定外部URL真实执行仍拒绝。无参考图文生图和单图片xai/volcengine视频路径保留，参考输入按上游边顺序在先、固定素材在后组合，命名首尾帧口保持定义含义。
 
-`gemini:image`是保留的能力ID，实际图片供应商须明确配置OpenAI或Gemini。现支持最多8张、合计25MiB的PNG/JPEG参考图，来源仅限已核实的owner/private OSS输入；OpenAI Images用multipart `/images/edits`，Responses用 `input_image`，Gemini generateContent用 `inlineData`。不静默截断、不接受任意外链，不由自然语言Agent自动选择执行。这里是工作流参考图生成，独立纯图片编辑流程/界面、遮罩和局部编辑仍未实现；本机HTTP协议测试不代表真实生成或质量验证。
+`gemini:image`是保留的能力ID，实际图片供应商须明确配置OpenAI或Gemini。现支持最多8张、合计25MiB的PNG/JPEG参考图，来源仅限已核实的owner/private OSS输入；OpenAI Images用multipart `/images/edits`，Responses用 `input_image`，Gemini generateContent用 `inlineData`。不静默截断、不接受任意外链，不由自然语言Agent自动选择执行。v16同时支持单原图模特适配和从原图精修；试衣微调待迁移，旧模特适配没有mask协议；本机HTTP协议测试不代表真实生成或质量验证。
 
 这些Kling/AGE adapter只在本机HTTP fixture验证过协议，不代表真实生成或供应商联调完成；AGE视频输入要求 `MEDIA_AGE_FFPROBE_EXECUTABLE` 指向已有可信工具，本轮未安装或运行ffprobe。模型、地址、密钥、价格及存储配置继续留空，缺失时拒绝真实执行；未知提交无任务ID时不重投。模型和未适配参数不猜测或静默降级，完整能力表与空配置见[Java README](../flmh-j/README.md#通用可编辑工作流)。
 
