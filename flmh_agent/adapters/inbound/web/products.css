@@ -1,0 +1,9 @@
+.catalog-filters { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:14px 0; }
+.catalog-filters label { display:flex; flex-direction:column; gap:6px; }
+.catalog-filters input,.catalog-filters select { box-sizing:border-box; width:100%; padding:10px; border:1px solid #cbd5e1; border-radius:8px; background:white; color:#172f49; }
+#product-catalog-panel { grid-column:1/-1; }
+#product-catalog-panel td { max-width:320px; overflow-wrap:anywhere; }
+#product-catalog-panel td small { display:block; font-size:12px; margin-top:5px; color:#46617e; }
+#product-catalog-panel .button-row label { display:flex; align-items:center; gap:5px; }
+@media(max-width:900px) { .catalog-filters { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:520px) { .catalog-filters { grid-template-columns:minmax(0,1fr); } }

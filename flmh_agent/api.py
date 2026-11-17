@@ -29,6 +29,8 @@ from flmh_agent.adapters.inbound.sessions import session_routes
 from flmh_agent.adapters.outbound.works import JavaWorkCatalog
 from flmh_agent.adapters.inbound.workflows import workflow_routes
 from flmh_agent.adapters.outbound.workflows import JavaWorkflowClient
+from flmh_agent.adapters.inbound.products import product_routes
+from flmh_agent.adapters.outbound.products import JavaProductBrowser
 from flmh_agent.ports.identity import IdentityLoginPort, IdentityVerifierPort
 
 
@@ -37,7 +39,8 @@ MAX_JSON_BODY_BYTES = 64 * 1024
 WORKBENCH_ROOT = Path(__file__).parent / "adapters" / "inbound" / "web"
 WORKBENCH_ASSETS = {"app.css": "text/css", "app.js": "text/javascript",
                     "workflows.css": "text/css", "workflows.js": "text/javascript",
-                    "sessions.css": "text/css", "sessions.js": "text/javascript"}
+                    "sessions.css": "text/css", "sessions.js": "text/javascript",
+                    "products.css": "text/css", "products.js": "text/javascript"}
 WORKBENCH_HEADERS = {
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
@@ -54,7 +57,8 @@ class LoginInput(BaseModel):
 
 def create_app(settings: Settings | None = None, *, identity_verifier: IdentityVerifierPort | None = None,
                identity_login: IdentityLoginPort | None = None, accounts: JavaUserAccounts | None = None,
-               works: JavaWorkCatalog | None = None, workflows: JavaWorkflowClient | None = None) -> Starlette:
+               works: JavaWorkCatalog | None = None, workflows: JavaWorkflowClient | None = None,
+               products: JavaProductBrowser | None = None) -> Starlette:
     config = settings or Settings.from_env()
 
     @asynccontextmanager
@@ -69,6 +73,7 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
             application.state.accounts = accounts or JavaUserAccounts(config)
             application.state.works = works or JavaWorkCatalog(config)
             application.state.workflows = workflows or JavaWorkflowClient(config)
+            application.state.products = products or JavaProductBrowser(config)
             yield
 
     async def live(_request: Request) -> Response:
@@ -304,6 +309,7 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
     routes.extend(work_routes(_json_body))
     routes.extend(session_routes(_json_body))
     routes.extend(workflow_routes(_json_body))
+    routes.extend(product_routes())
     public_paths = frozenset({"/", "/health/live", "/health/ready", *(f"/assets/{name}" for name in WORKBENCH_ASSETS)})
     app = Starlette(routes=routes, lifespan=lifespan, middleware=[
         Middleware(IdentityMiddleware, api_key=config.agent_api_key, public_paths=public_paths,

@@ -9,6 +9,8 @@
   <script src="/assets/workflows.js" defer></script>
   <link rel="stylesheet" href="/assets/sessions.css">
   <script src="/assets/sessions.js" defer></script>
+  <link rel="stylesheet" href="/assets/products.css">
+  <script src="/assets/products.js" defer></script>
   <script src="/assets/app.js" defer></script>
 </head>
 <body>
@@ -56,6 +58,7 @@
         </section>
       </div>
     </details>
+    <details id="product-catalog-panel" class="panel" hidden></details>
     <section id="agent-sessions-panel" class="panel" hidden></section>
     <section id="workflow-panel" class="panel" hidden></section>
     <details id="works-panel" class="panel works-panel" hidden>
@@ -134,10 +137,16 @@
         </section>
         <section id="revision-panel" class="panel" hidden>
           <div class="section-heading"><span class="step">↻</span><h2>调整本次条件</h2></div>
-          <p class="help">修改后重新查询，旧报价需重新确认。</p>
+          <p id="revision-note" class="help">修改后重新查询，旧报价需重新确认。</p>
           <form id="revision-form">
             <label for="rev-product">商品关键词或编号</label><input id="rev-product" maxlength="96" placeholder="留空清除商品条件">
             <div class="field-pair"><div><label for="rev-region">地区代码</label><input id="rev-region" maxlength="2" pattern="[A-Za-z]{2}" required placeholder="US"></div><div><label for="rev-budget">预算上限</label><input id="rev-budget" type="number" min="0" step="0.01" placeholder="未设置"></div></div>
+            <div id="revision-media-fields" hidden>
+              <p class="help">填入新的创作要求将替换原要求。留空时保留；更换商品或地区会重新生成商品说明，避免沿用旧商品事实。请在新报价中核对完整输入。</p>
+              <label for="rev-image-prompt">新的图片创作要求</label><textarea id="rev-image-prompt" rows="3" maxlength="2000" placeholder="留空保留，例如：白底产品摄影"></textarea>
+              <label for="rev-video-prompt">新的视频创作要求</label><textarea id="rev-video-prompt" rows="3" maxlength="2000" placeholder="留空保留，例如：海边展示，镜头缓慢推进"></textarea>
+              <div class="field-pair"><div><label for="rev-aspect-ratio">画面比例</label><select id="rev-aspect-ratio"><option value="1:1">1:1</option><option value="3:4">3:4</option><option value="4:3">4:3</option><option value="9:16">9:16</option><option value="16:9">16:9</option></select></div><div><label for="rev-duration">视频秒数</label><input id="rev-duration" type="number" min="2" max="15" step="1"></div></div>
+            </div>
             <button type="submit" class="secondary full-width">应用条件并重新查询</button>
           </form>
         </section>

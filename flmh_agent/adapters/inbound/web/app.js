@@ -24,6 +24,7 @@ const state = { current: null, submission: null, busy: false, controller: null, 
   token: "", user: null, authBusy: false, sessionVersion: 0 };
 let workflowEditor;
 let sessionsPanel;
+let productCatalog;
 const accounts = { profile: null, selected: null, listing: null, page: 1, search: "", listingVersion: 0, pointsUncertain: new Map() };
 const works = { listing: null, page: 1, selected: null, lineage: null, pendingSave: null };
 
@@ -51,8 +52,16 @@ function canAdvanceMedia() {
 }
 function canVerifyMedia() { return Boolean(media().runId) && media().status === "SUBMISSION_UNKNOWN" && !state.uncertain; }
 function canRevise() {
-  return Boolean(state.current) && !state.productionLocked && !state.current.contentTask?.taskId
-    && !media().runId && !state.current.conclusionDependencies?.confirmed_quote && !state.uncertain;
+  if (!state.current || state.uncertain || state.current.contentTask?.taskId) return false;
+  if (media().runId) return media().status === "FAILED";
+  return !state.productionLocked && !state.current.conclusionDependencies?.confirmed_quote;
+}
+function revisionMediaInput() {
+  const input = state.current?.mediaRequest || state.current?.confirmationRequest?.mediaRequest;
+  if (input?.image_prompt) return input;
+  const original = media().input;
+  return original ? { image_prompt: original.imagePrompt, video_prompt: original.videoPrompt,
+    aspect_ratio: original.aspectRatio, duration_seconds: original.durationSeconds } : null;
 }
 function requireUser() {
   if (state.token && state.user) return true;
@@ -104,8 +113,14 @@ function updateControls() {
       : "当前状态不允许推进，请刷新状态查看服务返回的最新记录。";
   }
   visible("revision-panel", canRevise());
+  visible("revision-media-fields", Boolean(revisionMediaInput()));
+  for (const id of ["rev-product", "rev-region", "rev-budget", "rev-image-prompt", "rev-video-prompt", "rev-aspect-ratio", "rev-duration"]) ui[id].disabled = blocked || !canRevise();
+  ui["revision-note"].textContent = media().status === "FAILED"
+    ? "只修订已确认失败的任务。修改后重新报价，需再次确认；是否复用节点以新报价为准。"
+    : "修改后重新查询，旧报价需重新确认。";
   workflowEditor?.updateControls(blocked);
   sessionsPanel?.updateControls(blocked);
+  productCatalog?.updateControls(blocked);
 }
 function errorMessage(status, data) {
   if (data.error?.startsWith("work_") || data.error?.startsWith("invalid_work_")) {
@@ -241,7 +256,7 @@ function resetRun(prompt = "") {
   state.pollCount = 0;
   ui.request.value = prompt;
   ui["run-id"].value = "";
-  for (const id of ["rev-product", "rev-region", "rev-budget"]) ui[id].value = "";
+  for (const id of ["rev-product", "rev-region", "rev-budget", "rev-image-prompt", "rev-video-prompt", "rev-aspect-ratio", "rev-duration"]) ui[id].value = "";
   for (const id of ["summary", "raw-response", "configuration-todos", "quote-fields", "quote-brief", "task-fields", "task-status",
     "generated-content", "task-failure", "media-fields", "media-status", "media-notice", "media-nodes", "media-artifacts", "media-artifact-note",
     "media-action-note", "products", "product-count", "detail-fields", "history-rows", "history-count", "history-next", "plan-source"]) ui[id].replaceChildren();
@@ -273,6 +288,7 @@ function clearSession(message = "已退出。请登录后继续；旧结果与�
   clearWorks();
   workflowEditor?.reset();
   sessionsPanel?.reset();
+  productCatalog?.reset();
   ui.results.removeAttribute("aria-busy");
   resetRun();
   ui["auth-status"].textContent = message;
@@ -574,7 +590,9 @@ function render(fillRevision) {
         entries.push([`${mediaNodeLabels[key] || key}节点报价`, `${text(amount)} ${text(quote.currency)}`]);
       }
       entries.push(["复用节点", quote.reusedNodes?.length === 0 ? "无" : quote.reusedNodes?.map(key => mediaNodeLabels[key] || key).join("、")]);
-      if (quote.originRunId) entries.push(["重跑来源", quote.originRunId]);
+      const origin = result.confirmationRequest?.mediaOriginRun || result.mediaOriginRun;
+      if (quote.originRunId || origin?.runId) entries.push(["重跑来源", quote.originRunId || origin.runId]);
+      if (origin?.status) entries.push(["原任务状态", labels[origin.status] || origin.status]);
     }
     fields(ui["quote-fields"], entries);
     ui["quote-brief"].textContent = mediaRequest
@@ -599,6 +617,11 @@ function render(fillRevision) {
     ui["rev-product"].value = result.slotValues?.product || "";
     ui["rev-region"].value = result.slotValues?.region || "";
     ui["rev-budget"].value = result.slotValues?.budget_max ?? "";
+    const input = revisionMediaInput();
+    ui["rev-image-prompt"].value = "";
+    ui["rev-video-prompt"].value = "";
+    ui["rev-aspect-ratio"].value = input?.aspect_ratio || "";
+    ui["rev-duration"].value = input?.duration_seconds ?? "";
   }
 }
 function renderMedia(currentMedia) {
@@ -686,9 +709,9 @@ ui["password-form"].addEventListener("submit", event => {
   event.preventDefault();
   const payload = { currentPassword: ui["current-password"].value, newPassword: ui["new-password"].value };
   accountAction(async version => {
-    try { await request("/v1/identity/password", payload, "PUT"); }
+    try { await request("/v1/identity/password", payload, "PUT"); clearSession("密码已修改，旧登录凭证已撤销。请使用新密码重新登录。"); }
     finally { if (version === state.sessionVersion) { ui["current-password"].value = ""; ui["new-password"].value = ""; } }
-  }, "密码已修改，下次登录请使用新密码。");
+  }, "密码已修改，请重新登录。");
 });
 ui["user-search-form"].addEventListener("submit", event => {
   event.preventDefault(); if (state.busy || !isAdministrator()) return;
@@ -711,6 +734,7 @@ ui["user-form"].addEventListener("submit", event => {
   accountAction(async version => {
     try {
       const user = await request(`/v1/identity/users${selected ? "/" + encodeURIComponent(selected.id) : ""}`, payload, selected ? "PUT" : "POST");
+      if (user.id === state.user.id && payload.password) { clearSession("当前账号密码已重置，旧凭证已撤销。请重新登录。"); return; }
       selectAccount(user);
       if (user.id === state.user.id) {
         state.user = await request("/v1/identity/me");
@@ -831,8 +855,23 @@ ui["revision-form"].addEventListener("submit", event => {
   const budget = ui["rev-budget"].value;
   const updates = { product: ui["rev-product"].value.trim() || null,
     region: ui["rev-region"].value.trim().toUpperCase(), budget_max: budget === "" ? null : Number(budget) };
+  const payload = { expected_revision: state.current.revision, slot_updates: updates };
+  const original = revisionMediaInput();
+  if (original) {
+    const edited = { aspect_ratio: ui["rev-aspect-ratio"].value, duration_seconds: Number(ui["rev-duration"].value) };
+    for (const [field, id] of [["image_prompt", "rev-image-prompt"], ["video_prompt", "rev-video-prompt"]]) {
+      const requirement = ui[id].value.trim();
+      if (requirement) edited[field] = requirement;
+    }
+    if (!["1:1", "3:4", "4:3", "9:16", "16:9"].includes(edited.aspect_ratio)
+      || !Number.isInteger(edited.duration_seconds) || edited.duration_seconds < 2 || edited.duration_seconds > 15) {
+      setError("请选择画面比例，并设置 2–15 秒的整数时长。"); return;
+    }
+    const changed = Object.fromEntries(Object.entries(edited).filter(([key, value]) => value !== original[key]));
+    if (Object.keys(changed).length) payload.media_updates = changed;
+  }
   perform(() => request(`/v1/agent/runs/${encodeURIComponent(runId())}/revision`, {
-    expected_revision: state.current.revision, slot_updates: updates,
+    ...payload,
   }), "正在更新条件并重新查询…", { mutation: true });
 });
 window.addEventListener("pagehide", () => { state.closing = true; clearSession("页面已离开，登录凭证与结果已清空。请重新登录。"); });
@@ -855,6 +894,11 @@ async function checkConnection() {
 workflowEditor = globalThis.FlmhWorkflowEditor?.mount(ui["workflow-panel"], {
   request, authenticated: () => Boolean(state.user && state.token), blocked: () => state.busy || state.authBusy,
   version: () => state.sessionVersion, busy: value => { state.busy = value; updateControls(); },
+});
+productCatalog = globalThis.FlmhProductCatalog?.mount(ui["product-catalog-panel"], {
+  request, authenticated: () => Boolean(state.user && state.token), blocked: () => state.busy || state.authBusy,
+  version: () => state.sessionVersion, busy: value => { state.busy = value; updateControls(); },
+  selectProduct: id => resetRun(`查询 ${id} 的详情`),
 });
 sessionsPanel = globalThis.FlmhSessions?.mount(ui["agent-sessions-panel"], {
   request, authenticated: () => Boolean(state.user && state.token), blocked: () => state.busy || state.authBusy,

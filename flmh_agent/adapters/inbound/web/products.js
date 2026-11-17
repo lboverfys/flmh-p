@@ -10,7 +10,7 @@
         <label>币种<input data-c="currency" maxlength="3" placeholder="例如 USD"></label>
         <label>规范类目（含下级）<input data-c="category" maxlength="128" placeholder="例如 camping"></label>
         <label>来源<input data-c="source" maxlength="64" placeholder="例如 LOCAL_FIXTURE"></label>
-        <label>排序<select data-c="sort"><option value="opportunityScore">机会评分</option value="growthScore">增长评分</option value="gmvScore">成交额评分</option><option value="creatorScore">达人评分</option><option value="contentScore">内容评分</option><option value="competitionScore">竞争评分</option><option value="priceScore">价格评分</option><option value="riskScore">风险评分</option><option value="trendScore">趋势评分</option><option value="price">价格</option><option value="sales7d">7日销量</option><option value="createdAt">首次观测时间</option></select></label>
+        <label>排序<select data-c="sort"><option value="opportunityScore">机会评分</option><option value="growthScore">增长评分</option><option value="gmvScore">成交额评分</option><option value="creatorScore">达人评分</option><option value="contentScore">内容评分</option><option value="competitionScore">竞争评分</option><option value="priceScore">价格评分</option><option value="riskScore">风险评分</option><option value="trendScore">趋势评分</option><option value="price">价格</option><option value="sales7d">7日销量</option><option value="createdAt">首次观测时间</option></select></label>
         <label>方向<select data-c="direction"><option value="desc">从高到低 / 从新到旧</option><option value="asc">从低到高 / 从旧到新</option></select></label>
         <label>每页数量<select data-c="pageSize"><option>20</option><option>50</option><option>100</option></select></label>
       </div><details><summary>更多筛选条件</summary><p class="help">区间格式为“最小值:最大值”，可留空一端，例如 10:30 或 100:。佣金和达人出单率使用小数，0.1 表示 10%。</p>

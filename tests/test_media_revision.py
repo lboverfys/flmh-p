@@ -34,8 +34,10 @@ class RevisionTools:
     async def search_products(self, query):
         self.calls.append(("search", dict(query)))
         backpack = query.get("keyword") == "背包"
-        return {"products": [{"id": "bag-1" if backpack else "cup-1", "title": "背包" if backpack else "杯子",
-                              "region": query["region"], "source": "LOCAL_FIXTURE", "sourceRef": "fixture:products"}]}
+        product_id = "bag-1" if backpack else "cup-1"
+        return {"products": [{"id": product_id, "title": "背包" if backpack else "杯子",
+                              "region": query["region"], "source": "LOCAL_FIXTURE",
+                              "sourceRef": f"fixture:{product_id}:{query['region']}"}]}
 
     async def create_media_quote(self, request):
         self.calls.append(("quote", dict(request)))
@@ -160,6 +162,51 @@ class MediaRevisionTests(IdentityTestCase):
                     self.assertNotIn("杯子", result["mediaRequest"]["image_prompt"])
                 if index == 1:
                     self.assertIn("目标地区：GB", result["mediaRequest"]["image_prompt"])
+
+    async def test_product_region_and_video_revision_replace_old_product_facts(self):
+        origin = await self.failed()
+        result = await self.application.revise("agent", {
+            "expected_revision": 0,
+            "slot_updates": {"product": "背包", "region": "GB"},
+            "media_updates": {"video_prompt": "海边展示"},
+        })
+        self.assertEqual(result["status"], "awaiting_confirmation")
+        self.assertEqual(result["mediaOriginRun"]["runId"], origin["runId"])
+        self.assertEqual(result["mediaRequest"]["product_id"], "bag-1")
+        self.assertEqual(result["quote"]["reusedNodes"], [])
+        for field in ("image_prompt", "video_prompt"):
+            with self.subTest(field=field):
+                prompt = result["mediaRequest"][field]
+                self.assertIn("商品ID：bag-1\n商品：背包\n目标地区：GB\n", prompt)
+                self.assertIn("数据来源：LOCAL_FIXTURE\n来源引用：fixture:bag-1:GB\n", prompt)
+                for stale in ("cup-1", "杯子", "目标地区：US", "fixture:cup-1:US", "用户需求："):
+                    self.assertNotIn(stale, prompt)
+                self.assertEqual(prompt.count("商品ID："), 1)
+                self.assertEqual(prompt.count("来源引用："), 1)
+        self.assertTrue(result["mediaRequest"]["video_prompt"].endswith("\n海边展示"))
+        self.assertEqual(len(self.tools.runs), 1)
+
+    async def test_consecutive_video_revisions_do_not_accumulate_product_context(self):
+        origin = await self.failed()
+        previous_request = "用户需求："
+        for revision, creative_request in enumerate(("海边展示", "森林展示", "展台特写")):
+            with self.subTest(revision=revision):
+                result = await self.application.revise("agent", {
+                    "expected_revision": revision,
+                    "media_updates": {"video_prompt": creative_request},
+                })
+                prompt = result["mediaRequest"]["video_prompt"]
+                self.assertEqual(prompt.count("商品ID：cup-1"), 1)
+                self.assertEqual(prompt.count("商品：杯子"), 1)
+                self.assertEqual(prompt.count("目标地区：US"), 1)
+                self.assertEqual(prompt.count("来源引用：fixture:cup-1:US"), 1)
+                self.assertTrue(prompt.endswith("\n" + creative_request))
+                self.assertNotIn(previous_request, prompt)
+                self.assertEqual(result["mediaRequest"]["image_prompt"], origin["input"]["imagePrompt"])
+                self.assertEqual(result["quote"]["reusedNodes"], ["image"])
+                self.assertEqual(result["status"], "awaiting_confirmation")
+                previous_request = creative_request
+        self.assertEqual(len(self.tools.runs), 1)
 
     async def test_pending_revisions_keep_origin_and_prior_edits_with_explicit_precedence(self):
         origin = await self.failed()

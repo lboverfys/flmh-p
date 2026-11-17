@@ -239,7 +239,7 @@ test("资料保存不包含权限字段，退出清空资料与管理密码", as
   assert.equal(page.ui("account-panel").hidden, true);
 });
 
-test("改密必须显式提交当前密码且响应后清空密码字段", async () => {
+test("改密必须显式提交当前密码且成功后撤销页面登录", async () => {
   const page = harness();
   page.response({ success: true });
   page.ui("current-password").value = "old-password"; page.ui("new-password").value = "new-password";
@@ -248,6 +248,9 @@ test("改密必须显式提交当前密码且响应后清空密码字段", async
   assert.deepEqual(JSON.parse(page.calls[0].options.body), { currentPassword: "old-password", newPassword: "new-password" });
   assert.equal(page.ui("current-password").value, "");
   assert.equal(page.ui("new-password").value, "");
+  assert.equal(page.run("state.token"), "");
+  assert.equal(page.run("state.user"), null);
+  assert.match(page.ui("auth-status").textContent, /旧登录凭证已撤销/);
 });
 
 test("用户列表按页查询且把姓名按文本展示", async () => {
@@ -565,8 +568,8 @@ test("最新媒体状态未知时仅核实已有请求，禁止推进和通用�
   assert.equal(page.calls[0].options.body, undefined);
 });
 
-test("终态和未允许的媒体状态不发起推进、核实或修订", async () => {
-  for (const status of ["MOCKED", "SUCCEEDED", "FAILED", "CANCELLED", "UNKNOWN", "SUBMITTING"]) {
+test("不允许修订的媒体状态不发起推进、核实或修订", async () => {
+  for (const status of ["MOCKED", "SUCCEEDED", "CANCELLED", "UNKNOWN", "SUBMITTING"]) {
     const page = harness();
     page.show(mediaResult(status, status === "UNKNOWN" ? "needs_verification" : "completed"));
     assert.equal(page.ui("media-advance").disabled, true, status);
@@ -578,6 +581,71 @@ test("终态和未允许的媒体状态不发起推进、核实或修订", async
     await settled();
     assert.equal(page.calls.length, 0, status);
   }
+});
+
+const revisionInput = { product_id: "product-1", image_prompt: "原商品图片事实", video_prompt: "原视频要求", aspect_ratio: "9:16", duration_seconds: 6, budget_max: 10 };
+function failedMedia() {
+  return { ...mediaResult("FAILED", "completed"), revision: 2, mediaRequest: revisionInput,
+    slotValues: { product: "原商品", region: "US", budget_max: 10 }, conclusionDependencies: { confirmed_quote: "old-quote" } };
+}
+
+test("已失败媒体可修订且只提交改过的视频字段，不隐式复用旧图片事实", async () => {
+  const page = harness();
+  page.run("state.productionLocked=true"); page.show(failedMedia());
+  assert.equal(page.ui("revision-panel").hidden, false);
+  assert.equal(page.ui("revision-media-fields").hidden, false);
+  assert.equal(page.ui("rev-image-prompt").value, "");
+  assert.equal(page.ui("rev-video-prompt").value, "");
+  assert.equal(page.ui("media-advance").disabled, true);
+  assert.equal(page.ui("media-verify").disabled, true);
+  page.ui("rev-product").value = "新商品"; page.ui("rev-video-prompt").value = "海边展示，保留标点；完整文字";
+  page.response({ runId: "agent-media-1", revision: 3, status: "awaiting_confirmation", mediaRequest: { ...revisionInput, video_prompt: "海边展示，保留标点；完整文字" },
+    mediaOriginRun: { runId: "media-1", status: "FAILED" }, quote: { quoteId: "new-quote", amount: 0, currency: "USD", reusedNodes: [] },
+    confirmationRequest: { quoteId: "new-quote", mediaRequest: revisionInput }, products: [] });
+  page.submit("revision-form"); await settled();
+  assert.equal(page.calls.length, 1);
+  assert.equal(page.calls[0].url, "/v1/agent/runs/agent-media-1/revision");
+  assert.deepEqual(JSON.parse(page.calls[0].options.body), { expected_revision: 2, slot_updates: { product: "新商品", region: "US", budget_max: 10 },
+    media_updates: { video_prompt: "海边展示，保留标点；完整文字" } });
+  assert.equal(page.ui("confirmation-panel").hidden, false);
+  assert.match(page.ui("quote-fields").textContent, /media-1/);
+  assert.match(page.ui("quote-fields").textContent, /生产失败/);
+  assert.equal(page.run("state.productionLocked"), false);
+});
+
+test("普通条件修订不发送媒体配置，未知操作结果阻止失败媒体再次提交", async () => {
+  const page = harness(); page.show({ runId: "query-1", revision: 0, status: "completed", products: [], slotValues: { region: "US" } });
+  assert.equal(page.ui("revision-media-fields").hidden, true);
+  page.submit("revision-form"); await settled();
+  assert.equal(Object.hasOwn(JSON.parse(page.calls[0].options.body), "media_updates"), false);
+  page.show(failedMedia()); page.failure(new TypeError("offline"));
+  page.ui("rev-duration").value = "10"; page.submit("revision-form"); await settled();
+  assert.equal(page.run("state.uncertain"), true);
+  assert.equal(page.ui("revision-panel").hidden, true);
+  page.submit("revision-form"); await settled();
+  assert.equal(page.calls.length, 2);
+});
+
+test("媒体修订拒绝非整数秒数，创作要求留空不覆盖原输入，退出清空内容", async () => {
+  const page = harness(); page.show(failedMedia());
+  page.ui("rev-duration").value = "2.5"; page.submit("revision-form"); await settled();
+  assert.equal(page.calls.length, 0);
+  page.ui("rev-duration").value = "10"; page.ui("rev-image-prompt").value = " "; page.submit("revision-form"); await settled();
+  assert.equal(page.calls.length, 1);
+  assert.deepEqual(JSON.parse(page.calls[0].options.body).media_updates, { duration_seconds: 10 });
+  page.click("logout");
+  assert.equal(page.ui("rev-video-prompt").value, "");
+  assert.equal(page.ui("rev-duration").value, "");
+});
+
+test("管理员重置自己密码后直接退出而不使用撤销令牌再读身份", async () => {
+  const page = harness(); page.run('state.user.role="ADMIN"; accounts.selected={id:"alice"}; updateControls();');
+  page.ui("user-name").value="管理员"; page.ui("user-email").value="a@example.invalid";
+  page.ui("user-password").value="replacement-password"; page.ui("user-role").value="ADMIN"; page.ui("user-status").value="ACTIVE";
+  page.response({ id: "alice", role: "ADMIN" }); page.submit("user-form"); await settled();
+  assert.equal(page.calls.length, 1);
+  assert.equal(page.run("state.token"), "");
+  assert.match(page.ui("auth-status").textContent, /密码已重置/);
 });
 
 test("操作权限以运行状态为准，节点状态不自行放行核实", () => {
