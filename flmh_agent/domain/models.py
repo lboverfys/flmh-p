@@ -5,6 +5,21 @@ from typing import Any, Literal, TypedDict
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 
+class ProductHistoryQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    product_id: str = Field(min_length=1, max_length=96)
+    limit: int = Field(default=30, strict=True, ge=1, le=100)
+    before_version: int | None = Field(default=None, strict=True, ge=1, le=9223372036854775807)
+
+    @field_validator("product_id")
+    @classmethod
+    def validate_identifier(cls, value: str) -> str:
+        if value != value.strip() or value in {".", ".."} or any(ord(char) < 32 for char in value):
+            raise ValueError("product_id must be a non-blank product identifier without surrounding whitespace or control characters")
+        return value
+
+
 class ProductQuery(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -33,6 +48,7 @@ class AgentPlan(BaseModel):
     budget_max: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     analysis_question: str | None = Field(default=None, max_length=4000)
     knowledge_query: str | None = Field(default=None, min_length=1, max_length=4000)
+    product_history_id: str | None = Field(default=None, min_length=1, max_length=96)
     source: Literal["RULES", "MODEL_GATEWAY"]
 
     @field_validator("budget_max", mode="before")
@@ -43,8 +59,12 @@ class AgentPlan(BaseModel):
         return value
 
     def model_post_init(self, __context: Any) -> None:
-        if not (self.analysis_question or self.queries or self.knowledge_query):
-            raise ValueError("a plan must contain a product, BI, or knowledge query")
+        if self.product_history_id is not None:
+            ProductHistoryQuery(product_id=self.product_history_id)
+            if self.queries or self.analysis_question or self.knowledge_query or self.create_content:
+                raise ValueError("product history must be an independent read-only plan")
+        if not (self.analysis_question or self.queries or self.knowledge_query or self.product_history_id):
+            raise ValueError("a plan must contain a product, history, BI, or knowledge query")
         if self.analysis_question and (self.queries or self.knowledge_query):
             raise ValueError("BI analysis cannot share a plan with product or knowledge queries")
         if self.analysis_question and self.create_content:
@@ -133,6 +153,7 @@ class AgentState(TypedDict, total=False):
     invalidated: list[str]
     plan: dict[str, Any]
     product_results: list[dict[str, Any]]
+    product_history: dict[str, Any]
     selected_product: dict[str, Any]
     content_brief: dict[str, Any]
     quote: dict[str, Any]
@@ -171,6 +192,7 @@ class PlanResponse(BaseModel):
     budget_max: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     analysis_question: str | None = Field(default=None, max_length=4000)
     knowledge_query: str | None = Field(default=None, min_length=1, max_length=4000)
+    product_history_id: str | None = Field(default=None, min_length=1, max_length=96)
 
     @field_validator("budget_max", mode="before")
     @classmethod

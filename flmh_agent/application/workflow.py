@@ -51,6 +51,8 @@ def build_workflow(
         if plan.queries:
             effective.setdefault("region", plan.queries[0].region)
             effective.setdefault("product", plan.queries[0].keyword)
+        if plan.product_history_id is not None:
+            effective.setdefault("product", plan.product_history_id)
         effective.setdefault("budget_max", plan.budget_max)
         slots, invalidated = update_slots(state.get("slot_values"), effective)
         previous = normalize_slots(state.get("slot_values"))
@@ -84,6 +86,7 @@ def build_workflow(
             "required_slots": [],
             "query_failures": {},
             "knowledge_result": {},
+            "product_history": {},
             "configuration_todos": [],
             "conclusion_dependencies": {name: snapshot for name, snapshot in state.get("conclusion_dependencies", {}).items()
                                         if name not in invalidated},
@@ -98,6 +101,11 @@ def build_workflow(
             raise RuntimeError("BI query adapter or authorized service principal is not configured")
         result = await bi_query.query(state["plan"]["analysis_question"], bi_principal)
         return {"bi_result": dict(result)}
+
+    async def read_product_history(state: AgentState) -> dict[str, Any]:
+        history = dict(await tools.get_product_history(state["plan"]["product_history_id"]))
+        return {"product_history": history,
+                "conclusion_dependencies": _dependencies(state, "product_history")}
 
     async def retrieve_knowledge(state: AgentState) -> dict[str, Any]:
         if knowledge_query is None:
@@ -219,6 +227,23 @@ def build_workflow(
         if state.get("error"):
             return {"summary": state["error"]}
         plan = state["plan"]
+        if plan.get("product_history_id"):
+            history = state["product_history"]
+            metrics = history["metrics"]
+            product = history["product"]
+            lines = [f"商品 {plan['product_history_id']} 返回 {len(metrics)} 条指标快照，按指标版本倒序。",
+                     f"商品来源：{product.get('source') if product.get('source') is not None else '未提供'}；"
+                     f"商品来源引用：{product.get('sourceRef') if product.get('sourceRef') is not None else '未提供'}。",
+                     "这些是采集快照，不是逐日统计；缺失值不补全，未计算增长率。"]
+            for metric in metrics:
+                observed = {name: metric.get(name) for name in ("price", "sales7d", "salesAmount7d", "trendScore")}
+                lines.append(f"版本 {metric['metricVersion']}；采集时间：{metric.get('capturedAt')}；"
+                             f"指标：{json.dumps(observed, ensure_ascii=False)}；"
+                             f"来源：{metric.get('source') if metric.get('source') is not None else '未提供'}；"
+                             f"来源引用：{metric.get('sourceRef') if metric.get('sourceRef') is not None else '未提供'}。")
+            if history.get("nextBeforeVersion") is not None:
+                lines.append(f"还有历史快照；下一页 beforeVersion={history['nextBeforeVersion']}，未自动加载。")
+            return {"summary": "\n".join(lines)}
         if plan.get("analysis_question"):
             result = state.get("bi_result") or {}
             rows = result.get("rows", [])
@@ -262,6 +287,7 @@ def build_workflow(
 
     graph.add_node("plan_request", plan_request)
     graph.add_node("run_bi_query", run_bi_query)
+    graph.add_node("read_product_history", read_product_history)
     graph.add_node("retrieve_knowledge", retrieve_knowledge)
     graph.add_node("search_products", search_products)
     graph.add_node("select_product", select_product)
@@ -273,13 +299,14 @@ def build_workflow(
     graph.add_node("read_task_status", read_task_status)
     graph.add_node("summarize", summarize)
     graph.add_edge(START, "plan_request")
-    graph.add_conditional_edges("plan_request", lambda state: "bi" if state["plan"].get("analysis_question") else "knowledge" if state["plan"].get("knowledge_query") else "products", {
-        "bi": "run_bi_query", "products": "search_products", "knowledge": "retrieve_knowledge",
+    graph.add_conditional_edges("plan_request", lambda state: "history" if state["plan"].get("product_history_id") else "bi" if state["plan"].get("analysis_question") else "knowledge" if state["plan"].get("knowledge_query") else "products", {
+        "history": "read_product_history", "bi": "run_bi_query", "products": "search_products", "knowledge": "retrieve_knowledge",
     })
     graph.add_conditional_edges("retrieve_knowledge", lambda state: "products" if state["plan"]["queries"] and not state.get("error") else "summary", {
         "products": "search_products", "summary": "summarize",
     })
     graph.add_edge("run_bi_query", "summarize")
+    graph.add_edge("read_product_history", "summarize")
     graph.add_conditional_edges("search_products", lambda state: "summary" if state.get("query_failures") else "select", {
         "summary": "summarize", "select": "select_product",
     })

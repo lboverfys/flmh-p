@@ -69,6 +69,15 @@ Invoke-RestMethod -Method Post 'http://127.0.0.1:8090/v1/agent/runs/local-reques
 Invoke-RestMethod 'http://127.0.0.1:8090/v1/agent/runs/local-request-001'
 ```
 
+指定商品历史无需模型或 BI 数据库配置：
+
+```powershell
+& 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m flmh_agent.cli `
+  --request '查询 camping-lamp-001 的历史趋势'
+```
+
+该请求经 LangGraph 的 `read_product_history` 节点调用 MCP `product_history`，返回 Java 持久化的指标快照、采集时间、评分版本及各条来源。默认取最近 30 个版本；MCP 可传 `limit`（1–100）和 `before_version` 翻页，Agent 不自动加载全部历史。`productHistory` 保留原始 nullable 字段，汇总不补值、不计算增长率，也不把采集快照视为日统计。商品槽位修订会失效旧历史并重新读取；未提供明确商品 ID 的请求保留原有检索/BI 行为。
+
 重复 `run_id` 和完全相同输入回放已有状态；请求体发生变化返回 409。同一 run 的并发启动、确认、修订和刷新有运行协调锁；memory 模式在单进程内生效，Postgres 模式使用 PostgreSQL advisory lock。确认请求必须带当前报价 ID，避免修订后旧页面误确认新报价。任务幂等键包含报价 ID；缺少有效预算返回 `needs_input`，不猜金额、不请求报价。异步任务返回 `processing`，GET 运行记录刷新 Java 任务状态，直到已知终态。
 
 确认生产前可以显式修订运行记录；`expected_revision` 防止并发覆盖，成功后 revision 加 1。商品、地区、预算有独立 `slotVersions`，结论保留 `conclusionDependencies`，查询按实际参数和上游结果指纹缓存；未受影响的查询复用，其余重新执行。修订将旧报价确认失效，已确认或提交生产的运行禁止改写，应创建新 run。
@@ -132,10 +141,10 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m unittest discover -s tests -v
 ```
 
-测试覆盖确认闸门、预算、状态刷新、报价幂等、run_id 冲突、并发查询/同 run 协调、失败节点与失败查询重试、独立槽位版本、修订并发控制、旧报价确认拒绝、DAG 依赖校验、模型/MCP/BGE/ES HTTP 合同、批量入库及发布隔离、RRF/父块、Text2SQL AST/权限、连接池并发初始化、MCP 会话生命周期与重复取消、advisory lock/PIT 清理失败、Windows PostgreSQL 事件循环及 API 输入。2026-11-17 使用上述 Python 3.12.14 环境运行 75 项测试全部通过，入库 CLI `--help` 和 `pip check` 通过。已检查 PostgreSQL/Langfuse 可选库接口；这不等于真实服务联调。当前未在真实 PostgreSQL、Langfuse、BGE 服务或 Elasticsearch 上联调；没有运行性能基准，不以简历历史数字冒充本次数据。
+测试覆盖确认闸门、预算、状态刷新、报价幂等、run_id 冲突、并发查询/同 run 协调、失败节点与失败查询重试、独立槽位版本、修订并发控制、旧报价确认拒绝、DAG 依赖校验、商品历史计划/工具/失败重试、模型/MCP/BGE/ES HTTP 合同、批量入库及发布隔离、RRF/父块、Text2SQL AST/权限、连接池并发初始化、MCP 会话生命周期与重复取消、advisory lock/PIT 清理失败、Windows PostgreSQL 事件循环及 API 输入。2026-11-17 使用上述 Python 3.12.14 环境运行 88 项测试全部通过，`pip check` 通过；日志为 `D:\rubbish\zhongjian\temp\flmh\agent-arch\product-history-full-tests.log`。此前入库 CLI `--help` 也已通过。已检查 PostgreSQL/Langfuse 可选库接口；这不等于真实服务联调。当前未在真实 PostgreSQL、Langfuse、BGE 服务或 Elasticsearch 上联调；没有运行性能基准，不以简历历史数字冒充本次数据。
 
 ## 待配置与未验证项
 
 `.env.example` 中所有服务地址/凭据空项由部署时填写。明天需决定 PostgreSQL Checkpointer 与只读 BI 库、Langfuse、BGE-M3/BGE-Reranker 服务、ES chunk 索引与认证方式。真实模型供应商与模型参数由 Java Model Gateway 维护。真实外部 adapter 联调、数据库权限/索引执行计划验证、跨主机负载和性能基准尚未运行。不得把本地 adapter 或 HTTP contract 测试当作生产数据、实际召回效果或完整生产部署验收。
 
-当前 Agent API 的 bearer key 是服务边界认证，尚未接入最终用户身份系统及租户隔离；MCP 仅绑定本机。达人和独立趋势工具尚未有对应 Java 读服务契约，当前不生成虚构数据。上述限制不影响本机商品 → 报价 → 确认 → 内容任务链路。
+当前 Agent API 的 bearer key 是服务边界认证，尚未接入最终用户身份系统及租户隔离；MCP 仅绑定本机。商品历史工具已接通；旧系统日统计、完整增长评分和排名趋势仍未迁移。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。上述限制不影响本机商品 → 报价 → 确认 → 内容任务链路。

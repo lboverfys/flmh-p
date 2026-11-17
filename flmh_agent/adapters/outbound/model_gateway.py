@@ -8,6 +8,7 @@ import httpx
 
 from flmh_agent.config import Settings
 from flmh_agent.domain.models import AgentPlan, PlanResponse
+from flmh_agent.domain.planning import find_history_product_id
 
 
 class ModelGatewayClient:
@@ -103,13 +104,16 @@ class ModelGatewayPlanner:
                     "role": "system",
                     "content": (
                         "将用户请求转换为严格 JSON 计划，不执行工具调用。结构为 {summary, queries, create_content, "
-                        "content_type, budget_max, analysis_question, knowledge_query}。商品流程中 queries 为 1 至 4 条商品查询，"
+                        "content_type, budget_max, analysis_question, knowledge_query, product_history_id}。商品流程中 queries 为 1 至 4 条商品查询，"
                         "analysis_question=null；BI 分析流程中 queries=[] 且 analysis_question 为原始分析问题。"
                         "商品查询字段为 region、keyword、category、max_price，以及可选的 query_id、depends_on；"
                         "depends_on 只可引用本计划已有 query_id，依赖必须无环；互不依赖的查询将并行执行。"
                         "region 使用两位大写国家代码；显式 slots 优先于原始请求中的旧值；"
                         "content_type 仅允许 product_script 或空字符串。不得推断未给出的预算。"
                         "用户要求检索知识库时 knowledge_query 为检索问题；可独立检索或为商品内容补充事实，未要求时为 null。"
+                        "指定明确商品 ID（如 camping-lamp-001）的历史/趋势请求只填 product_history_id，queries=[]，"
+                        "create_content=false，content_type=''，analysis_question 和 knowledge_query 为 null。"
+                        "只可使用原始请求或 product 槽位明确提供的商品 ID，不得由商品名猜 ID；未给 ID 时保持 BI/商品检索。"
                     ),
                 },
                 {"role": "user", "content": json.dumps({"request": user_request, "slots": dict(slots)}, ensure_ascii=False)},
@@ -119,6 +123,8 @@ class ModelGatewayPlanner:
         plan = PlanResponse.model_validate(raw)
         if plan.create_content != (plan.content_type == "product_script"):
             raise ValueError("model plan has inconsistent content_type")
+        if plan.product_history_id is not None and plan.product_history_id != find_history_product_id(user_request, slots):
+            raise ValueError("product history ID must match the explicit request or product slot")
         return AgentPlan(**plan.model_dump(), source="MODEL_GATEWAY")
 
 

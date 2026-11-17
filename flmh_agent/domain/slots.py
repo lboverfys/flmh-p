@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import math
+import re
 from typing import Any
 
 
 SLOT_NAMES = ("product", "region", "budget_max")
 INVALIDATION_ORDER = (
     "product_results", "selected_product", "content_brief", "quote", "confirmation",
-    "confirmed_quote", "content_task", "task_status", "summary",
+    "confirmed_quote", "content_task", "task_status", "summary", "product_history",
 )
 SLOT_DEPENDENCIES = {
     "product_results": ("product", "region", "budget_max"),
@@ -19,6 +20,7 @@ SLOT_DEPENDENCIES = {
     "content_task": SLOT_NAMES,
     "task_status": SLOT_NAMES,
     "summary": SLOT_NAMES,
+    "product_history": ("product",),
 }
 
 
@@ -36,7 +38,7 @@ def normalize_slots(values: dict[str, Any] | None = None) -> dict[str, Any]:
             if value is not None and not isinstance(value, str):
                 raise ValueError("product slot must be a string")
             normalized[name] = value.strip() or None if value is not None else None
-            if normalized[name] is not None and len(normalized[name]) > 80:
+            if normalized[name] is not None and len(normalized[name]) > 80 and not is_product_identifier(normalized[name]):
                 raise ValueError("product slot must be at most 80 characters")
         elif name == "region":
             if value is not None and not isinstance(value, str):
@@ -48,6 +50,11 @@ def normalize_slots(values: dict[str, Any] | None = None) -> dict[str, Any]:
         else:
             normalized[name] = _number_or_none(value)
     return normalized
+
+
+def is_product_identifier(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}", value)
+                and (value.isdigit() or any(char.isdigit() for char in value) and any(char in value for char in "-_:")))
 
 
 def update_slots(current: dict[str, Any] | None, updates: dict[str, Any] | None) -> tuple[dict[str, Any], list[str]]:

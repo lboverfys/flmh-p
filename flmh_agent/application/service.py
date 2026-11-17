@@ -216,6 +216,9 @@ class _DisconnectedTools:
     async def search_products(self, query: Mapping[str, Any]) -> Mapping[str, Any]:
         raise RuntimeError("state lookup does not use the product tools")
 
+    async def get_product_history(self, product_id: str, *, limit: int = 30, before_version: int | None = None) -> Mapping[str, Any]:
+        raise RuntimeError("state lookup does not use the product tools")
+
     async def create_quote(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
         raise RuntimeError("state lookup does not use the content tools")
 
@@ -276,6 +279,9 @@ class _LazyToolSession:
     async def search_products(self, query: Mapping[str, Any]) -> Mapping[str, Any]:
         return await (await self._connected()).search_products(query)
 
+    async def get_product_history(self, product_id: str, *, limit: int = 30, before_version: int | None = None) -> Mapping[str, Any]:
+        return await (await self._connected()).get_product_history(product_id, limit=limit, before_version=before_version)
+
     async def create_quote(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
         return await (await self._connected()).create_quote(request)
 
@@ -320,6 +326,7 @@ def _response(run_id: str, result: Mapping[str, Any]) -> dict[str, Any]:
         "slotSnapshot": values.get("slot_snapshot", ""),
         "invalidated": values.get("invalidated", []),
         "products": products,
+        "productHistory": values.get("product_history", {}),
         "contentBrief": values.get("content_brief", {}),
         "quote": values.get("quote", {}),
         "contentTask": values.get("content_task", {}),

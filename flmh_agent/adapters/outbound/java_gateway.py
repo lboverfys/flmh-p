@@ -7,6 +7,7 @@ from urllib.parse import quote
 import httpx
 
 from flmh_agent.config import Settings
+from flmh_agent.domain.models import ProductHistoryQuery
 
 
 class JavaGatewayClient:
@@ -30,6 +31,13 @@ class JavaGatewayClient:
             "brief": request["brief"], "budgetMax": request.get("budget_max"),
         }
         return await self._request("POST", "/api/v1/content/quotes", json=payload)
+
+    async def get_product_history(self, product_id: str, *, limit: int = 30, before_version: int | None = None) -> dict[str, Any]:
+        query = ProductHistoryQuery(product_id=product_id, limit=limit, before_version=before_version)
+        params = {"limit": query.limit}
+        if query.before_version is not None:
+            params["beforeVersion"] = query.before_version
+        return await self._request("GET", f"/api/v1/products/{quote(query.product_id, safe='')}/history", params=params)
 
     async def confirm_quote(self, quote_id: str) -> dict[str, Any]:
         response = await self._request(

@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from typing import Protocol
 
 from .models import AgentPlan, ProductQuery
-from .slots import normalize_slots
+from .slots import is_product_identifier, normalize_slots
 
 
 REGION_ALIASES = {
@@ -14,6 +14,7 @@ REGION_ALIASES = {
 }
 CONTENT_TERMS = ("文案", "口播", "脚本", "内容", "视频")
 BI_TERMS = ("销量", "销售额", "gmv", "增长", "排名", "top", "趋势", "机会分", "风险分", "排行榜", "类目统计", "数据分析")
+HISTORY_TERMS = ("历史", "趋势", "快照", "history", "trend")
 
 
 class Planner(Protocol):
@@ -33,6 +34,10 @@ class RuleBasedPlanner:
         if knowledge_query and not wants_content:
             return AgentPlan(summary="本地规则规划；检索已配置知识库并保留来源。", queries=[], create_content=False,
                              content_type="", knowledge_query=knowledge_query, source="RULES")
+        history_id = find_history_product_id(text, slots)
+        if history_id is not None and not wants_content:
+            return AgentPlan(summary="本地规则规划；查询指定商品的指标快照，保留采集时间与来源。",
+                             queries=[], create_content=False, content_type="", product_history_id=history_id, source="RULES")
         if any(term in text.casefold() for term in BI_TERMS):
             return AgentPlan(
                 summary="本地规则规划；将问题交给受控 BI SQL 服务。",
@@ -68,6 +73,24 @@ class RuleBasedPlanner:
             knowledge_query=knowledge_query,
             source="RULES",
         )
+
+
+def find_history_product_id(text: str, slots: Mapping[str, object]) -> str | None:
+    if not any(term in text.casefold() for term in HISTORY_TERMS):
+        return None
+    product_slot = slots.get("product")
+    if isinstance(product_slot, str):
+        product_slot = product_slot.strip()
+    if "product" in slots:
+        return product_slot if isinstance(product_slot, str) and is_product_identifier(product_slot) else None
+    labeled = re.findall(r"(?:商品\s*(?:ID|编号|标识)|product\s*ID)\s*[:：=]?\s*([A-Za-z0-9][A-Za-z0-9_.:-]{0,95})(?![A-Za-z0-9_.:-])", text, re.IGNORECASE)
+    if labeled:
+        unique = list(dict.fromkeys(labeled))
+        return unique[0] if len(unique) == 1 else None
+    candidates = [token for token in re.findall(r"(?<![A-Za-z0-9_.:-])([A-Za-z0-9][A-Za-z0-9_.:-]{0,95})(?![A-Za-z0-9_.:-])", text)
+                  if token[0].isalpha() and is_product_identifier(token)]
+    unique = list(dict.fromkeys(candidates))
+    return unique[0] if len(unique) == 1 else None
 
 
 def _find_regions(text: str) -> list[str]:

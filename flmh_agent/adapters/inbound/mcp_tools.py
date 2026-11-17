@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from typing import Any
+from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 
 from flmh_agent.adapters.outbound.java_gateway import JavaGatewayClient
 from flmh_agent.config import Settings
@@ -52,6 +54,15 @@ def create_mcp_server(settings: Settings | None = None) -> FastMCP:
             "brief": brief,
             "budget_max": budget_max,
         })
+
+    @server.tool(name="product_history")
+    async def product_history(
+        product_id: Annotated[str, Field(min_length=1, max_length=96)],
+        limit: Annotated[int, Field(strict=True, ge=1, le=100)] = 30,
+        before_version: Annotated[int | None, Field(strict=True, ge=1, le=9223372036854775807)] = None,
+    ) -> dict[str, Any]:
+        """Read one bounded page of metric snapshots; values are not daily statistics."""
+        return await gateway.get_product_history(product_id, limit=limit, before_version=before_version)
 
     @server.tool(name="content_quote_confirm")
     async def content_quote_confirm(quote_id: str, confirmed: bool) -> dict[str, Any]:
