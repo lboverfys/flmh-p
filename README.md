@@ -24,6 +24,8 @@ Agent 是 MCP client：真正调用商品/内容工具时才连接 `MCP_TOOLS_UR
 
 MCP 工具桥仅允许绑定本机回环地址。CLI 和 API 在 Windows 启用 PostgreSQL Checkpointer 时选择 psycopg 兼容的 Selector 事件循环；直接使用其他 ASGI 启动器时，也必须显式配置兼容循环。
 
+请求取消会终止尚在连接的 MCP 握手，并等待同任务关闭会话；重复取消不会打断清理。MCP HTTP/SSE 和 RPC 读取期限统一使用 `REQUEST_TIMEOUT_SECONDS`。Postgres advisory lock 获取结果不确定或解锁失败时丢弃对应连接，防止带会话锁归池；PIT 逐个清理，单个失败仍尝试其余 ID，业务异常与清理异常共同传播。上述取消时序用本机异步替身验证，尚未做真实 Postgres/ES 断网故障注入。
+
 ## 本机启动
 
 本机已验证 Python 为 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`（3.12.14）。包缓存放在 `D:\rubbish\zhongjian\caches\python\flmh`，临时文件放在 `D:\rubbish\zhongjian\temp\flmh\agent-arch`。不需要下载任何模型权重。
@@ -130,7 +132,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m unittest discover -s tests -v
 ```
 
-测试覆盖确认闸门、预算、状态刷新、报价幂等、run_id 冲突、并发查询/同 run 协调、失败节点与失败查询重试、独立槽位版本、修订并发控制、旧报价确认拒绝、DAG 依赖校验、模型/MCP/BGE/ES HTTP 合同、批量入库及发布隔离、RRF/父块、Text2SQL AST/权限、连接池并发初始化、MCP 会话生命周期、Windows PostgreSQL 事件循环及 API 输入。2026-11-17 使用上述 Python 3.12.14 环境运行 68 项测试全部通过，入库 CLI `--help` 和 `pip check` 通过。已检查 PostgreSQL/Langfuse 可选库接口；这不等于真实服务联调。当前未在真实 PostgreSQL、Langfuse、BGE 服务或 Elasticsearch 上联调；没有运行性能基准，不以简历历史数字冒充本次数据。
+测试覆盖确认闸门、预算、状态刷新、报价幂等、run_id 冲突、并发查询/同 run 协调、失败节点与失败查询重试、独立槽位版本、修订并发控制、旧报价确认拒绝、DAG 依赖校验、模型/MCP/BGE/ES HTTP 合同、批量入库及发布隔离、RRF/父块、Text2SQL AST/权限、连接池并发初始化、MCP 会话生命周期与重复取消、advisory lock/PIT 清理失败、Windows PostgreSQL 事件循环及 API 输入。2026-11-17 使用上述 Python 3.12.14 环境运行 75 项测试全部通过，入库 CLI `--help` 和 `pip check` 通过。已检查 PostgreSQL/Langfuse 可选库接口；这不等于真实服务联调。当前未在真实 PostgreSQL、Langfuse、BGE 服务或 Elasticsearch 上联调；没有运行性能基准，不以简历历史数字冒充本次数据。
 
 ## 待配置与未验证项
 

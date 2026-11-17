@@ -19,6 +19,7 @@ from flmh_agent.domain.slots import normalize_slots
 from flmh_agent.ports.observability import TraceHandlerFactory
 from flmh_agent.ports.coordination import RunCoordinatorPort
 from flmh_agent.ports.workflow import BiQueryPort, KnowledgeQueryPort, PlannerPort, ProductContentPort
+from flmh_agent.resources import complete_cleanup
 
 
 RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -243,7 +244,9 @@ class _LazyToolSession:
     async def __aexit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
         if self._owner is not None:
             self._stop.set()
-            await self._owner
+            if not self._ready.is_set():
+                self._owner.cancel()
+            await complete_cleanup(self._owner, exc)
 
     async def _own_session(self) -> None:
         try:
@@ -251,6 +254,9 @@ class _LazyToolSession:
                 self._tools = tools
                 self._ready.set()
                 await self._stop.wait()
+        except asyncio.CancelledError:
+            if not self._stop.is_set():
+                raise
         finally:
             self._tools = None
             self._ready.set()

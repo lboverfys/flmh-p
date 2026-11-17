@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from contextlib import AsyncExitStack
+from datetime import timedelta
 from typing import Any
 
 from mcp import ClientSession
@@ -26,9 +27,11 @@ class McpProductContentAdapter:
         stack = AsyncExitStack()
         try:
             read_stream, write_stream, _ = await stack.enter_async_context(
-                streamablehttp_client(self.settings.mcp_tools_url, timeout=self.settings.request_timeout_seconds)
+                streamablehttp_client(self.settings.mcp_tools_url, timeout=self.settings.request_timeout_seconds,
+                                      sse_read_timeout=self.settings.request_timeout_seconds)
             )
-            session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
+            session = await stack.enter_async_context(ClientSession(read_stream, write_stream,
+                read_timeout_seconds=timedelta(seconds=self.settings.request_timeout_seconds)))
             await session.initialize()
             tools = await session.list_tools()
             self._tool_names = {tool.name for tool in tools.tools}

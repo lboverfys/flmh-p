@@ -7,6 +7,7 @@ from typing import Any, AsyncIterator
 from weakref import WeakValueDictionary
 
 from flmh_agent.config import Settings
+from flmh_agent.resources import complete_cleanup
 
 
 class InMemoryRunCoordinator:
@@ -28,11 +29,26 @@ class PostgresRunCoordinator:
     async def acquire(self, run_id: str) -> AsyncIterator[None]:
         lock_id = int.from_bytes(hashlib.sha256(run_id.encode("utf-8")).digest()[:8], signed=True)
         async with self.pool.connection() as connection:
-            await connection.execute("SELECT pg_advisory_lock(%s)", (lock_id,))
+            try:
+                await connection.execute("SELECT pg_advisory_lock(%s)", (lock_id,))
+            except BaseException as failure:
+                await complete_cleanup(connection.close(), failure)
+                raise
+            original = None
             try:
                 yield
+            except BaseException as failure:
+                original = failure
+                raise
             finally:
-                await connection.execute("SELECT pg_advisory_unlock(%s)", (lock_id,))
+                await complete_cleanup(self._release(connection, lock_id), original)
+
+    async def _release(self, connection: Any, lock_id: int) -> None:
+        try:
+            await connection.execute("SELECT pg_advisory_unlock(%s)", (lock_id,))
+        except BaseException as failure:
+            await complete_cleanup(connection.close(), failure)
+            raise
 
 
 @asynccontextmanager

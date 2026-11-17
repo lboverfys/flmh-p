@@ -12,6 +12,7 @@ import httpx
 
 from flmh_agent.config import Settings
 from flmh_agent.domain.rag import Chunk
+from flmh_agent.resources import complete_cleanup
 
 
 class BgeM3HttpAdapter:
@@ -157,11 +158,24 @@ class ElasticsearchHybridStore:
         if not isinstance(pit_id, str) or not pit_id:
             raise ValueError("Elasticsearch did not return a point-in-time ID")
         snapshot = ElasticsearchHybridStore(self.settings, self._client, pit_id=pit_id)
+        original = None
         try:
             yield snapshot
+        except BaseException as failure:
+            original = failure
+            raise
         finally:
-            for identifier in snapshot._pit_ids:
+            await complete_cleanup(self._close_snapshots(snapshot._pit_ids), original)
+
+    async def _close_snapshots(self, identifiers: set[str]) -> None:
+        failures: list[Exception] = []
+        for identifier in sorted(identifiers):
+            try:
                 await self._request("DELETE", "/_pit", json={"id": identifier})
+            except Exception as failure:
+                failures.append(failure)
+        if failures:
+            raise ExceptionGroup("Elasticsearch PIT cleanup failed", failures)
 
     async def search_dense(self, vector: Sequence[float], limit: int) -> list[Chunk]:
         if self._pit_id == "NO_PUBLISHED_INDEX":
