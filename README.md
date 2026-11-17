@@ -20,7 +20,7 @@ tests/                 # 领域、工作流、安全与适配器合同测试
 
 应用逻辑只依赖端口。生产适配器按配置选择；未配置的外部能力返回明确的 disabled/configuration 错误。`rules` 是明示的本地规划适配器，输出来源为 `RULES`，不冒充真实模型输出。报价前只整理用户输入和商品信息成 `INPUT_REQUEST` 摘要，不调用付费内容生成；明确确认后才通过 MCP 提交 Java 内容任务，由内容服务执行真实或本地 provider。`APP_ENV=production` 必须启用模型网关规划、PostgreSQL Checkpointer 和 API key。
 
-Agent 是 MCP client：真正调用商品/内容工具时才连接 `MCP_TOOLS_URL`，初始化后核对工具集，再在同一 MCP 会话内执行独立商品查询；会话由同一异步任务建立和关闭。独立知识/BI 请求不依赖 MCP 可达性。工具桥仅将 Java Gateway REST 转成 MCP，不持有 Agent 逻辑。模型供应商、模型名及厂商密钥在 Java Model Gateway 配置；Python 只使用 `MODEL_GATEWAY_URL` 和服务认证键。生产网关、Java 服务及 Python 两个 Java client 共用 `FLMH_SERVICE_API_KEY` 对应值，调用方以 `X-Service-Key` 发送；Gateway 还要求 `X-Client-Id`。这是服务认证边界，不是终端用户身份或租户授权。
+Agent 是 MCP client：真正调用商品/内容工具时才连接 `MCP_TOOLS_URL`，初始化后核对工具集，再在同一 MCP 会话内执行独立商品查询；会话由同一异步任务建立和关闭。独立知识/BI 请求不依赖 MCP 可达性。工具桥仅将 Java Gateway REST 转成 MCP，不持有 Agent 逻辑。模型供应商、模型名及厂商密钥在 Java Model Gateway 配置；Python 只使用 `MODEL_GATEWAY_URL` 和服务认证键。生产网关、Java 服务及 Python 两个 Java client 共用 `FLMH_SERVICE_API_KEY` 对应值，调用方以 `X-Service-Key` 发送；所有公开Java请求另传当前用户JWT，服务key不能代替用户登录。Agent HTTP和MCP逐请求向identity-service核实当前用户；生产拒绝Mock目录。
 
 MCP 工具桥仅允许绑定本机回环地址。CLI 和 API 在 Windows 启用 PostgreSQL Checkpointer 时选择 psycopg 兼容的 Selector 事件循环；直接使用其他 ASGI 启动器时，也必须显式配置兼容循环。
 
@@ -48,9 +48,21 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m flmh_agent.api
 ```
 
-启动后在本机浏览器打开 `http://127.0.0.1:8090/` 即可使用中文工作台；它复用同一 Agent API，无需额外前端服务或依赖。页面提供选品与内容、商品历史、商品详情示例，内容报价必须点击“确认并创建任务”后才提交。配置了 `AGENT_API_KEY` 时，在页面“访问设置”填写该 key；只保留在当前页面内存，关闭页面后清空。超时或连接中断后先用保留的运行编号读取状态，避免盲目新建重复请求。
+启动后在本机浏览器打开 `http://127.0.0.1:8090/`，先登录再使用中文工作台；它复用同一 Agent API，无需额外前端服务或依赖。页面提供选品与内容、商品历史、商品详情示例，内容报价必须点击“确认并创建任务”后才提交。本机Mock账号为 `alice@demo.flmh.invalid` / `DemoAlice2026!`、`bob@demo.flmh.invalid` / `DemoBob2026!`；管理员为 `admin@demo.flmh.invalid` / `DemoAdmin2026!`。用户JWT只在页面内存中，换用户会清空结果与运行编号。配置了 `AGENT_API_KEY` 时还需在访问设置填写独立的Agent访问凭据，使用 `X-Agent-Key` 发送；Java服务key不会进入浏览器。超时或连接中断后先用保留的运行编号读取状态，避免盲目新建重复请求。
 
-或直接使用 CLI：
+或先登录并把JWT仅保存到当前PowerShell进程，再使用 CLI/示例：
+
+```powershell
+$login = Invoke-RestMethod -Method Post 'http://127.0.0.1:8080/api/v1/identity/login' `
+  -ContentType 'application/json' -Body '{"email":"alice@demo.flmh.invalid","password":"DemoAlice2026!"}'
+$env:FLMH_USER_TOKEN = $login.token
+$headers = @{Authorization = "Bearer $($login.token)"}
+# 若配置AGENT_API_KEY，再添加 $headers['X-Agent-Key'] = $env:AGENT_API_KEY
+```
+
+CLI在每次运行前核实用户JWT；identity-service重启后local令牌失效，需重新登录。
+
+
 
 ```powershell
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m flmh_agent.cli `
@@ -63,12 +75,12 @@ HTTP 示例：
 
 ```powershell
 $run = Invoke-RestMethod -Method Post 'http://127.0.0.1:8090/v1/agent/runs' `
-  -ContentType 'application/json' `
+  -Headers $headers -ContentType 'application/json' `
   -Body '{"run_id":"local-request-001","user_request":"请帮我在美国查露营灯并写口播脚本，预算不超过 30"}'
 $run.confirmationRequest
 Invoke-RestMethod -Method Post 'http://127.0.0.1:8090/v1/agent/runs/local-request-001/confirmation' `
-  -ContentType 'application/json' -Body (@{confirmed=$true; quote_id=$run.confirmationRequest.quoteId} | ConvertTo-Json)
-Invoke-RestMethod 'http://127.0.0.1:8090/v1/agent/runs/local-request-001'
+  -Headers $headers -ContentType 'application/json' -Body (@{confirmed=$true; quote_id=$run.confirmationRequest.quoteId} | ConvertTo-Json)
+Invoke-RestMethod 'http://127.0.0.1:8090/v1/agent/runs/local-request-001' -Headers $headers
 ```
 
 指定商品历史无需模型或 BI 数据库配置：
@@ -91,13 +103,13 @@ Set-Location 'D:\Happy\芳\flmh-p'
 
 该示例在 Java 和 MCP 服务已启动时实际查询美国露营灯，再查询加拿大同类商品；使用 `SUPPLIED_EXAMPLE` 标记预先提供的计划，不调用或冒充模型规划。全自动验收脚本也会执行此例。
 
-重复 `run_id` 和完全相同输入回放已有状态；请求体发生变化返回 409。同一 run 的并发启动、确认、修订和刷新有运行协调锁；memory 模式在单进程内生效，Postgres 模式使用 PostgreSQL advisory lock。确认请求必须带当前报价 ID，避免修订后旧页面误确认新报价。任务幂等键包含报价 ID；缺少有效预算返回 `needs_input`，不猜金额、不请求报价。异步任务返回 `processing`，GET 运行记录刷新 Java 任务状态，直到已知终态。
+同一用户重复 `run_id` 和完全相同输入回放已有状态；不同用户的同名运行独立。服务端按用户ID与run_id派生检查点和锁键，用户不能通过工具参数自报owner。历史无归属检查点保留且不会被新用户读取。请求体发生变化返回 409。同一 run 的并发启动、确认、修订和刷新有运行协调锁；memory 模式在单进程内生效，Postgres 模式使用 PostgreSQL advisory lock。确认请求必须带当前报价 ID，避免修订后旧页面误确认新报价。任务幂等键包含报价 ID；缺少有效预算返回 `needs_input`，不猜金额、不请求报价。异步任务返回 `processing`，GET 运行记录刷新 Java 任务状态，直到已知终态。
 
 确认生产前可以显式修订运行记录；`expected_revision` 防止并发覆盖，成功后 revision 加 1。商品、地区、预算有独立 `slotVersions`，结论保留 `conclusionDependencies`，查询按实际参数和上游结果指纹缓存；未受影响的查询复用，其余重新执行。修订将旧报价确认失效，已确认或提交生产的运行禁止改写，应创建新 run。
 
 ```powershell
 Invoke-RestMethod -Method Post 'http://127.0.0.1:8090/v1/agent/runs/local-request-001/revision' `
-  -ContentType 'application/json' -Body '{"expected_revision":0,"slot_updates":{"region":"CA","budget_max":40}}'
+  -Headers $headers -ContentType 'application/json' -Body '{"expected_revision":0,"slot_updates":{"region":"CA","budget_max":40}}'
 ```
 
 计划最多 4 条商品查询，可选 `query_id` 与 `depends_on`。校验拒绝未知引用、重复 ID 和环；按依赖层并行执行，无依赖查询同批运行。失败后 `POST /v1/agent/runs/{run_id}/retry` 继续 LangGraph checkpoint 的失败节点；并行查询部分失败时保存成功结果，只重试失败查询及其后继。报价等待确认时不能通过 retry 绕过确认。
@@ -114,7 +126,7 @@ Invoke-RestMethod -Method Post 'http://127.0.0.1:8090/v1/agent/runs/local-reques
 | Text2SQL | Java Model Gateway 生成，SQLGlot AST 校验，asyncpg read-only transaction | 空权限或空连接默认关闭 |
 | RAG | BGE-M3 HTTP 批量返回 dense/sparse；Elasticsearch PIT 内并行召回；RRF；BGE-Reranker 批量重排；原版本索引 `_mget` 父块回填；LangGraph 知识问答及内容参考资料节点 | 独立检索 HTTP 返回 503；Agent 知识请求返回 `needs_configuration` 与 TODO |
 
-Postgres Checkpointer 的 schema setup 默认关闭；明确初始化数据库时才使用 `POSTGRES_CHECKPOINT_SETUP=true`。BI 使用独立的 `BI_DATABASE_URI` 和只读数据库账号；不共用 Checkpointer 的写权限。BI HTTP 使用每个 role 的独立 bearer key，角色由服务器 key 映射确定，不信任调用者自报角色头。Agent BI 只在配置 `AGENT_SQL_PRINCIPAL` 时启用对应服务角色。
+Postgres Checkpointer 的 schema setup 默认关闭；明确初始化数据库时才使用 `POSTGRES_CHECKPOINT_SETUP=true`。BI 使用独立的 `BI_DATABASE_URI` 和只读数据库账号；不共用 Checkpointer 的写权限。BI HTTP和Agent BI都使用核实后的用户角色，`BI_SQL_ROLE_TABLES_JSON`只配置 `USER`/`ADMIN`/`SUPER_ADMIN` 的表权限。角色头、旧共享role token和 `AGENT_SQL_PRINCIPAL` 不能提升权限。
 
 SQL 校验来源是旧 `biGraph.ts` 和 Prisma schema 的五表：`market_products`、`market_product_daily_stats`、`market_radar_metrics`、`market_canonical_categories`、`market_source_categories`。运行时角色权限只能进一步收缩，不能扩大 allowlist。校验拒绝多语句、非 SELECT、SELECT *、危险函数、越权表/非 public schema、超过 50 的 LIMIT；缺少 LIMIT 时补 20。CTE/JOIN 使用 AST scope 分辨真实表；每个雷达指标分支必须限定 `score_version='v2'`，除非明确请求评分版本比较。Postgres `round(x, precision)` 转为 numeric/decimal，执行事务只读且超时为 5 秒。生成/执行失败会携带错误原因最多修正 3 次。
 
@@ -154,13 +166,13 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m unittest discover -s tests -v
 ```
 
-测试覆盖确认闸门、预算/币种、幂等、查询DAG、槽位失效、来源日统计、媒体未知结果及响应丢失恢复、MCP严格布尔确认、HTTP协议、RAG发布/召回和Text2SQL权限。2026-11-17在现有Python3.12.14环境全量151项通过，`pip check`通过；日志为`D:\rubbish\zhongjian\temp\flmh\media-production-final-20261117\python-unittest.log`。Node工作台7项与语法检查通过；媒体报价→确认→两次推进→MOCKED在Chrome实际点击通过，未生成真实文件。完整跨进程验收40/40通过。真实PostgreSQL、Langfuse、BGE及ES尚未联调，没有性能基准或召回效果指标。
+测试覆盖确认闸门、预算/币种、幂等、查询DAG、槽位失效、来源日统计、媒体未知结果及响应丢失恢复、MCP严格布尔确认、HTTP协议、RAG发布/召回和Text2SQL权限。2026-11-17在现有Python3.12.14环境本轮全量168项通过，`pip check`通过；日志为`D:\rubbish\zhongjian\temp\flmh\identity-20261117\python\login-all-tests.log`。Node工作台14项与语法检查通过；此前媒体报价→确认→两次推进→MOCKED在Chrome实际点击通过，未生成真实文件；本轮身份跨进程验收48/48通过；Chrome实际验证Alice媒体流程、退出清空、Bob不可读取Alice运行及刷新重登，临时页面和服务已关闭。真实PostgreSQL、Langfuse、BGE及ES尚未联调，没有性能基准或召回效果指标。
 
 ## 待配置与未验证项
 
 `.env.example` 中所有服务地址/凭据空项由部署时填写。明天需决定 PostgreSQL Checkpointer 与只读 BI 库、Langfuse、BGE-M3/BGE-Reranker 服务、ES chunk 索引与认证方式。真实模型供应商与模型参数由 Java Model Gateway 维护。真实外部 adapter 联调、数据库权限/索引执行计划验证、跨主机负载和性能基准尚未运行。不得把本地 adapter 或 HTTP contract 测试当作生产数据、实际召回效果或完整生产部署验收。
 
-当前 Agent API 的 bearer key 是服务边界认证，尚未迁入旧系统的最终用户身份与资源归属检查；MCP 仅绑定本机。商品历史和日统计工具均已接通，完整旧前端、身份管理及工作流编辑仍未迁移。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。
+Agent API与MCP使用用户JWT逐请求核实身份，检查点与锁按用户隔离；可选X-Agent-Key仍只是额外服务访问边界。MCP仅绑定本机。商品历史和日统计工具均已接通，完整旧前端、用户管理、密码找回及工作流编辑仍未迁移。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。
 
 ## 图片与视频工作流状态验证
 
