@@ -10,7 +10,7 @@ flmh_agent/
   ports/               # 规划、内容、MCP工具、检索、观测和运行协调端口
   application/         # LangGraph 工作流、Agent use case、Text2SQL 与 RAG pipeline
   adapters/
-    inbound/           # MCP 工具桥、工作台与同源账号/作品/工作流/会话 HTTP 入口
+    inbound/           # MCP 工具桥、工作台与同源商品/账号/作品/工作流/会话 HTTP 入口
     outbound/          # MCP client、Java Model Gateway、Postgres、Langfuse、BGE、ES
   api.py               # ASGI HTTP 应用组合与输入校验
   cli.py               # 交互式 CLI
@@ -28,7 +28,7 @@ MCP 工具桥仅允许绑定本机回环地址。CLI 和 API 在 Windows 启用 
 
 ## 本机启动
 
-本机已验证 Python 为 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`（3.12.14）。包缓存放在 `D:\rubbish\zhongjian\caches\python\flmh`，本轮临时与验收目录为 `D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\final`；Java构建目录为 `D:\rubbish\zhongjian\build\flmh\enterprise-20261117\final`。不需要下载任何模型权重，不把依赖、缓存或临时数据写入C盘。
+本机已验证 Python 为 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`（3.12.14）。包缓存放在 `D:\rubbish\zhongjian\caches\python\flmh`，本轮临时与验收目录为 `D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v11`；Java构建目录为 `D:\rubbish\zhongjian\build\flmh\enterprise-20261117\v11`。不需要下载任何模型权重，不把依赖、缓存或临时数据写入C盘。
 
 最简整链启动使用 [Java README](../flmh-j/README.md#本机启动) 的 `verify-local.ps1` 命令，它会启动六个Java服务、MCP和Agent，完成验证后自动收尾；手动体验时显式追加 `-KeepAlive`，结束后在原终端输入 `stop`。该脚本已经启动Python服务时，不再执行下面两组命令。
 
@@ -38,7 +38,7 @@ MCP 工具桥仅允许绑定本机回环地址。CLI 和 API 在 Windows 启用 
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\final'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v11'
 $env:TMP = $env:TEMP
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
@@ -49,14 +49,14 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\final'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v11'
 $env:TMP = $env:TEMP
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m flmh_agent.api
 ```
 
-启动后在本机浏览器打开 `http://127.0.0.1:8090/`，先登录再使用中文工作台；它复用同一 Agent API，无需额外前端服务或依赖。页面提供选品与内容、商品历史/详情、作品目录、可编辑工作流和会话目录，内容报价必须点击“确认并创建任务”后才提交。本机Mock账号为 `alice@demo.flmh.invalid` / `DemoAlice2026!`、`bob@demo.flmh.invalid` / `DemoBob2026!`；管理员为 `admin@demo.flmh.invalid` / `DemoAdmin2026!`。用户JWT只在页面内存中，换用户会清空结果与运行编号。配置了 `AGENT_API_KEY` 时还需在访问设置填写独立的Agent访问凭据，使用 `X-Agent-Key` 发送；Java服务key不会进入浏览器。超时或连接中断后先用保留的运行编号读取状态，避免盲目新建重复请求。
+启动后在本机浏览器打开 `http://127.0.0.1:8090/`，先登录再使用中文工作台；它复用同一 Agent API，无需额外前端服务或依赖。页面提供选品与内容、商品目录筛选分页、商品历史/详情、作品目录、可编辑工作流和会话目录，内容报价必须点击“确认并创建任务”后才提交。本机Mock账号为 `alice@demo.flmh.invalid` / `DemoAlice2026!`、`bob@demo.flmh.invalid` / `DemoBob2026!`；管理员为 `admin@demo.flmh.invalid` / `DemoAdmin2026!`。用户JWT只在页面内存中，换用户会清空结果与运行编号。配置了 `AGENT_API_KEY` 时还需在访问设置填写独立的Agent访问凭据，使用 `X-Agent-Key` 发送；Java服务key不会进入浏览器。超时或连接中断后先用保留的运行编号读取状态，避免盲目新建重复请求。
 
 Java账户和业务资源保存在H2文件中，手动启动复用同一 `LOCAL_STATE_DIR` 才保留原状态；验收脚本每次建立独立状态目录。Python默认 `CHECKPOINTER_BACKEND=memory`，检查点、会话目录和运行锁随进程退出消失。关闭本次手动服务时分别在原终端按 `Ctrl+C`，核实8001/8090监听已消失；不要停止任务开始前已有的服务。
 
@@ -70,7 +70,7 @@ $headers = @{Authorization = "Bearer $($login.token)"}
 # 若配置AGENT_API_KEY，再添加 $headers['X-Agent-Key'] = $env:AGENT_API_KEY
 ```
 
-CLI在每次运行前核实用户JWT；identity-service重启后local令牌失效，需重新登录。
+CLI在每次运行前核实用户JWT；identity-service重启后local令牌失效，需重新登录。新JWT带 `credentialStamp`，Java每次对照当前密码哈希核实；自行改密或管理员重置后旧JWT立即失效，Python身份入口同样返回401。升级前没有该标记的JWT不再接受，客户端须重新登录；迁移不自动改写旧用户密码，也不需要新增旧users表字段。
 
 
 
@@ -104,6 +104,14 @@ Invoke-RestMethod 'http://127.0.0.1:8090/v1/agent/runs/local-request-001' -Heade
 
 将请求改为“查询 camping-lamp-001 的详情”，会经 MCP `product_detail` 返回 `productDetail`：商品、店铺、卖家、来源类目以及原始图片/详情链接。链接只作为数据保留，未自动访问；未知字段保持 null。商品槽位变化会清空旧详情再读取，失败时可重试对应节点。
 
+工作台商品目录通过 `GET /v1/products/catalog` 读取Java `/api/v1/products/catalog`，不经过LLM或Agent图。支持地区、来源、关键词/商品ID、规范类目、数值区间、新品、包邮、上下架、店铺和爆品筛选；`page` 为1–10000、`pageSize` 为1–100，返回 `products/total/page/pageSize/totalPages`。一次页面请求只转发一次有界目录查询，不逐商品调用接口。金额区间或 `sort=price` 必须明确 `currency`，没有币种时Python返回422，Java直接访问返回400；不换汇或跨币种排序。非法/重复查询字段被拒绝。
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8090/v1/products/catalog?region=US&source=LOCAL_FIXTURE&currency=USD&priceAmount=0%3A30&sort=price&direction=asc&page=1&pageSize=20' -Headers $headers
+```
+
+目录筛选当前快照，`metricScope=CURRENT_SNAPSHOT_WITH_MATCHING_DAILY`；日分项评分必须匹配当前快照、来源、币种、类目和输入指纹，缺失保持null，不在列表中重算。商品与指标来源分别显示，滚动7天销量不是当天销量；新品使用最早观测时间，不能推断源站上架日期。分页间商品变化时需重新查询，不提供跨请求固定快照。Python保留来源、币种和未知字段；真实数据规模与MySQL执行计划未验证。
+
 查询计划还支持 `category_from_query`：从直接上游查询的首条商品读取类目，再作为下游类目过滤条件。必须同时在 `depends_on` 引用该上游，不得同时填写静态 `category`。上游无结果或类目缺失/非法时，下游查询失败，不放宽成无类目搜索。每条计划最多一次 MCP 查询，计划最多 4 条；同层独立查询并行，缓存同时考虑实际参数和上游结果。现有本地规则不会自动推导这种复杂计划；已提供明确计划示例：
 
 ```powershell
@@ -115,7 +123,7 @@ Set-Location 'D:\Happy\芳\flmh-p'
 
 同一用户重复 `run_id` 和完全相同输入回放已有状态；不同用户的同名运行独立。服务端按用户ID与run_id派生检查点和锁键，用户不能通过工具参数自报owner。历史无归属检查点保留且不会被新用户读取。请求体发生变化返回 409。同一 run 的并发启动、确认、修订和刷新有运行协调锁；memory 模式在单进程内生效，Postgres 模式使用 PostgreSQL advisory lock。确认请求必须带当前报价 ID，避免修订后旧页面误确认新报价。任务幂等键包含报价 ID；缺少有效预算返回 `needs_input`，不猜金额、不请求报价。异步任务返回 `processing`，GET 运行记录刷新 Java 任务状态，直到已知终态。
 
-确认生产前可以显式修订运行记录；`expected_revision` 防止并发覆盖，成功后 revision 加 1。商品、地区、预算有独立 `slotVersions`，结论保留 `conclusionDependencies`，查询按实际参数和上游结果指纹缓存；未受影响的查询复用，其余重新执行。修订将旧报价确认失效，已确认或提交生产的运行禁止改写，应创建新 run。
+确认生产前可以显式修订运行记录；`expected_revision` 防止并发覆盖，成功后 revision 加 1。商品、地区、预算有独立 `slotVersions`，结论保留 `conclusionDependencies`，查询按实际参数和上游结果指纹缓存；未受影响的查询复用，其余重新执行。修订将旧报价确认失效；已确认且尚未获得提交结果的运行和已提交文本任务禁止改写。媒体运行仅在服务端核实为 `FAILED` 后支持新报价修订，详见下方媒体主流程。
 
 ```powershell
 Invoke-RestMethod -Method Post 'http://127.0.0.1:8090/v1/agent/runs/local-request-001/revision' `
@@ -163,7 +171,7 @@ Agent 请求“从知识库查询采集说明”进入检索路径并输出带�
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\final'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v11'
 $env:TMP = $env:TEMP
 $env:PIP_CACHE_DIR = 'D:\rubbish\zhongjian\caches\python\flmh'
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
@@ -175,25 +183,27 @@ if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $e
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\final'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v11'
 $env:TMP = $env:TEMP
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m unittest discover -s tests -v
-& 'D:\Code\nodejs\node.exe' --test tests/test_workbench_media.cjs tests/test_workflow_editor.cjs tests/test_sessions_ui.cjs
+& 'D:\Code\nodejs\node.exe' --test tests/test_workbench_media.cjs tests/test_workflow_editor.cjs tests/test_sessions_ui.cjs tests/test_product_catalog.cjs
 ```
 
-测试覆盖确认闸门、预算/币种、幂等、查询DAG、槽位失效、日统计、媒体未知结果恢复、MCP确认、HTTP协议、RAG、Text2SQL、账号权限、作品、通用工作流及会话/SSE。本轮验收与产物见[Java交付记录](../flmh-j/docs/delivery.md)，以其中绑定的提交、实际测试数、跨进程与浏览器记录为准；本页不提前宣称尚未执行的结果。真实PostgreSQL、Langfuse、BGE及ES未联调，没有性能基准或召回效果指标，完整生产级重构尚未完成。
+测试覆盖确认闸门、预算/币种、幂等、查询DAG、槽位失效、日统计、FAILED媒体明确字段修订、未知结果恢复、MCP确认、HTTP协议、RAG、Text2SQL、账号权限、商品目录、作品、通用工作流及会话/SSE。**v11本机整合验证通过：Python 253项、Node最终62项和 `pip check` 通过；Java 360项/68个suite零失败、错误或跳过，六JAR离线构建通过；跨进程验收92/92通过。** 对应Java `d7c2692`、Python `5091363`，完整记录见[Java交付记录](../flmh-j/docs/delivery.md)。真实PostgreSQL、Langfuse、BGE及ES未联调，没有性能基准或召回效果指标，完整生产级重构尚未完成。
+
+Chrome完成12项交互观察，包含12个排序选项、金额币种拦截、目录来源与null、详情、交给Agent不自动提交、媒体修订新报价10秒和空创作输入、确认后MOCKED零文件、改密自动退出清空目录/结果及重登恢复；控制台无warning/error。本次page10已关闭，原page3保留。验收的10组进程、22个登记节点全部退出，8001、8080–8085、8090无监听，原7890代理保留。
 
 ## 待配置与未验证项
 
 登录后可展开“账号资料与用户管理”：自己资料与旧密码校验改密使用 `/v1/identity/profile`、`/v1/identity/password`；管理员通过 `/v1/identity/users` 及其子路径完成分页查询、创建、角色/状态/密码修改、积分与会员设置、删除。管理操作走受限HTTP入口，不暴露给LLM或MCP；Java再次核实当前目录角色，Python只转发服务端配置的内部凭据和当前用户JWT，响应按安全字段白名单输出。
 
-账号数据由Java持久化到本地H2，重启不覆盖已有资料或密码；JWT仍随身份进程重启失效。工作台积分请求结果未知后清空原调整并锁定目标，重新读取并选择用户后才允许下一次操作；**当前余额不能判断上一笔是否成功，积分API没有服务端幂等键**。页面离开/退出清空账号列表、资料和密码；请求不会自动重发。
+账号数据由Java持久化到本地H2，重启不覆盖已有资料或密码；local JWT随身份进程重启失效。`credentialStamp`还使改密与管理员重置立即撤销旧JWT，包括重置为相同明文密码；改名/角色/状态仍读取当前目录。工作台积分请求结果未知后清空原调整并锁定目标，重新读取并选择用户后才允许下一次操作；**当前余额不能判断上一笔是否成功，积分API没有服务端幂等键**。页面离开/退出清空账号列表、资料和密码；请求不会自动重发。
 
 `.env.example` 中所有服务地址/凭据空项由部署时填写。明天需决定 PostgreSQL Checkpointer 与只读 BI 库、Langfuse、BGE-M3/BGE-Reranker 服务、ES chunk 索引与认证方式。真实模型供应商与模型参数由 Java Model Gateway 维护。真实外部 adapter 联调、数据库权限/索引执行计划验证、跨主机负载和性能基准尚未运行。不得把本地 adapter 或 HTTP contract 测试当作生产数据、实际召回效果或完整生产部署验收。
 
-Agent API与MCP使用用户JWT逐请求核实身份，检查点、会话目录与锁按用户隔离；可选X-Agent-Key仍只是额外服务访问边界。MCP仅绑定本机。商品历史和日统计工具、资料与管理员用户管理、作品和通用工作流已接入同源工作台；完整旧前端/富筛选、密码找回与改密撤销旧JWT、新任务计入旧视频用量聚合、支付等业务仍未完成。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。
+Agent API与MCP使用用户JWT逐请求核实身份，检查点、会话目录与锁按用户隔离；可选X-Agent-Key仍只是额外服务访问边界。MCP仅绑定本机。商品目录筛选分页、商品历史和日统计工具、资料与管理员用户管理、作品和通用工作流已接入同源工作台；完整旧前端全部页面、密码找回、新任务计入旧视频用量聚合、支付等业务仍未完成。改密撤销已经实现，但不提供单设备登出或独立令牌撤销列表。旧项目只提供关联达人数量等商品指标，未据此虚构独立达人目录。
 
 ## 图片与视频工作流状态验证
 
@@ -211,7 +221,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 
 ## 媒体生产主流程
 
-输入 `查美国旅行杯并制作图片和视频，预算10`，规则计划选择 `product_media`，经 LangGraph → MCP → Java `/api/v1/content/media-productions` 获取报价。初版主流程明确展示一张图片再生成 6 秒、9:16 视频；确认前不会提交供应商。商品限价与内容预算分别处理；明确使用“元/CNY”的预算不能用于 USD 报价，也不会自动换汇。未指定币种时按报价显示的币种确认。超过 2000 字符的媒体提示词（含商品和知识资料）返回可修订错误，不静默截断。
+输入 `查美国旅行杯并制作图片和视频，预算10`，规则计划选择 `product_media`，经 LangGraph → MCP → Java `/api/v1/content/media-productions` 获取报价。默认一张图片再生成6秒、9:16视频；明确的时长、比例和提示词经统一 `media_options` schema校验，规则与模型计划走同一图，确认前不会提交供应商。商品限价与内容预算分别处理；明确使用“元/CNY”的预算不能用于USD报价，也不会自动换汇。未指定币种时按报价显示的币种确认。超过2000字符的媒体提示词（含商品和知识资料）返回可修订错误，不静默截断。
 
 共享确认入口仍为 `POST /v1/agent/runs/{runId}/confirmation`，必须带当前报价 ID 与真正的布尔值。即使本地零元报价也要求确认。确认仅幂等创建 `QUEUED` 运行，后续操作均显式触发：
 
@@ -219,9 +229,22 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 - `POST /v1/agent/runs/{runId}/media/advance`：推进一次提交、存储或查询阶段，不携带正文。
 - `POST /v1/agent/runs/{runId}/media/verify`：只核实 `SUBMISSION_UNKNOWN`，不重新提交付费请求。
 
-工作台展示逐节点状态、来源、报价规格和产物记录，地址仅作文本。`MOCK_ONLY/MOCKED` 明确没有图片或视频文件。推进响应丢失后先读取状态；未知结果禁止直接推进，只有核实入口。Java 提供 OpenAI Images/Responses、Gemini generateContent、旧项目 TOAPIS xai/volcengine 视频协议及私有OSS上传/下载适配；视频供应商成功先进入 `VIDEO_GENERATED`，转存成功才进入 `SUCCEEDED` 并归档作品。所有端点、模型、价格、凭据和视频结果origin白名单在Java `.env.example` 留空；本任务只运行本机合同测试。真实素材编辑上传/参考图生成、可灵/AGE执行，以及供应商丢失任务ID后的真实对账仍未完成。
+工作台展示逐节点状态、来源、报价规格和产物记录，地址仅作文本。`MOCK_ONLY/MOCKED` 明确没有图片或视频文件。推进响应丢失后先读取状态；未知结果禁止直接推进，只有核实入口。固定两节点主流程的Java适配包括OpenAI Images/Responses、Gemini generateContent、旧项目TOAPIS xai/volcengine视频协议及私有OSS上传/下载；视频供应商成功先进入 `VIDEO_GENERATED`，转存成功才进入 `SUCCEEDED` 并归档作品。所有端点、模型、价格、凭据和结果origin白名单在Java `.env.example` 留空；供应商验证只运行本机合同测试。Kling/AGE仅接入下方通用DAG，不自动扩展此固定主流程。
 
-MCP还提供`media_production_revise`：先以`origin_run_id`申请失败运行的新报价，经独立确认后传原运行、新报价和幂等键提交。Java只允许明确FAILED的原运行，禁止未知结果重投；未变化的成功图片可复用。该分支完成接口合同与Java状态机测试，未接工作台自然语言自动修订，也未作真实供应商端到端验证。
+`POST /v1/agent/runs/{runId}/revision`已接入失败媒体修订，工作台提供商品、地区、预算和媒体规格修改。图片/视频要求是空白的替换输入，留空不修改；比例和时长预填现值，完整合成提示词在新报价中核对。请求带整数 `expected_revision`；可通过 `slot_updates` 与 `media_updates` 提供明确字段，后者允许 `image_prompt`、`video_prompt`、`aspect_ratio`（1:1/3:4/4:3/9:16/16:9）和 `duration_seconds`（2–15整数）。自然语言按逗号、分号或换行分隔明确字段，例如“预算改成20美元；视频提示词：海边展示；时长改为10秒”。结构化字段优先；任意描述不自动当视频提示词，规则修订明确标记 `RULES`，模型计划也使用同一校验结构。
+
+服务端只从当前owner会话取得原运行，再经Java读取核实，调用方不能指定原运行ID。必须为 `FAILED` 且没有未知提交节点；`SUBMISSION_UNKNOWN`、运行中和其他终态均拒绝。旧报价及确认失效，新报价展示 `mediaOriginRun`、`mediaRequest` 与 `reusedNodes`，确认后经MCP `media_production_revise`创建新媒体运行。仅预算/视频提示词/时长改变时保留图片输入；商品、地区、图片提示词或比例变化不会错误复用原图片。等待新确认时可以继续修订，仍引用同一原运行；提交响应丢失只能沿原幂等键恢复，不能改输入绕过未知结果。
+
+以下仅在本人现有媒体运行已经确定FAILED时执行，不创建或伪造失败数据：
+
+```powershell
+$failed = Invoke-RestMethod "http://127.0.0.1:8090/v1/agent/runs/$mediaAgentRunId" -Headers $headers
+$revision = @{expected_revision=$failed.revision; slot_updates=@{budget_max=20}; media_updates=@{video_prompt='海边展示'; duration_seconds=10}}
+$newQuote = Invoke-RestMethod -Method Post "http://127.0.0.1:8090/v1/agent/runs/$mediaAgentRunId/revision" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ($revision | ConvertTo-Json)
+$newQuote.confirmationRequest
+```
+
+核对本次报价与复用节点后，使用前述confirmation接口并回传新 `quote_id` 明确确认。默认Mock正常结束为 `MOCKED`，不能用它演示FAILED分支；该分支的证据是本机针对性fixture测试，未修改数据库制造成功，也未运行真实供应商端到端修订。
 
 ## 我的作品与私有媒体
 
@@ -248,7 +271,9 @@ Invoke-RestMethod "http://127.0.0.1:8090/v1/works/$($saved.record.id)/lineage?pa
 
 工作台“可编辑工作流”提供定义目录、节点/连线/位置编辑、版本更新、报价与确认创建、逐次推进/核实/取消以及历史运行。此入口通过Python同源HTTP转发到Java；不经过LLM规划或MCP自动执行。定义限制20节点/400边，保存时校验环、引用及输入口；节点或商品/预算/来源运行变化会清除旧报价。定义创建没有服务端幂等键，保存响应未知时先重新读取目录核实，不盲目重复创建。
 
-能力目录 `GET /v1/workflows/meta/capabilities`保留旧12种能力、历史启用标记和输入约束；旧AGE关闭时实际开放4种。全部支持无文件Mock演示，真实adapter目前只支持无参考图文生图，以及单个上游已归档图片的xai/volcengine视频。固定素材URL只校验保存，不自动读取，真实执行明确拒绝；可灵/AGE、参考图生成及未适配参数不会静默降级。完整能力表见[Java README](../flmh-j/README.md#通用可编辑工作流)。
+能力目录 `GET /v1/workflows/meta/capabilities`保留旧12种能力、历史启用标记和输入约束；旧AGE关闭时实际开放4种。全部支持无文件Mock演示。Java通用DAG现在提供Kling文生/参考图视频，以及AGE分镜、文生、图生、首尾帧、混合参考和复刻协议adapter；只接受本运行上游已归档的私有OSS素材，固定素材URL仍只校验保存，真实执行拒绝。无参考图文生图和单上游图片xai/volcengine视频路径保留；OpenAI/Gemini参考图编辑未实现。
+
+这些Kling/AGE adapter只在本机HTTP fixture验证过协议，不代表真实生成或供应商联调完成；AGE视频输入要求 `MEDIA_AGE_FFPROBE_EXECUTABLE` 指向已有可信工具，本轮未安装或运行ffprobe。模型、地址、密钥、价格及存储配置继续留空，缺失时拒绝真实执行；未知提交无任务ID时不重投。模型和未适配参数不猜测或静默降级，完整能力表与空配置见[Java README](../flmh-j/README.md#通用可编辑工作流)。
 
 默认本地模式的两节点示例先创建定义并展示报价：
 
