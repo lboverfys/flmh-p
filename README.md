@@ -10,7 +10,7 @@ flmh_agent/
   ports/               # 规划、内容、MCP工具、检索、观测和运行协调端口
   application/         # LangGraph 工作流、Agent use case、Text2SQL 与 RAG pipeline
   adapters/
-    inbound/           # MCP 工具桥、工作台与同源商品/账号/作品/工作流/会话 HTTP 入口
+    inbound/           # MCP 工具桥、工作台与同源商品/账号/作品/素材/工作流/会话 HTTP 入口
     outbound/          # MCP client、Java Model Gateway、Postgres、Langfuse、BGE、ES
   api.py               # ASGI HTTP 应用组合与输入校验
   cli.py               # 交互式 CLI
@@ -28,7 +28,7 @@ MCP 工具桥仅允许绑定本机回环地址。CLI 和 API 在 Windows 启用 
 
 ## 本机启动
 
-本机已验证 Python 为 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`（3.12.14）。包缓存放在 `D:\rubbish\zhongjian\caches\python\flmh`，本轮临时与验收目录为 `D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v11`；Java构建目录为 `D:\rubbish\zhongjian\build\flmh\enterprise-20261117\v11`。不需要下载任何模型权重，不把依赖、缓存或临时数据写入C盘。
+本机已验证 Python 为 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`（3.12.14）。包缓存放在 `D:\rubbish\zhongjian\caches\python\flmh`，本轮临时与验收目录为 `D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v12`；Java构建目录为 `D:\rubbish\zhongjian\build\flmh\enterprise-20261117\v12`。不需要下载任何模型权重，不把依赖、缓存或临时数据写入C盘。
 
 最简整链启动使用 [Java README](../flmh-j/README.md#本机启动) 的 `verify-local.ps1` 命令，它会启动六个Java服务、MCP和Agent，完成验证后自动收尾；手动体验时显式追加 `-KeepAlive`，结束后在原终端输入 `stop`。该脚本已经启动Python服务时，不再执行下面两组命令。
 
@@ -38,7 +38,7 @@ MCP 工具桥仅允许绑定本机回环地址。CLI 和 API 在 Windows 启用 
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v11'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v12'
 $env:TMP = $env:TEMP
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
@@ -49,16 +49,16 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v11'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v12'
 $env:TMP = $env:TEMP
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m flmh_agent.api
 ```
 
-启动后在本机浏览器打开 `http://127.0.0.1:8090/`，先登录再使用中文工作台；它复用同一 Agent API，无需额外前端服务或依赖。页面提供选品与内容、商品目录筛选分页、商品历史/详情、作品目录、可编辑工作流和会话目录，内容报价必须点击“确认并创建任务”后才提交。本机Mock账号为 `alice@demo.flmh.invalid` / `DemoAlice2026!`、`bob@demo.flmh.invalid` / `DemoBob2026!`；管理员为 `admin@demo.flmh.invalid` / `DemoAdmin2026!`。用户JWT只在页面内存中，换用户会清空结果与运行编号。配置了 `AGENT_API_KEY` 时还需在访问设置填写独立的Agent访问凭据，使用 `X-Agent-Key` 发送；Java服务key不会进入浏览器。超时或连接中断后先用保留的运行编号读取状态，避免盲目新建重复请求。
+启动后在本机浏览器打开 `http://127.0.0.1:8090/`，先登录再使用中文工作台；它复用同一 Agent API，无需额外前端服务或依赖。页面提供选品与内容、商品目录筛选分页、商品历史/详情、作品目录、上传素材、可编辑工作流及其历史分页和会话目录，内容报价必须点击“确认并创建任务”后才提交。本机Mock账号为 `alice@demo.flmh.invalid` / `DemoAlice2026!`、`bob@demo.flmh.invalid` / `DemoBob2026!`；管理员为 `admin@demo.flmh.invalid` / `DemoAdmin2026!`。用户JWT只在页面内存中，换用户会清空结果与运行编号。配置了 `AGENT_API_KEY` 时还需在访问设置填写独立的Agent访问凭据，使用 `X-Agent-Key` 发送；Java服务key不会进入浏览器。超时或连接中断后先用保留的运行编号读取状态，避免盲目新建重复请求。
 
-Java账户和业务资源保存在H2文件中，手动启动复用同一 `LOCAL_STATE_DIR` 才保留原状态；验收脚本每次建立独立状态目录。Python默认 `CHECKPOINTER_BACKEND=memory`，检查点、会话目录和运行锁随进程退出消失。关闭本次手动服务时分别在原终端按 `Ctrl+C`，核实8001/8090监听已消失；不要停止任务开始前已有的服务。
+Java账户和业务资源保存在H2文件中，上传素材元数据也由Java持久化，local实际文件位于 `LOCAL_STATE_DIR/assets`；手动启动复用同一 `LOCAL_STATE_DIR` 才保留原状态，验收脚本每次建立独立状态目录。Python默认 `CHECKPOINTER_BACKEND=memory`，检查点、会话目录和运行锁随进程退出消失。关闭本次手动服务时分别在原终端按 `Ctrl+C`，核实8001/8090监听已消失；不要停止任务开始前已有的服务。
 
 或先登录并把JWT仅保存到当前PowerShell进程，再使用 CLI/示例：
 
@@ -171,7 +171,7 @@ Agent 请求“从知识库查询采集说明”进入检索路径并输出带�
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v11'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v12'
 $env:TMP = $env:TEMP
 $env:PIP_CACHE_DIR = 'D:\rubbish\zhongjian\caches\python\flmh'
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
@@ -183,17 +183,19 @@ if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $e
 
 ```powershell
 Set-Location 'D:\Happy\芳\flmh-p'
-$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v11'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\enterprise-20261117\v12'
 $env:TMP = $env:TEMP
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m unittest discover -s tests -v
-& 'D:\Code\nodejs\node.exe' --test tests/test_workbench_media.cjs tests/test_workflow_editor.cjs tests/test_sessions_ui.cjs tests/test_product_catalog.cjs
+& 'D:\Code\nodejs\node.exe' --test tests/test_workbench_media.cjs tests/test_workflow_editor.cjs tests/test_sessions_ui.cjs tests/test_product_catalog.cjs tests/test_assets_ui.cjs
 ```
 
-测试覆盖确认闸门、预算/币种、幂等、查询DAG、槽位失效、日统计、FAILED媒体明确字段修订、未知结果恢复、MCP确认、HTTP协议、RAG、Text2SQL、账号权限、商品目录、作品、通用工作流及会话/SSE。**v11本机整合验证通过：Python 253项、Node最终62项和 `pip check` 通过；Java 360项/68个suite零失败、错误或跳过，六JAR离线构建通过；跨进程验收92/92通过。** 对应Java `d7c2692`、Python `5091363`，完整记录见[Java交付记录](../flmh-j/docs/delivery.md)。真实PostgreSQL、Langfuse、BGE及ES未联调，没有性能基准或召回效果指标，完整生产级重构尚未完成。
+测试覆盖确认闸门、预算/币种、幂等、查询DAG、槽位失效、日统计、FAILED媒体明确字段修订、未知结果恢复、MCP确认、HTTP协议、RAG、Text2SQL、账号权限、商品目录、作品、通用工作流及会话/SSE。v12增加素材流式上传与下载、owner隔离、固定素材ID和工作流历史翻页。实际通过Python 265项、Node 88项及pip check；Java 401项/73个测试集和本机整链107/107通过。Chrome完成12项观察，服务与页面已收尾；限制和证据见[Java交付记录](../flmh-j/docs/delivery.md)。
 
-Chrome完成12项交互观察，包含12个排序选项、金额币种拦截、目录来源与null、详情、交给Agent不自动提交、媒体修订新报价10秒和空创作输入、确认后MOCKED零文件、改密自动退出清空目录/结果及重登恢复；控制台无warning/error。本次page10已关闭，原page3保留。验收的10组进程、22个登记节点全部退出，8001、8080–8085、8090无监听，原7890代理保留。
+**历史v11本机整合验证记录：Python 253项、Node最终62项和 `pip check` 通过；Java 360项/68个suite零失败、错误或跳过，六JAR离线构建通过；跨进程验收92/92通过。** 对应Java `d7c2692`、Python `5091363`。这些是历史v11结果，不代表v12已完成验收。真实PostgreSQL、Langfuse、BGE及ES未联调，没有性能基准或召回效果指标，完整生产级重构尚未完成。
+
+历史v11的Chrome完成12项交互观察，包含12个排序选项、金额币种拦截、目录来源与null、详情、交给Agent不自动提交、媒体修订新报价10秒和空创作输入、确认后MOCKED零文件、改密自动退出清空目录/结果及重登恢复；当轮控制台无warning/error，page10关闭、原page3保留。当轮验收的10组进程、22个登记节点全部退出，收尾检查8001、8080–8085、8090无监听，原7890代理保留；此处不将历史状态当作本轮资源状态。
 
 ## 待配置与未验证项
 
@@ -267,11 +269,37 @@ Invoke-RestMethod "http://127.0.0.1:8090/v1/works/$($saved.record.id)/lineage?pa
 
 真实媒体归档后可在工作台“下载文件”：`GET /v1/works/{id}/file`先核对归属，再通过Java读取私有OSS稳定路径，按64KiB分块转发，最大200MiB。Chrome文件保存选择器直接写入选定文件，未提供该能力的浏览器会明确提示；不创建完整文件大小的内存Blob。Java转存视频只允许配置的精确结果origin，不跟重定向，下载/上传共用最多60秒期限；D盘 `MEDIA_TRANSFER_TEMP_DIR` 中的临时文件在响应结束后清理。Mock媒体没有作品或可下载文件，真实供应商/OSS只完成本机HTTP合同验证，未对外联调。
 
+## 上传素材与固定素材ID
+
+工作台“我的上传素材”经同源 `/v1/assets` 访问Java素材目录，提供原始文件上传、本人目录分页、信息查看和“用于当前节点”。文件来源始终为 `USER_UPLOAD`，不会计为模型生成作品：local把真实文件保存在Java的 `LOCAL_STATE_DIR/assets`，标记 `LOCAL_FILESYSTEM`；production使用 `PRIVATE_OSS`，其真实端点和凭据仍待配置。Python按块转发上传和鉴权下载，不把文件改成base64或整量缓存。
+
+允许PNG/JPEG每张最多25MiB、4000万像素，MP4/WebM每段最多50MiB。Python入口要求单一 `Content-Type`、`Content-Length`、`Idempotency-Key`；Java继续核对实际字节、类型、长度和图片尺寸。视频上传仅验证容器签名，不保证编解码、时长或帧率；AGE执行视频输入必须另经可信ffprobe。临时上传文件由Java写入D盘 `MEDIA_ASSET_TEMP_DIR` 并在成功/失败后清理。local DAG即使引用真实上传，也只返回 `MOCKED`、`artifacts=[]`，不生成文件。
+
+以下沿用登录时的 `$headers`。将 `$file` 改为已有PNG；`-InFile`发送原始字节并自动声明长度。响应未知或409处理中时保留相同文件、文件名和幂等键重试；同键不同输入会冲突，不能换键重投未知请求。
+
+```powershell
+$file = 'D:\path\reference.png'
+$assetHeaders = $headers.Clone()
+$assetHeaders['Idempotency-Key'] = 'asset-' + [Guid]::NewGuid().ToString('N')
+$assetUrl = 'http://127.0.0.1:8090/v1/assets?fileName=' + [Uri]::EscapeDataString([IO.Path]::GetFileName($file))
+$uploaded = Invoke-RestMethod -Method Post $assetUrl -Headers $assetHeaders -ContentType 'image/png' -InFile $file
+Invoke-RestMethod -Method Post $assetUrl -Headers $assetHeaders -ContentType 'image/png' -InFile $file
+Invoke-RestMethod 'http://127.0.0.1:8090/v1/assets?type=image&page=1&pageSize=20' -Headers $headers
+$nodeAssets = @(@{type='image'; assetId=$uploaded.asset.id})
+ConvertTo-Json -InputObject $nodeAssets -Compress
+```
+
+成功响应为 `{asset,reused}`，重放返回原素材及 `reused=true`。目录每页最多50项，工作台每页20项；`GET /v1/assets/{id}`读信息，`GET /v1/assets/{id}/file`鉴权下载，其他用户资源返回404；当前不提供删除或覆盖素材。浏览器在上传响应未知时保留原文件与幂等键，“重试同一上传”不会创建另一份。
+
+节点固定素材JSON格式为 `[{"type":"image","assetId":"<返回的UUID>"}]`，或视频的 `type:"video"`；`assetId`与旧`url`二选一。“用于当前节点”只把引用填入当前节点编辑框，仍须手动点击应用节点、保存定义，再重新报价和确认。报价与运行按owner批量核实素材，输入指纹包含不可变素材ID及类型；SHA-256由素材元数据保存；真实执行只接受本人私有OSS素材或本运行上游已归档产物，固定外链仍拒绝，本地路径不会发送给供应商。独立图片编辑/遮罩流程尚未实现，工作流参考图生成协议见下一节。
+
 ## 通用可编辑工作流
 
 工作台“可编辑工作流”提供定义目录、节点/连线/位置编辑、版本更新、报价与确认创建、逐次推进/核实/取消以及历史运行。此入口通过Python同源HTTP转发到Java；不经过LLM规划或MCP自动执行。定义限制20节点/400边，保存时校验环、引用及输入口；节点或商品/预算/来源运行变化会清除旧报价。定义创建没有服务端幂等键，保存响应未知时先重新读取目录核实，不盲目重复创建。
 
-能力目录 `GET /v1/workflows/meta/capabilities`保留旧12种能力、历史启用标记和输入约束；旧AGE关闭时实际开放4种。全部支持无文件Mock演示。Java通用DAG现在提供Kling文生/参考图视频，以及AGE分镜、文生、图生、首尾帧、混合参考和复刻协议adapter；只接受本运行上游已归档的私有OSS素材，固定素材URL仍只校验保存，真实执行拒绝。无参考图文生图和单上游图片xai/volcengine视频路径保留；OpenAI/Gemini参考图编辑未实现。
+能力目录 `GET /v1/workflows/meta/capabilities`保留旧12种能力、历史启用标记和输入约束；旧AGE关闭时实际开放4种。全部支持零生成文件的Mock演示。Java通用DAG提供Kling文生/参考图视频，以及AGE分镜、文生、图生、首尾帧、混合参考和复刻协议adapter；支持本人上传的固定素材ID与本运行上游已归档私有OSS产物，固定外部URL真实执行仍拒绝。无参考图文生图和单图片xai/volcengine视频路径保留，参考输入按上游边顺序在先、固定素材在后组合，命名首尾帧口保持定义含义。
+
+`gemini:image`是保留的能力ID，实际图片供应商须明确配置OpenAI或Gemini。现支持最多8张、合计25MiB的PNG/JPEG参考图，来源仅限已核实的owner/private OSS输入；OpenAI Images用multipart `/images/edits`，Responses用 `input_image`，Gemini generateContent用 `inlineData`。不静默截断、不接受任意外链，不由自然语言Agent自动选择执行。这里是工作流参考图生成，独立纯图片编辑流程/界面、遮罩和局部编辑仍未实现；本机HTTP协议测试不代表真实生成或质量验证。
 
 这些Kling/AGE adapter只在本机HTTP fixture验证过协议，不代表真实生成或供应商联调完成；AGE视频输入要求 `MEDIA_AGE_FFPROBE_EXECUTABLE` 指向已有可信工具，本轮未安装或运行ffprobe。模型、地址、密钥、价格及存储配置继续留空，缺失时拒绝真实执行；未知提交无任务ID时不重投。模型和未适配参数不猜测或静默降级，完整能力表与空配置见[Java README](../flmh-j/README.md#通用可编辑工作流)。
 
@@ -301,7 +329,9 @@ Invoke-RestMethod "http://127.0.0.1:8090/v1/workflow-runs/$($workflowRun.runId)"
 Invoke-RestMethod "http://127.0.0.1:8090/v1/workflows/$($workflow.id)/runs?page=1&pageSize=20" -Headers $headers
 ```
 
-本地终态为 `MOCKED`且 `artifacts=[]`。`PUT /v1/workflows/{id}`更新时携带`expectedVersion`及完整定义，`GET /v1/workflows/{id}/versions/{version}`读取旧版本，`DELETE`只归档定义并保留历史。运行快照、租约、心跳和fencing token由Java持久化，最多并行3个节点，每用户最多3个活跃运行、每定义最多1个活跃运行。
+本地终态为 `MOCKED`且 `artifacts=[]`，真实上传文件也不会因此变成生成作品。`PUT /v1/workflows/{id}`更新时携带`expectedVersion`及完整定义，`GET /v1/workflows/{id}/versions/{version}`读取旧版本，`DELETE`只归档定义并保留历史。运行快照、租约、心跳和fencing token由Java持久化，最多并行3个节点，每用户最多3个活跃运行、每定义最多1个活跃运行。
+
+运行历史 `GET /v1/workflows/{id}/runs?page=1&pageSize=20` 返回 `runs/total/page/pageSize/totalPages`，pageSize为1–50。工作台每页20条，可点上一页、下一页和某次运行读取已有快照；只读取当前账号、当前定义的记录，不自动翻完整历史，也不触发生产。切换定义会重置页码，迟到响应不会覆盖新选择，空页与总数单独展示。
 
 `POST /v1/workflow-runs/{id}/verify`只核实或转存已有结果，不提交新生成；`/cancel`阻止新提交，但不能撤销供应商已接受的任务，已有查询/转存仍可核实收尾。修订报价可传同定义已明确结束运行的`originRunId`，只复用成功且输入/依赖未变的节点；无供应商任务ID的未知提交保持阻塞。三种操作均不带正文。
 
