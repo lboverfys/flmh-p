@@ -8,13 +8,47 @@ from pydantic import Field, StrictBool
 
 from flmh_agent.adapters.outbound.java_gateway import JavaGatewayClient
 from flmh_agent.config import Settings
+from flmh_agent.adapters.inbound.identity import IdentityMiddleware
+from flmh_agent.adapters.outbound.identity import JavaIdentityVerifier
+from flmh_agent.domain.identity import AuthenticationError, bind_identity, current_identity
+from flmh_agent.ports.identity import IdentityVerifierPort
 
 
-def create_mcp_server(settings: Settings | None = None) -> FastMCP:
+class AuthenticatedMcpServer(FastMCP):
+    def __init__(self, *args: Any, identity_verifier: IdentityVerifierPort, agent_api_key: str, **kwargs: Any) -> None:
+        self.identity_verifier = identity_verifier
+        self.agent_api_key = agent_api_key
+        super().__init__(*args, **kwargs)
+
+    def streamable_http_app(self):
+        app = super().streamable_http_app()
+        app.add_middleware(IdentityMiddleware, api_key=self.agent_api_key, verifier=self.identity_verifier)
+        return app
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]):
+        try:
+            request = self.get_context().request_context.request
+        except ValueError:
+            request = None
+        if request is None:
+            identity = current_identity()
+        else:
+            identity = getattr(request.state, "identity", None)
+            if identity is None:
+                raise AuthenticationError("MCP request has no verified user")
+        if {"owner", "owner_id", "user_id", "userId", "authorization"}.intersection(arguments):
+            raise ValueError("tool arguments cannot provide identity or credentials")
+        with bind_identity(identity):
+            return await super().call_tool(name, arguments)
+
+
+def create_mcp_server(settings: Settings | None = None, *, identity_verifier: IdentityVerifierPort | None = None) -> FastMCP:
     config = settings or Settings.from_env()
     gateway = JavaGatewayClient(config)
-    server = FastMCP(
+    server = AuthenticatedMcpServer(
         "flmh-service-tools",
+        identity_verifier=identity_verifier or JavaIdentityVerifier(config),
+        agent_api_key=config.agent_api_key,
         instructions="Product and content tools backed by the Java service gateway.",
         host=config.mcp_host,
         port=config.mcp_port,

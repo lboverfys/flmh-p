@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hmac
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -21,6 +20,8 @@ from flmh_agent.application.rag import hybrid_retrieve
 from flmh_agent.bootstrap import open_runtime, runtime_loop_factory
 from flmh_agent.config import Settings
 from flmh_agent.domain.models import AgentStartRequest, ConfirmationInput, TextToSqlInput
+from flmh_agent.adapters.inbound.identity import IdentityMiddleware
+from flmh_agent.ports.identity import IdentityVerifierPort
 
 
 logger = logging.getLogger("flmh.agent.api")
@@ -35,29 +36,7 @@ WORKBENCH_HEADERS = {
 }
 
 
-class ApiKeyMiddleware:
-    def __init__(self, app: Any, *, api_key: str) -> None:
-        self.app = app
-        self.api_key = api_key
-
-    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
-        path = scope.get("path", "")
-        public_workbench = scope.get("method") in {"GET", "HEAD"} and path in {
-            "/", *(f"/assets/{name}" for name in WORKBENCH_ASSETS),
-        }
-        if scope["type"] != "http" or not self.api_key or public_workbench or path.startswith("/health/") or path == "/v1/bi/queries":
-            await self.app(scope, receive, send)
-            return
-        headers = {key.decode("latin1").lower(): value.decode("latin1") for key, value in scope.get("headers", [])}
-        expected = f"Bearer {self.api_key}"
-        if not hmac.compare_digest(headers.get("authorization", ""), expected):
-            response = JSONResponse({"error": "unauthorized"}, status_code=401)
-            await response(scope, receive, send)
-            return
-        await self.app(scope, receive, send)
-
-
-def create_app(settings: Settings | None = None) -> Starlette:
+def create_app(settings: Settings | None = None, *, identity_verifier: IdentityVerifierPort | None = None) -> Starlette:
     config = settings or Settings.from_env()
 
     @asynccontextmanager
@@ -67,6 +46,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
             application.state.text_to_sql = runtime.text_to_sql
             application.state.sql_permissions = runtime.sql_permissions
             application.state.rag = runtime.rag
+            application.state.identity_verifier = identity_verifier or runtime.identity_verifier
             yield
 
     async def live(_request: Request) -> Response:
@@ -92,6 +72,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 "checkpointer": current.checkpointer_backend,
                 "rag": "configured" if current.embedding_backend else "not_configured",
                 "tracing": "configured" if current.langfuse_host else "not_configured",
+                "identity": "java_user_verification",
             },
         })
 
@@ -103,6 +84,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
             result = await request.app.state.agent.start(
                 run_id,
                 payload.model_dump(exclude={"run_id"}),
+                identity=request.state.identity,
             )
         except ValidationError as error:
             return _validation_response(error)
@@ -122,7 +104,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
             body = await _json_body(request)
             ConfirmationInput.model_validate(body)
             result = await request.app.state.agent.confirm(
-                request.path_params["run_id"], body
+                request.path_params["run_id"], body, identity=request.state.identity,
             )
         except ValidationError as error:
             return _validation_response(error)
@@ -140,7 +122,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
 
     async def get_run(request: Request) -> Response:
         try:
-            result = await request.app.state.agent.get(request.path_params["run_id"])
+            result = await request.app.state.agent.get(request.path_params["run_id"], identity=request.state.identity)
         except ValueError as error:
             return JSONResponse({"error": str(error)}, status_code=422)
         except Exception:
@@ -152,7 +134,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
 
     async def retry_run(request: Request) -> Response:
         try:
-            result = await request.app.state.agent.retry(request.path_params["run_id"])
+            result = await request.app.state.agent.retry(request.path_params["run_id"], identity=request.state.identity)
         except RunNotFoundError as error:
             return JSONResponse({"error": str(error)}, status_code=404)
         except RunConflictError as error:
@@ -166,7 +148,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
 
     async def revise_run(request: Request) -> Response:
         try:
-            result = await request.app.state.agent.revise(request.path_params["run_id"], await _json_body(request))
+            result = await request.app.state.agent.revise(request.path_params["run_id"], await _json_body(request), identity=request.state.identity)
         except ValidationError as error:
             return _validation_response(error)
         except RunNotFoundError as error:
@@ -184,10 +166,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         permissions = request.app.state.sql_permissions
         if permissions is None:
             return JSONResponse({"error": "bi_sql_disabled"}, status_code=503)
-        presented = request.headers.get("authorization", "")
-        role = permissions.authenticate(presented)
-        if role is None:
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        role = request.state.identity.role
         try:
             payload = TextToSqlInput.model_validate(await _json_body(request))
         except ValidationError as error:
@@ -211,6 +190,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         try:
             result = await request.app.state.agent.advance_media(
                 request.path_params["run_id"], verify=request.path_params["action"] == "verify",
+                identity=request.state.identity,
             )
         except RunNotFoundError as error:
             return JSONResponse({"error": str(error)}, status_code=404)
@@ -272,7 +252,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Route("/v1/bi/queries", query_bi, methods=["POST"]),
         Route("/v1/rag/search", rag_search, methods=["POST"]),
     ]
-    app = Starlette(routes=routes, lifespan=lifespan, middleware=[Middleware(ApiKeyMiddleware, api_key=config.agent_api_key)])
+    public_paths = frozenset({"/", "/health/live", "/health/ready", *(f"/assets/{name}" for name in WORKBENCH_ASSETS)})
+    app = Starlette(routes=routes, lifespan=lifespan, middleware=[
+        Middleware(IdentityMiddleware, api_key=config.agent_api_key, public_paths=public_paths),
+    ])
     app.state.settings = config
     return app
 

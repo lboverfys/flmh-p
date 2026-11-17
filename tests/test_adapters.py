@@ -1,5 +1,6 @@
 import json
 import unittest
+from identity_support import IdentityTestCase
 from unittest.mock import patch
 
 import httpx
@@ -14,7 +15,7 @@ from flmh_agent.domain.rag import Chunk
 from flmh_agent.domain.models import ProductQuery
 
 
-class AdapterTests(unittest.IsolatedAsyncioTestCase):
+class AdapterTests(IdentityTestCase):
     async def test_java_confirmation_status_is_mapped_to_mcp_contract(self):
         async def handler(request):
             self.assertEqual(request.url.path, "/api/v1/content/quotes/q-1/confirm")

@@ -5,7 +5,7 @@ import re
 import hashlib
 import json
 from collections.abc import Mapping
-from contextlib import AbstractAsyncContextManager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from uuid import uuid4
 from typing import Any, Callable
 
@@ -17,6 +17,7 @@ from flmh_agent.config import Settings
 from flmh_agent.domain.models import AgentInput, AgentState, ConfirmationInput, RevisionInput
 from flmh_agent.domain.media_production import MEDIA_TERMINAL_STATUSES, media_status
 from flmh_agent.domain.slots import normalize_slots
+from flmh_agent.domain.identity import UserIdentity, bind_identity, current_identity, run_resource_key
 from flmh_agent.ports.observability import TraceHandlerFactory
 from flmh_agent.ports.coordination import RunCoordinatorPort
 from flmh_agent.ports.workflow import BiQueryPort, KnowledgeQueryPort, PlannerPort, ProductContentPort
@@ -45,7 +46,6 @@ class AgentApplication:
         trace_factory: TraceHandlerFactory,
         run_coordinator: RunCoordinatorPort,
         bi_query: BiQueryPort | None = None,
-        bi_principal: str = "",
         knowledge_query: KnowledgeQueryPort | None = None,
     ) -> None:
         self.settings = settings
@@ -55,12 +55,11 @@ class AgentApplication:
         self.trace_factory = trace_factory
         self.run_coordinator = run_coordinator
         self.bi_query = bi_query
-        self.bi_principal = bi_principal
         self.knowledge_query = knowledge_query
 
-    async def start(self, run_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
+    async def start(self, run_id: str, request: Mapping[str, Any], *, identity: UserIdentity | None = None) -> dict[str, Any]:
         self._validate_run_id(run_id)
-        async with self.run_coordinator.acquire(run_id):
+        async with self._run_scope(run_id, identity):
             return await self._start_locked(run_id, request)
 
     async def _start_locked(self, run_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
@@ -84,13 +83,13 @@ class AgentApplication:
             result = await graph.ainvoke(state, config=graph_config)
         return _response(run_id, result)
 
-    async def start_new(self, request: Mapping[str, Any]) -> dict[str, Any]:
+    async def start_new(self, request: Mapping[str, Any], *, identity: UserIdentity | None = None) -> dict[str, Any]:
         run_id = str(uuid4())
-        return await self.start(run_id, request)
+        return await self.start(run_id, request, identity=identity)
 
-    async def confirm(self, run_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
+    async def confirm(self, run_id: str, request: Mapping[str, Any], *, identity: UserIdentity | None = None) -> dict[str, Any]:
         self._validate_run_id(run_id)
-        async with self.run_coordinator.acquire(run_id):
+        async with self._run_scope(run_id, identity):
             return await self._confirm_locked(run_id, request)
 
     async def _confirm_locked(self, run_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
@@ -115,9 +114,9 @@ class AgentApplication:
             )
         return _response(run_id, result)
 
-    async def retry(self, run_id: str) -> dict[str, Any]:
+    async def retry(self, run_id: str, *, identity: UserIdentity | None = None) -> dict[str, Any]:
         self._validate_run_id(run_id)
-        async with self.run_coordinator.acquire(run_id):
+        async with self._run_scope(run_id, identity):
             graph_config = self._config(run_id)
             graph = self._graph(_DisconnectedTools())
             previous = await graph.aget_state(graph_config)
@@ -136,20 +135,20 @@ class AgentApplication:
                 result = await graph.ainvoke(None, config=graph_config)
             return _response(run_id, result)
 
-    async def get(self, run_id: str) -> dict[str, Any] | None:
+    async def get(self, run_id: str, *, identity: UserIdentity | None = None) -> dict[str, Any] | None:
         self._validate_run_id(run_id)
-        async with self.run_coordinator.acquire(run_id):
+        async with self._run_scope(run_id, identity):
             graph = self._graph(_DisconnectedTools())
             snapshot = await graph.aget_state(self._config(run_id, trace=False))
             if not snapshot.values:
                 return None
             return await self._refresh_task(run_id, snapshot)
 
-    async def revise(self, run_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
+    async def revise(self, run_id: str, request: Mapping[str, Any], *, identity: UserIdentity | None = None) -> dict[str, Any]:
         self._validate_run_id(run_id)
         revision = RevisionInput.model_validate(request)
         normalize_slots(revision.slot_updates)
-        async with self.run_coordinator.acquire(run_id):
+        async with self._run_scope(run_id, identity):
             graph_config = self._config(run_id)
             previous = await self._graph(_DisconnectedTools()).aget_state(graph_config)
             if not previous.values:
@@ -191,9 +190,9 @@ class AgentApplication:
             result = await graph.ainvoke(None, self._config(run_id, trace=False))
         return _response(run_id, result)
 
-    async def advance_media(self, run_id: str, *, verify: bool = False) -> dict[str, Any]:
+    async def advance_media(self, run_id: str, *, verify: bool = False, identity: UserIdentity | None = None) -> dict[str, Any]:
         self._validate_run_id(run_id)
-        async with self.run_coordinator.acquire(run_id):
+        async with self._run_scope(run_id, identity):
             snapshot = await self._graph(_DisconnectedTools()).aget_state(self._config(run_id, trace=False))
             if not snapshot.values:
                 raise RunNotFoundError("run_id does not exist")
@@ -225,7 +224,7 @@ class AgentApplication:
             planner=self.planner,
             tools=tools,
             bi_query=self.bi_query,
-            bi_principal=self.bi_principal,
+            bi_principal=current_identity().role,
             knowledge_query=self.knowledge_query,
             checkpointer=self.checkpointer,
         )
@@ -233,9 +232,16 @@ class AgentApplication:
     def _tool_session(self) -> _LazyToolSession:
         return _LazyToolSession(self.tool_session_factory)
 
+    @asynccontextmanager
+    async def _run_scope(self, run_id: str, identity: UserIdentity | None):
+        user = identity or current_identity()
+        with bind_identity(user):
+            async with self.run_coordinator.acquire(run_resource_key(user, run_id)):
+                yield
+
     def _config(self, run_id: str, *, trace: bool = True) -> dict[str, Any]:
         config: dict[str, Any] = {
-            "configurable": {"thread_id": run_id},
+            "configurable": {"thread_id": run_resource_key(current_identity(), run_id)},
             "recursion_limit": 32,
         }
         handler = self.trace_factory.create() if trace else None

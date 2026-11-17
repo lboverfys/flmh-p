@@ -8,6 +8,7 @@ import httpx
 
 from flmh_agent.config import Settings
 from flmh_agent.domain.models import AgentPlan, PlanResponse
+from flmh_agent.domain.identity import current_identity
 from flmh_agent.domain.planning import find_budget_currency, find_daily_product_id, find_detail_product_id, find_history_product_id
 
 
@@ -32,7 +33,9 @@ class ModelGatewayClient:
             "maxTokens": max_tokens,
             "responseFormat": response_format,
         }
-        headers = {"X-Service-Key": self.settings.model_gateway_api_key, "X-Client-Id": "flmh-agent"} if self.settings.model_gateway_api_key else {}
+        headers = {"Authorization": current_identity().authorization, "X-Client-Id": "flmh-agent"}
+        if self.settings.model_gateway_api_key:
+            headers["X-Service-Key"] = self.settings.model_gateway_api_key
         result = await self._post("/api/v1/models/completions", payload, headers)
         content = result.get("content")
         if not isinstance(content, str) or not content.strip():

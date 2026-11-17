@@ -1,5 +1,6 @@
 import json
 import unittest
+from identity_support import IdentityTestCase
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -30,7 +31,7 @@ def history_response(product_id, *, limit=30, before_version=None):
     }
 
 
-class ProductHistoryTests(unittest.IsolatedAsyncioTestCase):
+class ProductHistoryTests(IdentityTestCase):
     async def test_java_history_encodes_path_preserves_nullable_values_and_cursor(self):
         async def handler(request):
             self.assertEqual(request.url.raw_path, b"/api/v1/products/a%2Fb%3Fc%23d%25/history?limit=7&beforeVersion=9")

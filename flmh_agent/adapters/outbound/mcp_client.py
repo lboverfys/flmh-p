@@ -9,6 +9,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
 from flmh_agent.config import Settings
+from flmh_agent.domain.identity import UserIdentity, current_identity
 
 
 REQUIRED_TOOLS = {
@@ -17,8 +18,9 @@ REQUIRED_TOOLS = {
 
 
 class McpProductContentAdapter:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, *, identity: UserIdentity | None = None) -> None:
         self.settings = settings
+        self._identity = identity
         self._stack: AsyncExitStack | None = None
         self._session: ClientSession | None = None
         self._tool_names: set[str] = set()
@@ -26,9 +28,13 @@ class McpProductContentAdapter:
     async def __aenter__(self) -> McpProductContentAdapter:
         stack = AsyncExitStack()
         try:
+            identity = self._identity or current_identity()
+            headers = {"Authorization": identity.authorization}
+            if self.settings.agent_api_key:
+                headers["X-Agent-Key"] = self.settings.agent_api_key
             read_stream, write_stream, _ = await stack.enter_async_context(
                 streamablehttp_client(self.settings.mcp_tools_url, timeout=self.settings.request_timeout_seconds,
-                                      sse_read_timeout=self.settings.request_timeout_seconds)
+                                      sse_read_timeout=self.settings.request_timeout_seconds, headers=headers)
             )
             session = await stack.enter_async_context(ClientSession(read_stream, write_stream,
                 read_timeout_seconds=timedelta(seconds=self.settings.request_timeout_seconds)))

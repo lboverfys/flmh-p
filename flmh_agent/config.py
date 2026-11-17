@@ -24,6 +24,7 @@ class Settings(BaseModel):
     model_gateway_api_key: str = ""
     mcp_tools_url: str = "http://127.0.0.1:8001/mcp"
     gateway_url: str = "http://127.0.0.1:8080"
+    identity_service_url: str = "http://127.0.0.1:8085"
     gateway_api_key: str = ""
     mcp_host: str = "127.0.0.1"
     mcp_port: int = Field(default=8001, ge=1, le=65535)
@@ -50,11 +51,10 @@ class Settings(BaseModel):
     bi_sql_role_api_keys_json: str = ""
     bi_sql_role_tables_json: str = ""
     bi_database_uri: str = ""
-    agent_sql_principal: str = ""
     sql_max_rows: int = Field(default=50, ge=1, le=50)
     request_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
 
-    @field_validator("model_gateway_url", "mcp_tools_url", "gateway_url", mode="before")
+    @field_validator("model_gateway_url", "mcp_tools_url", "gateway_url", "identity_service_url", mode="before")
     @classmethod
     def strip_urls(cls, value: str) -> str:
         return value.strip().rstrip("/")
@@ -90,8 +90,6 @@ class Settings(BaseModel):
                 raise ValueError("BI_DATABASE_URI is required when BI SQL access is configured")
             if not self.bi_sql_role_api_keys_json or not self.bi_sql_role_tables_json:
                 raise ValueError("BI_SQL_ROLE_API_KEYS_JSON and BI_SQL_ROLE_TABLES_JSON must be configured together")
-        if self.agent_sql_principal and not self.bi_sql_role_tables_json:
-            raise ValueError("AGENT_SQL_PRINCIPAL requires BI_SQL_ROLE_TABLES_JSON")
         if self.embedding_backend == "bge_m3_http":
             required = {
                 "BGE_M3_URL": self.bge_m3_url,
@@ -124,6 +122,7 @@ class Settings(BaseModel):
             "model_gateway_api_key": "MODEL_GATEWAY_API_KEY", "mcp_tools_url": "MCP_TOOLS_URL",
             "gateway_url": "JAVA_GATEWAY_URL", "mcp_host": "MCP_HTTP_HOST", "mcp_port": "MCP_HTTP_PORT",
             "gateway_api_key": "JAVA_GATEWAY_API_KEY",
+            "identity_service_url": "IDENTITY_SERVICE_URL",
             "checkpointer_backend": "CHECKPOINTER_BACKEND", "postgres_checkpointer_uri": "POSTGRES_CHECKPOINTER_URI",
             "postgres_checkpoint_setup": "POSTGRES_CHECKPOINT_SETUP",
             "langfuse_host": "LANGFUSE_HOST", "langfuse_public_key": "LANGFUSE_PUBLIC_KEY",
@@ -136,7 +135,6 @@ class Settings(BaseModel):
             "elasticsearch_dense_field": "ELASTICSEARCH_DENSE_FIELD", "elasticsearch_sparse_field": "ELASTICSEARCH_SPARSE_FIELD",
             "sql_dialect": "SQL_DIALECT", "bi_sql_role_api_keys_json": "BI_SQL_ROLE_API_KEYS_JSON",
             "bi_sql_role_tables_json": "BI_SQL_ROLE_TABLES_JSON", "bi_database_uri": "BI_DATABASE_URI",
-            "agent_sql_principal": "AGENT_SQL_PRINCIPAL",
             "sql_max_rows": "SQL_MAX_ROWS", "request_timeout_seconds": "REQUEST_TIMEOUT_SECONDS",
         }
         values = {field: source[name] for field, name in mapping.items() if name in source}

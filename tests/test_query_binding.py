@@ -1,6 +1,7 @@
 import asyncio
 import json
 import unittest
+from identity_support import IdentityTestCase
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -34,7 +35,7 @@ def fixture_products(query, category="camping", *, revision=1):
     ]}
 
 
-class QueryBindingTests(unittest.IsolatedAsyncioTestCase):
+class QueryBindingTests(IdentityTestCase):
     async def test_binding_accepts_static_filters_and_passes_only_resolved_query_arguments(self):
         calls = []
 

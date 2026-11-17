@@ -1,6 +1,7 @@
 import asyncio
 import json
 import unittest
+from identity_support import IdentityTestCase
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from types import SimpleNamespace
@@ -15,7 +16,7 @@ from flmh_agent.application.service import _LazyToolSession
 from flmh_agent.config import Settings
 
 
-class ResourceCleanupTests(unittest.IsolatedAsyncioTestCase):
+class ResourceCleanupTests(IdentityTestCase):
     async def test_cancelled_lock_acquisition_closes_connection_before_pool_return(self):
         executing = asyncio.Event()
         connection = SimpleNamespace(closed=False)
@@ -189,8 +190,9 @@ class ResourceCleanupTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("flmh_agent.adapters.outbound.mcp_client.streamablehttp_client", transport), \
              patch("flmh_agent.adapters.outbound.mcp_client.ClientSession", session):
-            async with McpProductContentAdapter(Settings(request_timeout_seconds=3)):
+            async with McpProductContentAdapter(Settings(request_timeout_seconds=3, agent_api_key="service-boundary")):
                 pass
         self.assertEqual(recorded["timeout"], 3)
         self.assertEqual(recorded["sse_read_timeout"], 3)
         self.assertEqual(recorded["read_timeout_seconds"], timedelta(seconds=3))
+        self.assertEqual(recorded["headers"], {"Authorization": "Bearer unit-user", "X-Agent-Key": "service-boundary"})

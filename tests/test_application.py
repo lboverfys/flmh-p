@@ -1,4 +1,5 @@
 import unittest
+from identity_support import IdentityTestCase
 import asyncio
 from contextlib import asynccontextmanager
 
@@ -35,7 +36,7 @@ class FakeTools:
         return {"taskId": task_id, "status": "SUCCEEDED"}
 
 
-class ApplicationTests(unittest.IsolatedAsyncioTestCase):
+class ApplicationTests(IdentityTestCase):
     def setUp(self):
         self.tools = FakeTools()
 
@@ -212,7 +213,6 @@ class ApplicationTests(unittest.IsolatedAsyncioTestCase):
 
         self.application.tool_session_factory = disconnected_tools
         self.application.bi_query = BiQuery()
-        self.application.bi_principal = "test-role"
         result = await self.application.start("bi-offline", {"user_request": "统计美国最近销量和 GMV 增长排行"})
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["biResult"]["source"], "TEST_BI")

@@ -1,5 +1,6 @@
 import json
 import unittest
+from identity_support import IdentityTestCase, FixtureIdentityVerifier
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -63,7 +64,7 @@ class MediaTools:
         return self.run()
 
 
-class MediaProductionTests(unittest.IsolatedAsyncioTestCase):
+class MediaProductionTests(IdentityTestCase):
     def setUp(self):
         self.tools = MediaTools()
 
@@ -298,14 +299,15 @@ class MediaProductionTests(unittest.IsolatedAsyncioTestCase):
 
 class MediaApiTests(unittest.TestCase):
     def test_media_actions_are_authenticated_allowlisted_and_map_conflicts(self):
-        with TestClient(create_app(Settings(agent_api_key="secret"))) as client:
+        with TestClient(create_app(Settings(agent_api_key="secret"), identity_verifier=FixtureIdentityVerifier())) as client:
             action = AsyncMock(return_value={"status": "processing"})
             client.app.state.agent = SimpleNamespace(advance_media=action)
             self.assertEqual(client.post("/v1/agent/runs/r/media/advance").status_code, 401)
-            headers = {"authorization": "Bearer secret"}
+            headers = {"authorization": "Bearer unit-user", "x-agent-key": "secret"}
             self.assertEqual(client.post("/v1/agent/runs/r/media/advance", headers=headers).status_code, 200)
             self.assertEqual(client.post("/v1/agent/runs/r/media/verify", headers=headers).status_code, 200)
-            self.assertEqual(action.await_args.kwargs, {"verify": True})
+            self.assertTrue(action.await_args.kwargs["verify"])
+            self.assertEqual(action.await_args.kwargs["identity"].user_id, "fixture-user")
             self.assertEqual(client.post("/v1/agent/runs/r/media/submit", headers=headers).status_code, 404)
             self.assertEqual(action.await_count, 2)
             action.side_effect = RunConflictError("unknown")

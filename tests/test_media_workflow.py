@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 import unittest
+from identity_support import IdentityTestCase
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -14,7 +15,7 @@ from flmh_agent.config import Settings
 from flmh_agent.application.media_workflow import build_media_workflow
 
 
-class MediaWorkflowAdapterTests(unittest.IsolatedAsyncioTestCase):
+class MediaWorkflowAdapterTests(IdentityTestCase):
     async def test_java_gateway_start_uses_stable_idempotency_header_and_local_route(self):
         requests = []
 

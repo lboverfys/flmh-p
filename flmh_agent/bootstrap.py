@@ -12,6 +12,7 @@ import httpx
 from flmh_agent.adapters.outbound.bge_http import BgeM3HttpAdapter, BgeRerankerHttpAdapter, ElasticsearchHybridStore
 from flmh_agent.adapters.outbound.checkpoint import open_checkpointer
 from flmh_agent.adapters.outbound.coordination import open_run_coordinator
+from flmh_agent.adapters.outbound.identity import JavaIdentityVerifier
 from flmh_agent.adapters.outbound.mcp_client import McpProductContentAdapter
 from flmh_agent.adapters.outbound.model_gateway import ModelGatewayClient, ModelGatewayPlanner, ModelGatewaySqlGenerator
 from flmh_agent.adapters.outbound.observability import LangfuseCallbackFactory
@@ -30,6 +31,7 @@ class Runtime:
     text_to_sql: TextToSqlService | None
     sql_permissions: ConfiguredSqlPermissionPolicy | None
     rag: dict[str, Any] | None
+    identity_verifier: JavaIdentityVerifier
 
 
 def runtime_loop_factory(settings: Settings) -> Callable[[], asyncio.AbstractEventLoop] | None:
@@ -44,7 +46,9 @@ async def open_runtime(settings: Settings) -> AsyncIterator[Runtime]:
         base_url=settings.model_gateway_url,
         timeout=settings.request_timeout_seconds,
         trust_env=False,
-    ) as model_http:
+    ) as model_http, httpx.AsyncClient(
+        base_url=settings.identity_service_url, timeout=settings.request_timeout_seconds, trust_env=False,
+    ) as identity_http:
         async with open_checkpointer(settings) as checkpointer, open_run_coordinator(settings) as coordinator:
             model_gateway = ModelGatewayClient(settings, client=model_http)
             planner = ModelGatewayPlanner(model_gateway) if settings.planner_backend == "model_gateway" else RuleBasedPlanner()
@@ -71,11 +75,10 @@ async def open_runtime(settings: Settings) -> AsyncIterator[Runtime]:
                 trace_factory=trace_factory,
                 run_coordinator=coordinator,
                 bi_query=text_to_sql,
-                bi_principal=settings.agent_sql_principal,
                 knowledge_query=HybridKnowledgeService(**rag) if rag else None,
             )
             try:
-                yield Runtime(agent, text_to_sql, sql_permissions, rag)
+                yield Runtime(agent, text_to_sql, sql_permissions, rag, JavaIdentityVerifier(settings, identity_http))
             finally:
                 if runner is not None:
                     await runner.close()

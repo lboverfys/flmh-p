@@ -3,22 +3,26 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import uuid
 
 from flmh_agent.bootstrap import open_runtime, runtime_loop_factory
 from flmh_agent.config import Settings
 
 
-async def run_request(user_request: str, *, confirm: bool | None = None, run_id: str | None = None, settings: Settings | None = None) -> dict:
+async def run_request(user_request: str, *, confirm: bool | None = None, run_id: str | None = None, settings: Settings | None = None,
+                      authorization: str = "") -> dict:
     settings = settings or Settings.from_env()
     async with open_runtime(settings) as runtime:
+        identity = await runtime.identity_verifier.authenticate(authorization)
         identifier = run_id or uuid.uuid4().hex
-        result = await runtime.agent.start(identifier, {"user_request": user_request})
+        result = await runtime.agent.start(identifier, {"user_request": user_request}, identity=identity)
         if result["status"] != "awaiting_confirmation":
             return result
         print(json.dumps(result["confirmationRequest"], ensure_ascii=False, indent=2))
         approved = confirm if confirm is not None else input("确认报价并创建内容任务？输入 y 确认：").strip().lower() == "y"
-        return await runtime.agent.confirm(identifier, {"confirmed": approved, "quote_id": result["confirmationRequest"]["quoteId"]})
+        identity = await runtime.identity_verifier.authenticate(authorization)
+        return await runtime.agent.confirm(identifier, {"confirmed": approved, "quote_id": result["confirmationRequest"]["quoteId"]}, identity=identity)
 
 
 def main() -> None:
@@ -29,7 +33,8 @@ def main() -> None:
     arguments = parser.parse_args()
     settings = Settings.from_env()
     result = asyncio.run(
-        run_request(arguments.request, confirm=True if arguments.confirm else None, run_id=arguments.run_id, settings=settings),
+        run_request(arguments.request, confirm=True if arguments.confirm else None, run_id=arguments.run_id, settings=settings,
+                    authorization="Bearer " + os.environ["FLMH_USER_TOKEN"] if os.environ.get("FLMH_USER_TOKEN") else ""),
         loop_factory=runtime_loop_factory(settings),
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))

@@ -1,5 +1,6 @@
 import json
 import unittest
+from identity_support import IdentityTestCase
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -18,7 +19,7 @@ from flmh_agent.domain.models import AgentPlan, ProductQuery
 from flmh_agent.domain.planning import RuleBasedPlanner
 
 
-class ProductDailyTests(unittest.IsolatedAsyncioTestCase):
+class ProductDailyTests(IdentityTestCase):
     async def test_daily_plan_requires_explicit_product_id_and_cannot_write(self):
         plan = await RuleBasedPlanner().plan("查看 p-1 的日报", {})
         self.assertEqual(plan.product_daily_id, "p-1")

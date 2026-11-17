@@ -1,5 +1,6 @@
 import json
 import unittest
+from identity_support import IdentityTestCase
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -30,7 +31,7 @@ def detail_response(product_id):
     }
 
 
-class ProductDetailTests(unittest.IsolatedAsyncioTestCase):
+class ProductDetailTests(IdentityTestCase):
     async def test_java_detail_encodes_path_and_preserves_nullable_fields(self):
         async def handler(request):
             self.assertEqual(request.method, "GET")
