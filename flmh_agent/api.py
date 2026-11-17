@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import logging
@@ -16,7 +17,7 @@ from starlette.routing import Route
 
 from flmh_agent.application.service import RunConflictError, RunNotFoundError
 from flmh_agent.application.rag import hybrid_retrieve
-from flmh_agent.bootstrap import open_runtime
+from flmh_agent.bootstrap import open_runtime, runtime_loop_factory
 from flmh_agent.config import Settings
 from flmh_agent.domain.models import AgentStartRequest, ConfirmationInput, TextToSqlInput
 
@@ -131,6 +132,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return JSONResponse({"error": str(error)}, status_code=404)
         except RunConflictError as error:
             return JSONResponse({"error": str(error)}, status_code=409)
+        except ValueError as error:
+            return JSONResponse({"error": str(error)}, status_code=422)
         except Exception as error:
             logger.exception("Agent retry failed")
             return JSONResponse({"error": "retry_failed"}, status_code=502)
@@ -238,7 +241,8 @@ app = create_app()
 
 def main() -> None:
     settings = Settings.from_env()
-    uvicorn.run(app, host=settings.agent_host, port=settings.agent_port, access_log=True)
+    server = uvicorn.Server(uvicorn.Config(app, host=settings.agent_host, port=settings.agent_port, access_log=True))
+    asyncio.run(server.serve(), loop_factory=runtime_loop_factory(settings))
 
 
 if __name__ == "__main__":

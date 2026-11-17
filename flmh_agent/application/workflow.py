@@ -184,6 +184,8 @@ def build_workflow(
                 parts.append(f"内容来源：{state['content_brief']['source']}。")
             elif state.get("confirmation", {}).get("confirmed") is True:
                 parts.append("内容服务已确认报价，但任务提交未返回结果。")
+            elif state.get("confirmation", {}).get("confirmed") is False:
+                parts.append("用户已拒绝报价，未创建任务。")
             else:
                 parts.append("等待用户确认报价；尚未创建任务。")
         return {"summary": "\n".join(parts)}

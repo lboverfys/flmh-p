@@ -1,16 +1,34 @@
 import json
 import unittest
+from unittest.mock import patch
 
 import httpx
 
 from flmh_agent.adapters.outbound.bge_http import BgeM3HttpAdapter, BgeRerankerHttpAdapter, ElasticsearchHybridStore
+from flmh_agent.adapters.inbound.mcp_tools import create_mcp_server
 from flmh_agent.adapters.outbound.mcp_client import McpProductContentAdapter
 from flmh_agent.adapters.outbound.model_gateway import ModelGatewayClient, ModelGatewayPlanner
 from flmh_agent.config import Settings
 from flmh_agent.domain.rag import Chunk
+from flmh_agent.domain.models import ProductQuery
 
 
 class AdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_mcp_bridge_accepts_nullable_plan_search_fields(self):
+        requests = []
+
+        async def search_products(_gateway, query):
+            requests.append(query)
+            return {"products": [], "source": "CONTRACT_FIXTURE"}
+
+        with patch("flmh_agent.adapters.inbound.mcp_tools.JavaGatewayClient.search_products", search_products):
+            server = create_mcp_server(Settings())
+            await server.call_tool("product_search", ProductQuery(region="US", keyword="lamp").model_dump())
+            await server.call_tool("product_search", ProductQuery(region="US").model_dump())
+        self.assertEqual(requests[0]["keyword"], "lamp")
+        self.assertIsNone(requests[0]["category"])
+        self.assertIsNone(requests[1]["keyword"])
+
     async def test_model_gateway_contract_and_plan_schema(self):
         requests = []
 

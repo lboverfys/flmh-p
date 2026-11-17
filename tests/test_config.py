@@ -20,6 +20,15 @@ class SettingsTests(unittest.TestCase):
         with self.assertRaises(ConfigurationError):
             Settings.from_env({"EMBEDDING_BACKEND": "bge_m3_http"})
 
+    def test_mcp_bridge_requires_loopback_binding(self):
+        with self.assertRaises(ConfigurationError):
+            Settings.from_env({"MCP_HTTP_HOST": "0.0.0.0"})
+
+    def test_partial_tracing_credentials_are_rejected(self):
+        for field in ("LANGFUSE_HOST", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"):
+            with self.subTest(field=field), self.assertRaises(ConfigurationError):
+                Settings.from_env({field: "configured-value"})
+
     def test_production_configuration_accepts_explicit_adapter_selection(self):
         settings = Settings.from_env({
             "APP_ENV": "production",
@@ -29,4 +38,3 @@ class SettingsTests(unittest.TestCase):
             "POSTGRES_CHECKPOINTER_URI": "postgresql://user:pass@localhost/agent",
         })
         self.assertEqual(settings.environment, "production")
-

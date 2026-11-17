@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import sys
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
@@ -26,6 +29,12 @@ class Runtime:
     text_to_sql: TextToSqlService | None
     sql_permissions: ConfiguredSqlPermissionPolicy | None
     rag: dict[str, Any] | None
+
+
+def runtime_loop_factory(settings: Settings) -> Callable[[], asyncio.AbstractEventLoop] | None:
+    if sys.platform == "win32" and settings.checkpointer_backend == "postgres":
+        return asyncio.SelectorEventLoop
+    return None
 
 
 @asynccontextmanager

@@ -22,7 +22,7 @@ class LangfuseCallbackFactory:
             self._client = Langfuse(
                 public_key=self.settings.langfuse_public_key,
                 secret_key=self.settings.langfuse_secret_key,
-                host=self.settings.langfuse_host,
+                base_url=self.settings.langfuse_host,
             )
         return CallbackHandler(public_key=self.settings.langfuse_public_key)
 

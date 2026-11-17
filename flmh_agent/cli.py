@@ -5,12 +5,12 @@ import asyncio
 import json
 import uuid
 
-from flmh_agent.bootstrap import open_runtime
+from flmh_agent.bootstrap import open_runtime, runtime_loop_factory
 from flmh_agent.config import Settings
 
 
-async def run_request(user_request: str, *, confirm: bool | None = None, run_id: str | None = None) -> dict:
-    settings = Settings.from_env()
+async def run_request(user_request: str, *, confirm: bool | None = None, run_id: str | None = None, settings: Settings | None = None) -> dict:
+    settings = settings or Settings.from_env()
     async with open_runtime(settings) as runtime:
         identifier = run_id or uuid.uuid4().hex
         result = await runtime.agent.start(identifier, {"user_request": user_request})
@@ -27,7 +27,11 @@ def main() -> None:
     parser.add_argument("--run-id", help="stable run id for checkpoint recovery")
     parser.add_argument("--confirm", action="store_true", help="explicitly approve the quote in this invocation")
     arguments = parser.parse_args()
-    result = asyncio.run(run_request(arguments.request, confirm=True if arguments.confirm else None, run_id=arguments.run_id))
+    settings = Settings.from_env()
+    result = asyncio.run(
+        run_request(arguments.request, confirm=True if arguments.confirm else None, run_id=arguments.run_id, settings=settings),
+        loop_factory=runtime_loop_factory(settings),
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

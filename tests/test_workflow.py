@@ -61,7 +61,7 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         config = {"configurable": {"thread_id": "reject-flow"}}
         await graph.ainvoke({"user_request": "写口播脚本预算不超过 50"}, config=config)
         finished = await graph.ainvoke(Command(resume={"confirmed": False}), config=config)
-        self.assertIn("等待用户确认", finished["summary"])
+        self.assertIn("用户已拒绝报价", finished["summary"])
         self.assertEqual([call[0] for call in tools.calls], ["search", "quote"])
 
     async def test_over_budget_quote_stops_before_confirmation(self):

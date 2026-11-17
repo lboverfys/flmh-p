@@ -71,6 +71,8 @@ class Settings(BaseModel):
             raise ValueError("PLANNER_BACKEND=model_gateway is required in production")
         if self.environment == "production" and self.checkpointer_backend != "postgres":
             raise ValueError("CHECKPOINTER_BACKEND=postgres is required in production")
+        if self.mcp_host not in {"127.0.0.1", "localhost", "::1"}:
+            raise ValueError("the MCP tool bridge must bind to loopback; expose it through an authenticated gateway")
         if self.checkpointer_backend == "postgres" and not self.postgres_checkpointer_uri:
             raise ValueError("POSTGRES_CHECKPOINTER_URI is required when CHECKPOINTER_BACKEND=postgres")
         if self.bi_sql_role_api_keys_json or self.bi_sql_role_tables_json:
@@ -92,7 +94,8 @@ class Settings(BaseModel):
             missing = [name for name, value in required.items() if not value]
             if missing:
                 raise ValueError(f"BGE_M3 requires: {', '.join(missing)}")
-        if bool(self.langfuse_host) != bool(self.langfuse_public_key and self.langfuse_secret_key):
+        tracing = (self.langfuse_host, self.langfuse_public_key, self.langfuse_secret_key)
+        if any(tracing) and not all(tracing):
             raise ValueError("LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY must be set together")
         return self
 

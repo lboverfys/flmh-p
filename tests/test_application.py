@@ -106,4 +106,3 @@ class ApplicationTests(unittest.IsolatedAsyncioTestCase):
         result = await self.application.retry("retry-1")
         self.assertEqual(result["taskStatus"]["status"], "SUCCEEDED")
         self.assertEqual(self.tools.calls.count("submit"), 1)
-

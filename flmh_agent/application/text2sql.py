@@ -204,7 +204,9 @@ def _conjuncts(expression: exp.Expression):
 
 
 def _is_default_score_equality(node: exp.EQ, aliases: set[str], *, allow_unqualified: bool) -> bool:
-    for column in node.find_all(exp.Column):
+    for column, other in ((node.this, node.expression), (node.expression, node.this)):
+        if not isinstance(column, exp.Column):
+            continue
         if column.name.casefold() != "score_version":
             continue
         qualifier = column.table.casefold()
@@ -212,7 +214,6 @@ def _is_default_score_equality(node: exp.EQ, aliases: set[str], *, allow_unquali
             continue
         if not qualifier and not allow_unqualified:
             continue
-        other = node.expression if node.this is column else node.this
         return isinstance(other, exp.Literal) and not other.is_number and other.this == DEFAULT_SCORE_VERSION
     return False
 

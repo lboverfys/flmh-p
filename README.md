@@ -22,6 +22,8 @@ tests/                 # 领域、工作流、安全与适配器合同测试
 
 Agent 是 MCP client：它连接 `MCP_TOOLS_URL`，初始化后核对工具集，再在同一 MCP 会话内执行独立商品查询。工具桥仅将 Java Gateway REST 转成 MCP，不持有 Agent 逻辑。模型供应商、模型名及厂商密钥在 Java Model Gateway 配置；Python 只使用 `MODEL_GATEWAY_URL` 和可选服务认证键。
 
+MCP 工具桥仅允许绑定本机回环地址。CLI 和 API 在 Windows 启用 PostgreSQL Checkpointer 时选择 psycopg 兼容的 Selector 事件循环；直接使用其他 ASGI 启动器时，也必须显式配置兼容循环。
+
 ## 本机启动
 
 本机已验证 Python 为 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`（3.12.14）。包缓存放在 `D:\rubbish\zhongjian\caches\python\flmh`，临时文件放在 `D:\rubbish\zhongjian\temp\flmh\agent-arch`。不需要下载任何模型权重。
@@ -104,7 +106,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m unittest discover -s tests -v
 ```
 
-测试覆盖确认闸门、预算、状态读取、幂等键、run_id 冲突、并发查询/同 run 协调、失败节点重试、槽位版本失效、模型/MCP/BGE/ES adapter HTTP 合同、RRF/父块、Text2SQL AST/权限，以及 API 输入与配置错误。2026-11-17 使用上述 Python 3.12.14 环境运行 38 项测试全部通过；项目 editable 安装、CLI `--help` 和 `pip check` 通过。当前未在真实 PostgreSQL、Langfuse、BGE 服务或 Elasticsearch 上联调；没有运行性能基准，不以简历历史数字冒充本次数据。
+测试覆盖确认闸门、预算、状态读取、幂等键、run_id 冲突、并发查询/同 run 协调、失败节点重试、槽位版本失效、模型/MCP/BGE/ES adapter HTTP 合同、MCP 可空字段、RRF/父块、Text2SQL AST/权限、Windows PostgreSQL 事件循环，以及 API 输入与配置错误。2026-11-17 使用上述 Python 3.12.14 环境运行 43 项测试全部通过；项目 editable 安装、CLI `--help` 和 `pip check` 通过。已安装并检查 PostgreSQL/Langfuse 可选库的实际接口，验证了无网络追踪回调构造和空连接池生命周期；这不等于真实服务联调。当前未在真实 PostgreSQL、Langfuse、BGE 服务或 Elasticsearch 上联调；没有运行性能基准，不以简历历史数字冒充本次数据。
 
 ## 待配置与未验证项
 

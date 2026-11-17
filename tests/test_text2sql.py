@@ -78,6 +78,7 @@ class SqlValidationTests(unittest.TestCase):
         invalid = [
             "SELECT product_id FROM market_radar_metrics WHERE score_version = 'v2' OR 1 = 1",
             "SELECT m.product_id FROM market_radar_metrics m JOIN market_radar_metrics n ON n.product_id=m.product_id WHERE m.score_version = 'v2'",
+            "SELECT product_id FROM market_radar_metrics WHERE 'v2' = COALESCE(score_version, 'v2')",
         ]
         for query in invalid:
             with self.subTest(query=query), self.assertRaisesRegex(SqlValidationError, "score_version"):

@@ -24,8 +24,8 @@ def create_mcp_server(settings: Settings | None = None) -> FastMCP:
     @server.tool(name="product_search")
     async def product_search(
         region: str,
-        keyword: str = "",
-        category: str = "",
+        keyword: str | None = None,
+        category: str | None = None,
         max_price: float | None = None,
         limit: int = 20,
     ) -> dict[str, Any]:
