@@ -15,6 +15,7 @@ from langgraph.graph import START
 from flmh_agent.application.workflow import build_workflow
 from flmh_agent.config import Settings
 from flmh_agent.domain.models import AgentInput, AgentState, ConfirmationInput, RevisionInput
+from flmh_agent.domain.media_production import MEDIA_TERMINAL_STATUSES, media_status
 from flmh_agent.domain.slots import normalize_slots
 from flmh_agent.ports.observability import TraceHandlerFactory
 from flmh_agent.ports.coordination import RunCoordinatorPort
@@ -155,7 +156,7 @@ class AgentApplication:
                 raise RunNotFoundError("run_id does not exist")
             if previous.values.get("revision", 0) != revision.expected_revision:
                 raise RunConflictError("revision changed; reload the current run before editing")
-            if previous.values.get("confirmed_quote") or previous.values.get("content_task"):
+            if previous.values.get("confirmed_quote") or previous.values.get("content_task") or previous.values.get("media_run"):
                 raise RunConflictError("confirmed production cannot be rewritten; create a new run")
             user_request = revision.user_request or previous.values["user_request"]
             overrides = {**previous.values.get("slot_overrides", {}), **revision.slot_updates}
@@ -171,6 +172,13 @@ class AgentApplication:
             return _response(run_id, result)
 
     async def _refresh_task(self, run_id: str, snapshot: Any) -> dict[str, Any]:
+        media = snapshot.values.get("media_run")
+        if media:
+            if not snapshot.next and snapshot.values.get("media_status", {}).get("status") in MEDIA_TERMINAL_STATUSES:
+                return _snapshot_response(run_id, snapshot)
+            async with self._tool_session() as tools:
+                current = media_status(await tools.get_media_run(media["runId"]), media["runId"])
+                return await self._save_media_status(run_id, tools, current)
         task = snapshot.values.get("content_task") or {}
         status = snapshot.values.get("task_status", {}).get("status")
         if snapshot.next or not task or status in {"SUCCEEDED", "FAILED", "CANCELLED"}:
@@ -182,6 +190,35 @@ class AgentApplication:
             await graph.aupdate_state(self._config(run_id, trace=False), {"task_status": current}, as_node="read_task_status")
             result = await graph.ainvoke(None, self._config(run_id, trace=False))
         return _response(run_id, result)
+
+    async def advance_media(self, run_id: str, *, verify: bool = False) -> dict[str, Any]:
+        self._validate_run_id(run_id)
+        async with self.run_coordinator.acquire(run_id):
+            snapshot = await self._graph(_DisconnectedTools()).aget_state(self._config(run_id, trace=False))
+            if not snapshot.values:
+                raise RunNotFoundError("run_id does not exist")
+            media = snapshot.values.get("media_run")
+            if snapshot.next or not media or not snapshot.values.get("confirmed_quote"):
+                raise RunConflictError("a confirmed media run must finish its current Agent step first")
+            async with self._tool_session() as tools:
+                current = media_status(await tools.get_media_run(media["runId"]), media["runId"])
+                if current["status"] in MEDIA_TERMINAL_STATUSES:
+                    return await self._save_media_status(run_id, tools, current)
+                if verify:
+                    if current["status"] != "SUBMISSION_UNKNOWN":
+                        raise RunConflictError("only an unknown submission can be verified")
+                    result = await tools.verify_media_run(media["runId"])
+                else:
+                    if current["status"] == "SUBMISSION_UNKNOWN":
+                        raise RunConflictError("submission outcome is unknown; verify before advancing")
+                    result = await tools.advance_media_run(media["runId"])
+                return await self._save_media_status(run_id, tools, media_status(result, media["runId"]))
+
+    async def _save_media_status(self, run_id: str, tools: ProductContentPort, current: dict[str, Any]) -> dict[str, Any]:
+        graph = self._graph(tools)
+        config = self._config(run_id, trace=False)
+        await graph.aupdate_state(config, {"media_status": current}, as_node="read_media_status")
+        return _response(run_id, await graph.ainvoke(None, config))
 
     def _graph(self, tools: ProductContentPort):
         return build_workflow(
@@ -222,6 +259,9 @@ class _DisconnectedTools:
     async def get_product_detail(self, product_id: str) -> Mapping[str, Any]:
         raise RuntimeError("state lookup does not use the product tools")
 
+    async def get_product_daily(self, product_id: str, source: str, *, limit: int = 30, before_date: str | None = None) -> Mapping[str, Any]:
+        raise RuntimeError("state lookup does not use the product tools")
+
     async def create_quote(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
         raise RuntimeError("state lookup does not use the content tools")
 
@@ -233,6 +273,21 @@ class _DisconnectedTools:
 
     async def get_task(self, task_id: str) -> Mapping[str, Any]:
         raise RuntimeError("state lookup does not use the content tools")
+
+    async def create_media_quote(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        raise RuntimeError("state lookup does not use the media tools")
+
+    async def submit_media_run(self, quote_id: str, idempotency_key: str) -> Mapping[str, Any]:
+        raise RuntimeError("state lookup does not use the media tools")
+
+    async def get_media_run(self, run_id: str) -> Mapping[str, Any]:
+        raise RuntimeError("state lookup does not use the media tools")
+
+    async def advance_media_run(self, run_id: str) -> Mapping[str, Any]:
+        raise RuntimeError("state lookup does not use the media tools")
+
+    async def verify_media_run(self, run_id: str) -> Mapping[str, Any]:
+        raise RuntimeError("state lookup does not use the media tools")
 
 
 class _LazyToolSession:
@@ -288,6 +343,9 @@ class _LazyToolSession:
     async def get_product_detail(self, product_id: str) -> Mapping[str, Any]:
         return await (await self._connected()).get_product_detail(product_id)
 
+    async def get_product_daily(self, product_id: str, source: str, *, limit: int = 30, before_date: str | None = None) -> Mapping[str, Any]:
+        return await (await self._connected()).get_product_daily(product_id, source, limit=limit, before_date=before_date)
+
     async def create_quote(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
         return await (await self._connected()).create_quote(request)
 
@@ -299,6 +357,21 @@ class _LazyToolSession:
 
     async def get_task(self, task_id: str) -> Mapping[str, Any]:
         return await (await self._connected()).get_task(task_id)
+
+    async def create_media_quote(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        return await (await self._connected()).create_media_quote(request)
+
+    async def submit_media_run(self, quote_id: str, idempotency_key: str) -> Mapping[str, Any]:
+        return await (await self._connected()).submit_media_run(quote_id, idempotency_key)
+
+    async def get_media_run(self, run_id: str) -> Mapping[str, Any]:
+        return await (await self._connected()).get_media_run(run_id)
+
+    async def advance_media_run(self, run_id: str) -> Mapping[str, Any]:
+        return await (await self._connected()).advance_media_run(run_id)
+
+    async def verify_media_run(self, run_id: str) -> Mapping[str, Any]:
+        return await (await self._connected()).verify_media_run(run_id)
 
 
 def _response(run_id: str, result: Mapping[str, Any]) -> dict[str, Any]:
@@ -319,6 +392,8 @@ def _response(run_id: str, result: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "runId": run_id,
         "status": ("needs_configuration" if values.get("configuration_todos") else "retryable" if values.get("query_failures") else "needs_input" if values.get("required_slots") else "awaiting_confirmation" if pending_confirmation
+                   else "needs_verification" if values.get("media_status", {}).get("status") == "SUBMISSION_UNKNOWN"
+                   else "processing" if values.get("media_run") and values.get("media_status", {}).get("status") not in MEDIA_TERMINAL_STATUSES
                    else "processing" if values.get("content_task") and values.get("task_status", {}).get("status") not in {"SUCCEEDED", "FAILED", "CANCELLED"}
                    else "completed"),
         "plan": plan,
@@ -334,10 +409,14 @@ def _response(run_id: str, result: Mapping[str, Any]) -> dict[str, Any]:
         "products": products,
         "productHistory": values.get("product_history", {}),
         "productDetail": values.get("product_detail", {}),
+        "productDaily": values.get("product_daily", {}),
         "contentBrief": values.get("content_brief", {}),
         "quote": values.get("quote", {}),
         "contentTask": values.get("content_task", {}),
         "taskStatus": values.get("task_status", {}),
+        "mediaRequest": values.get("media_request", {}),
+        "mediaRun": values.get("media_run", {}),
+        "mediaStatus": values.get("media_status", {}),
         "confirmationRequest": action or values.get("confirmation_request"),
         "summary": values.get("summary", ""),
         "error": values.get("error", ""),

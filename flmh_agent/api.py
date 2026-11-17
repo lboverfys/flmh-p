@@ -207,6 +207,27 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return JSONResponse({"error": "bi_sql_failed"}, status_code=502)
         return JSONResponse(result)
 
+    async def advance_media(request: Request) -> Response:
+        try:
+            result = await request.app.state.agent.advance_media(
+                request.path_params["run_id"], verify=request.path_params["action"] == "verify",
+            )
+        except RunNotFoundError as error:
+            return JSONResponse({"error": str(error)}, status_code=404)
+        except RunConflictError as error:
+            return JSONResponse({"error": str(error)}, status_code=409)
+        except ValueError as error:
+            return JSONResponse({"error": str(error)}, status_code=422)
+        except Exception:
+            logger.exception("Media production step failed")
+            return JSONResponse({"error": "media_step_failed"}, status_code=502)
+        return JSONResponse(result)
+
+    async def media_action(request: Request) -> Response:
+        if request.path_params["action"] not in {"advance", "verify"}:
+            return JSONResponse({"error": "not_found"}, status_code=404)
+        return await advance_media(request)
+
     async def rag_search(request: Request) -> Response:
         rag = request.app.state.rag
         if rag is None:
@@ -247,6 +268,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Route("/v1/agent/runs/{run_id:str}/confirmation", confirm_run, methods=["POST"]),
         Route("/v1/agent/runs/{run_id:str}/retry", retry_run, methods=["POST"]),
         Route("/v1/agent/runs/{run_id:str}/revision", revise_run, methods=["POST"]),
+        Route("/v1/agent/runs/{run_id:str}/media/{action:str}", media_action, methods=["POST"]),
         Route("/v1/bi/queries", query_bi, methods=["POST"]),
         Route("/v1/rag/search", rag_search, methods=["POST"]),
     ]

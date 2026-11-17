@@ -87,7 +87,7 @@ class ApplicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.tools.calls.count("get"), 2)
 
     async def test_revision_reuses_unaffected_query_and_updates_independent_slots(self):
-        first = await self.application.start("revised", {"user_request": "查商品",
+        first = await self.application.start("revised", {"user_request": "查商品并写文案",
              "slot_updates": {"product": "Fixture", "region": "US", "budget_max": 50}})
         revised = await self.application.revise("revised", {"expected_revision": 0, "user_request": "写口播脚本"})
         self.assertEqual(revised["status"], "awaiting_confirmation")
@@ -105,6 +105,21 @@ class ApplicationTests(unittest.IsolatedAsyncioTestCase):
         await self.application.confirm("revised", {"confirmed": True, "quote_id": "q-1"})
         with self.assertRaisesRegex(RunConflictError, "cannot be rewritten"):
             await self.application.revise("revised", {"expected_revision": 2, "slot_updates": {"region": "GB"}})
+
+    async def test_product_price_filter_is_not_reused_as_content_production_budget(self):
+        seen = []
+        search = self.tools.search_products
+        async def record(query):
+            seen.append(query)
+            return await search(query)
+        self.tools.search_products = record
+        await self.application.start("price-scope", {"user_request": "查商品",
+             "slot_updates": {"product": "Fixture", "region": "US", "budget_max": 50}})
+        result = await self.application.revise("price-scope", {"expected_revision": 0, "user_request": "写口播脚本"})
+        self.assertEqual(seen[0]["max_price"], 50)
+        self.assertIsNone(seen[1]["max_price"])
+        self.assertEqual(result["reusedQueries"], [])
+        self.assertEqual(result["plan"]["budget_max"], 50)
 
     async def test_retry_queries_retains_successful_independent_results(self):
         attempts = {"US": 0, "ID": 0}

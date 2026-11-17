@@ -60,6 +60,10 @@ class McpProductContentAdapter:
     async def get_product_detail(self, product_id: str) -> dict[str, Any]:
         return await self._call("product_detail", {"product_id": product_id})
 
+    async def get_product_daily(self, product_id: str, source: str, *, limit: int = 30, before_date: str | None = None) -> dict[str, Any]:
+        return await self._call("product_daily_statistics", {"product_id": product_id, "source": source,
+                                 "limit": limit, "before_date": before_date})
+
     async def create_quote(self, request: dict[str, Any]) -> dict[str, Any]:
         return await self._call("content_quote_create", request)
 
@@ -71,6 +75,21 @@ class McpProductContentAdapter:
 
     async def get_task(self, task_id: str) -> dict[str, Any]:
         return await self._call("content_task_get", {"task_id": task_id})
+
+    async def create_media_quote(self, request: dict[str, Any]) -> dict[str, Any]:
+        return await self._call("media_production_quote", request)
+
+    async def submit_media_run(self, quote_id: str, idempotency_key: str) -> dict[str, Any]:
+        return await self._call("media_production_submit", {"quote_id": quote_id, "idempotency_key": idempotency_key})
+
+    async def get_media_run(self, run_id: str) -> dict[str, Any]:
+        return await self._call("media_production_get", {"run_id": run_id})
+
+    async def advance_media_run(self, run_id: str) -> dict[str, Any]:
+        return await self._call("media_production_advance", {"run_id": run_id})
+
+    async def verify_media_run(self, run_id: str) -> dict[str, Any]:
+        return await self._call("media_production_verify", {"run_id": run_id})
 
     async def media_workflow_capabilities(self) -> dict[str, Any]:
         return await self._call("media_workflow_capabilities", {})

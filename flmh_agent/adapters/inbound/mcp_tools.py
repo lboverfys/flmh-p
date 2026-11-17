@@ -70,11 +70,21 @@ def create_mcp_server(settings: Settings | None = None) -> FastMCP:
         return await gateway.get_product_detail(product_id)
 
     @server.tool(name="content_quote_confirm")
-    async def content_quote_confirm(quote_id: str, confirmed: bool) -> dict[str, Any]:
+    async def content_quote_confirm(quote_id: str, confirmed: StrictBool) -> dict[str, Any]:
         """Record explicit confirmation for a quoted content task."""
         if confirmed is not True:
             raise ValueError("confirmed must be explicitly true")
         return await gateway.confirm_quote(quote_id)
+
+    @server.tool(name="product_daily_statistics")
+    async def product_daily_statistics(
+        product_id: Annotated[str, Field(min_length=1, max_length=96)],
+        source: Annotated[str, Field(min_length=1, max_length=96)],
+        limit: Annotated[int, Field(strict=True, ge=1, le=100)] = 30,
+        before_date: str | None = None,
+    ) -> dict[str, Any]:
+        """Read bounded persisted daily observations and scores for one source. Missing days remain absent."""
+        return await gateway.get_product_daily(product_id, source, limit=limit, before_date=before_date)
 
     @server.tool(name="content_task_submit")
     async def content_task_submit(
@@ -103,6 +113,46 @@ def create_mcp_server(settings: Settings | None = None) -> FastMCP:
     async def media_workflow_capabilities() -> dict[str, Any]:
         """List local media workflow capabilities; the current provider is MOCK_ONLY and creates no assets."""
         return await gateway.media_workflow_capabilities()
+
+    @server.tool(name="media_production_quote")
+    async def media_production_quote(
+        product_id: Annotated[str, Field(min_length=1, max_length=96)],
+        image_prompt: Annotated[str, Field(min_length=1, max_length=2000)],
+        video_prompt: Annotated[str, Field(min_length=1, max_length=2000)],
+        aspect_ratio: Annotated[str, Field(pattern=r"^(1:1|3:4|4:3|9:16|16:9)$")],
+        duration_seconds: Annotated[int, Field(strict=True, ge=2, le=15)],
+        budget_max: Annotated[float, Field(ge=0, allow_inf_nan=False)],
+        origin_run_id: Annotated[str | None, Field(min_length=1, max_length=96)] = None,
+    ) -> dict[str, Any]:
+        """Quote an image-to-video production; no provider call or paid submission occurs before confirmation."""
+        return await gateway.create_media_quote({
+            "product_id": product_id, "image_prompt": image_prompt, "video_prompt": video_prompt,
+            "aspect_ratio": aspect_ratio, "duration_seconds": duration_seconds,
+            "budget_max": budget_max, "origin_run_id": origin_run_id,
+        })
+
+    @server.tool(name="media_production_submit")
+    async def media_production_submit(
+        quote_id: Annotated[str, Field(min_length=1, max_length=128)],
+        idempotency_key: Annotated[str, Field(min_length=1, max_length=145)],
+    ) -> dict[str, Any]:
+        """Create a media run from an already confirmed quote. The service enforces confirmation and idempotency."""
+        return await gateway.submit_media_run(quote_id, idempotency_key)
+
+    @server.tool(name="media_production_get")
+    async def media_production_get(run_id: Annotated[str, Field(min_length=1, max_length=96)]) -> dict[str, Any]:
+        """Read persisted media status without submitting, polling a provider, or retrying."""
+        return await gateway.get_media_run(run_id)
+
+    @server.tool(name="media_production_advance")
+    async def media_production_advance(run_id: Annotated[str, Field(min_length=1, max_length=96)]) -> dict[str, Any]:
+        """Advance one confirmed media node stage; unknown submissions cannot be resubmitted."""
+        return await gateway.advance_media_run(run_id)
+
+    @server.tool(name="media_production_verify")
+    async def media_production_verify(run_id: Annotated[str, Field(min_length=1, max_length=96)]) -> dict[str, Any]:
+        """Verify an unknown media submission using provider evidence; never submits another paid request."""
+        return await gateway.verify_media_run(run_id)
 
     @server.tool(name="media_workflow_start")
     async def media_workflow_start(

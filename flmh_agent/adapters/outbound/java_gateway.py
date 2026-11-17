@@ -7,7 +7,7 @@ from urllib.parse import quote
 import httpx
 
 from flmh_agent.config import Settings
-from flmh_agent.domain.models import ProductHistoryQuery, ProductLookupQuery
+from flmh_agent.domain.models import ProductDailyQuery, ProductHistoryQuery, ProductLookupQuery
 
 
 class JavaGatewayClient:
@@ -43,6 +43,13 @@ class JavaGatewayClient:
         query = ProductLookupQuery(product_id=product_id)
         return await self._request("GET", f"/api/v1/products/{quote(query.product_id, safe='')}/detail")
 
+    async def get_product_daily(self, product_id: str, source: str, *, limit: int = 30, before_date: str | None = None) -> dict[str, Any]:
+        query = ProductDailyQuery(product_id=product_id, source=source, limit=limit, before_date=before_date)
+        params = {"source": query.source, "limit": query.limit}
+        if query.before_date is not None:
+            params["beforeDate"] = query.before_date.isoformat()
+        return await self._request("GET", f"/api/v1/products/{quote(query.product_id, safe='')}/daily-statistics", params=params)
+
     async def confirm_quote(self, quote_id: str) -> dict[str, Any]:
         response = await self._request(
             "POST", f"/api/v1/content/quotes/{quote(quote_id, safe='')}/confirm", json={"confirmed": True}
@@ -62,6 +69,27 @@ class JavaGatewayClient:
 
     async def get_task(self, task_id: str) -> dict[str, Any]:
         return await self._request("GET", f"/api/v1/content/tasks/{quote(task_id, safe='')}")
+
+    async def create_media_quote(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        payload = {"productId": request["product_id"], "imagePrompt": request["image_prompt"],
+                   "videoPrompt": request["video_prompt"], "aspectRatio": request["aspect_ratio"],
+                   "durationSeconds": request["duration_seconds"], "budgetMax": request["budget_max"]}
+        if request.get("origin_run_id"):
+            payload["originRunId"] = request["origin_run_id"]
+        return await self._request("POST", "/api/v1/content/media-productions/quotes", json=payload)
+
+    async def submit_media_run(self, quote_id: str, idempotency_key: str) -> dict[str, Any]:
+        return await self._request("POST", "/api/v1/content/media-productions/runs",
+                                   json={"quoteId": quote_id}, headers={"Idempotency-Key": idempotency_key})
+
+    async def get_media_run(self, run_id: str) -> dict[str, Any]:
+        return await self._request("GET", f"/api/v1/content/media-productions/runs/{quote(run_id, safe='')}")
+
+    async def advance_media_run(self, run_id: str) -> dict[str, Any]:
+        return await self._request("POST", f"/api/v1/content/media-productions/runs/{quote(run_id, safe='')}/advance")
+
+    async def verify_media_run(self, run_id: str) -> dict[str, Any]:
+        return await self._request("POST", f"/api/v1/content/media-productions/runs/{quote(run_id, safe='')}/verify")
 
     async def media_workflow_capabilities(self) -> dict[str, Any]:
         return await self._request("GET", "/api/v1/content/media-workflows/meta/capabilities")

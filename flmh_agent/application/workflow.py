@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from flmh_agent.domain.idempotency import idempotency_key
 from flmh_agent.domain.content import build_content_request
+from flmh_agent.domain.media_production import MediaProductionRequest, media_status, summarize_media
 from flmh_agent.domain.models import AgentPlan, AgentState, ContentBrief, ProductQuery
 from flmh_agent.domain.product_trend import compare_product_snapshots
 from flmh_agent.domain.slots import INVALIDATION_ORDER, SLOT_NAMES, SLOT_DEPENDENCIES, normalize_slots, update_slots
@@ -41,12 +42,12 @@ def build_workflow(
                 updates["region"] = normalize_slots(overrides)["region"]
             if "product" in overrides:
                 updates["keyword"] = normalize_slots(overrides)["product"]
-            if "budget_max" in overrides:
+            if "budget_max" in overrides and not plan.create_content:
                 updates["max_price"] = normalize_slots(overrides)["budget_max"]
             plan = AgentPlan.model_validate({
                 **plan.model_dump(),
                 "queries": [{**query.model_dump(), **updates} for query in plan.queries],
-                **({"budget_max": updates["max_price"]} if "max_price" in updates else {}),
+                **({"budget_max": normalize_slots(overrides)["budget_max"]} if "budget_max" in overrides else {}),
             })
         _validate_plan_content(plan)
         effective = dict(overrides)
@@ -57,6 +58,8 @@ def build_workflow(
             effective.setdefault("product", plan.product_history_id)
         if plan.product_detail_id is not None:
             effective.setdefault("product", plan.product_detail_id)
+        if plan.product_daily_id is not None:
+            effective.setdefault("product", plan.product_daily_id)
         effective.setdefault("budget_max", plan.budget_max)
         slots, invalidated = update_slots(state.get("slot_values"), effective)
         previous = normalize_slots(state.get("slot_values"))
@@ -83,6 +86,9 @@ def build_workflow(
             "confirmed_quote": {},
             "content_task": {},
             "task_status": {},
+            "media_request": {},
+            "media_run": {},
+            "media_status": {},
             "idempotency_key": "",
             "error": "",
             "summary": "",
@@ -92,6 +98,7 @@ def build_workflow(
             "knowledge_result": {},
             "product_history": {},
             "product_detail": {},
+            "product_daily": {},
             "configuration_todos": [],
             "conclusion_dependencies": {name: snapshot for name, snapshot in state.get("conclusion_dependencies", {}).items()
                                         if name not in invalidated},
@@ -116,6 +123,16 @@ def build_workflow(
         detail = dict(await tools.get_product_detail(state["plan"]["product_detail_id"]))
         return {"product_detail": detail,
                 "conclusion_dependencies": _dependencies(state, "product_detail")}
+
+    async def read_product_daily(state: AgentState) -> dict[str, Any]:
+        product_id = state["plan"]["product_daily_id"]
+        detail = await tools.get_product_detail(product_id)
+        source = detail["product"]["source"]
+        if not isinstance(source, str) or not source.strip():
+            raise ValueError("product source is required for daily statistics")
+        result = dict(await tools.get_product_daily(product_id, source))
+        return {"product_daily": {**result, "productId": product_id, "source": source},
+                "conclusion_dependencies": _dependencies(state, "product_daily")}
 
     async def retrieve_knowledge(state: AgentState) -> dict[str, Any]:
         if knowledge_query is None:
@@ -173,12 +190,24 @@ def build_workflow(
     async def create_quote(state: AgentState) -> dict[str, Any]:
         product = state["selected_product"]
         query = state["plan"]["queries"][0]
-        quote = await tools.create_quote({
-            "product_id": str(product["id"]),
-            "content_type": state["plan"]["content_type"],
-            "brief": state["content_brief"]["body"],
-            "budget_max": state["plan"]["budget_max"],
-        })
+        media_request = {}
+        if state["plan"]["content_type"] == "product_media":
+            if len(state["content_brief"]["body"]) > 2000:
+                return {"error": "媒体提示词（含商品信息与检索资料）超过2000字符；请缩短请求或减少检索资料后修订，尚未创建报价或任务。",
+                        "budget_ok": False}
+            media_request = MediaProductionRequest(
+                product_id=str(product["id"]), image_prompt=state["content_brief"]["body"],
+                video_prompt=state["content_brief"]["body"], aspect_ratio="9:16", duration_seconds=6,
+                budget_max=state["plan"]["budget_max"],
+            ).model_dump(mode="json")
+            quote = await tools.create_media_quote(media_request)
+        else:
+            quote = await tools.create_quote({
+                "product_id": str(product["id"]),
+                "content_type": state["plan"]["content_type"],
+                "brief": state["content_brief"]["body"],
+                "budget_max": state["plan"]["budget_max"],
+            })
         amount = _quote_amount(quote)
         quote_id = _required_identifier(quote, "quoteId", "id", "quote_id")
         key = idempotency_key(
@@ -190,6 +219,10 @@ def build_workflow(
             region=str(product.get("region") or query["region"]),
         )
         budget = state["plan"]["budget_max"]
+        budget_currency = state["plan"].get("budget_currency")
+        if budget_currency and quote.get("currency") != budget_currency:
+            return {"quote": dict(quote), "media_request": media_request, "budget_ok": False,
+                    "error": f"请求明确使用 {budget_currency} 预算，但报价使用 {quote.get('currency')}；未换汇、未确认或创建任务，请修订预算币种。"}
         within_budget = budget is None or amount <= Decimal(str(budget))
         prompt = {
             "kind": "budget_confirmation",
@@ -197,12 +230,15 @@ def build_workflow(
             "quote": dict(quote),
             "product": state["selected_product"],
             "contentBrief": state["content_brief"],
-            "message": "请确认报价后再创建内容任务。",
+            "mediaRequest": media_request,
+            "message": ("图片到视频生产：初版规格为6秒、9:16；预算按报价币种计算。请确认规格与报价后执行。"
+                        if media_request else "请确认报价后再创建内容任务。"),
             "planSource": state["plan"].get("source"),
         }
         return {
             "quote": dict(quote), "budget_ok": within_budget, "idempotency_key": key,
             "confirmation_request": prompt if within_budget else {},
+            "media_request": media_request,
             "conclusion_dependencies": _dependencies(state, "quote"),
         }
 
@@ -233,10 +269,37 @@ def build_workflow(
         task_id = _required_identifier(state["content_task"], "taskId", "id", "task_id")
         return {"task_status": dict(await tools.get_task(task_id))}
 
+    async def submit_media_run(state: AgentState) -> dict[str, Any]:
+        quote_id = _required_identifier(state["quote"], "quoteId")
+        result = await tools.submit_media_run(quote_id, state["idempotency_key"])
+        run_id = _required_identifier(result, "runId")
+        return {"media_run": media_status(result, run_id),
+                "conclusion_dependencies": _dependencies(state, "media_run")}
+
+    async def read_media_status(state: AgentState) -> dict[str, Any]:
+        run_id = state["media_run"]["runId"]
+        return {"media_status": media_status(await tools.get_media_run(run_id), run_id),
+                "conclusion_dependencies": _dependencies(state, "media_status")}
+
     def summarize(state: AgentState) -> dict[str, Any]:
         if state.get("error"):
             return {"summary": state["error"]}
         plan = state["plan"]
+        if plan.get("product_daily_id"):
+            daily = state["product_daily"]
+            items = daily["items"]
+            lines = [f"商品 {daily['productId']} 返回 {len(items)} 条已保存日统计；来源：{daily['source']}。",
+                     "日统计按实际来源观测聚合，滚动7天销量仍为滚动口径；缺失日期和7/30天基线不补造。"]
+            for item in items:
+                lines.append(f"日期：{item['statDate']}；数据类型：{item.get('dataKind')}；评分版本：{item.get('scoreVersion')}；"
+                             f"评分：{json.dumps(item.get('scores'), ensure_ascii=False)}；"
+                             f"趋势：{json.dumps(item.get('trend'), ensure_ascii=False)}；"
+                             f"限制：{json.dumps(item.get('limitations'), ensure_ascii=False)}。")
+            if not items:
+                lines.append("当前没有已保存日统计，未用指标快照临时冒充日报或评分。")
+            if daily.get("nextBeforeDate"):
+                lines.append(f"还有历史日统计；下一页 beforeDate={daily['nextBeforeDate']}，未自动加载。")
+            return {"summary": "\n".join(lines)}
         if plan.get("product_detail_id"):
             detail = state["product_detail"]
             product = detail["product"]
@@ -308,6 +371,8 @@ def build_workflow(
         if plan["create_content"]:
             if not state.get("budget_ok"):
                 parts.append("报价超出预算，未请求确认且未创建任务。")
+            elif state.get("media_status"):
+                parts.append(summarize_media(state["media_status"]))
             elif state.get("content_task"):
                 parts.append(f"内容任务：{state['content_task']}；状态：{state.get('task_status', {})}。")
                 parts.append(f"内容来源：{state['content_brief']['source']}。")
@@ -337,6 +402,7 @@ def build_workflow(
     graph.add_node("run_bi_query", run_bi_query)
     graph.add_node("read_product_history", read_product_history)
     graph.add_node("read_product_detail", read_product_detail)
+    graph.add_node("read_product_daily", read_product_daily)
     graph.add_node("retrieve_knowledge", retrieve_knowledge)
     graph.add_node("search_products", search_products)
     graph.add_node("select_product", select_product)
@@ -346,10 +412,12 @@ def build_workflow(
     graph.add_node("confirm_quote", confirm_quote)
     graph.add_node("submit_content_task", submit_content_task)
     graph.add_node("read_task_status", read_task_status)
+    graph.add_node("submit_media_run", submit_media_run)
+    graph.add_node("read_media_status", read_media_status)
     graph.add_node("summarize", summarize)
     graph.add_edge(START, "plan_request")
-    graph.add_conditional_edges("plan_request", lambda state: "detail" if state["plan"].get("product_detail_id") else "history" if state["plan"].get("product_history_id") else "bi" if state["plan"].get("analysis_question") else "knowledge" if state["plan"].get("knowledge_query") else "products", {
-        "detail": "read_product_detail", "history": "read_product_history", "bi": "run_bi_query", "products": "search_products", "knowledge": "retrieve_knowledge",
+    graph.add_conditional_edges("plan_request", lambda state: "daily" if state["plan"].get("product_daily_id") else "detail" if state["plan"].get("product_detail_id") else "history" if state["plan"].get("product_history_id") else "bi" if state["plan"].get("analysis_question") else "knowledge" if state["plan"].get("knowledge_query") else "products", {
+        "daily": "read_product_daily", "detail": "read_product_detail", "history": "read_product_history", "bi": "run_bi_query", "products": "search_products", "knowledge": "retrieve_knowledge",
     })
     graph.add_conditional_edges("retrieve_knowledge", lambda state: "products" if state["plan"]["queries"] and not state.get("error") else "summary", {
         "products": "search_products", "summary": "summarize",
@@ -357,6 +425,7 @@ def build_workflow(
     graph.add_edge("run_bi_query", "summarize")
     graph.add_edge("read_product_history", "summarize")
     graph.add_edge("read_product_detail", "summarize")
+    graph.add_edge("read_product_daily", "summarize")
     graph.add_conditional_edges("search_products", lambda state: "summary" if state.get("query_failures") else "select", {
         "summary": "summarize", "select": "select_product",
     })
@@ -372,7 +441,11 @@ def build_workflow(
     graph.add_conditional_edges("request_confirmation", after_confirmation, {
         "confirm_quote": "confirm_quote", "summary": "summarize",
     })
-    graph.add_edge("confirm_quote", "submit_content_task")
+    graph.add_conditional_edges("confirm_quote", lambda state: "media" if state["plan"]["content_type"] == "product_media" else "text", {
+        "media": "submit_media_run", "text": "submit_content_task",
+    })
+    graph.add_edge("submit_media_run", "read_media_status")
+    graph.add_edge("read_media_status", "summarize")
     graph.add_edge("submit_content_task", "read_task_status")
     graph.add_edge("read_task_status", "summarize")
     graph.add_edge("summarize", END)
@@ -454,8 +527,8 @@ def _dependencies(state: AgentState, conclusion: str) -> dict[str, dict[str, int
 
 
 def _validate_plan_content(plan: AgentPlan) -> None:
-    if plan.create_content != (plan.content_type == "product_script"):
-        raise ValueError("content_type must be product_script only when create_content is true")
+    if plan.create_content != (plan.content_type in {"product_script", "product_media"}):
+        raise ValueError("content_type must be product_script or product_media only when create_content is true")
 
 
 def _extract_products(result: Mapping[str, Any]) -> list[dict[str, Any]]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
+from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
@@ -21,6 +22,12 @@ class ProductLookupQuery(BaseModel):
 class ProductHistoryQuery(ProductLookupQuery):
     limit: int = Field(default=30, strict=True, ge=1, le=100)
     before_version: int | None = Field(default=None, strict=True, ge=1, le=9223372036854775807)
+
+
+class ProductDailyQuery(ProductLookupQuery):
+    source: str = Field(min_length=1, max_length=96)
+    limit: int = Field(default=30, strict=True, ge=1, le=100)
+    before_date: date | None = None
 
 
 class ProductQuery(BaseModel):
@@ -55,12 +62,14 @@ class AgentPlan(BaseModel):
     summary: str = Field(min_length=1, max_length=500)
     queries: list[ProductQuery] = Field(max_length=4)
     create_content: StrictBool
-    content_type: Literal["", "product_script"]
+    content_type: Literal["", "product_script", "product_media"]
     budget_max: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    budget_currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     analysis_question: str | None = Field(default=None, max_length=4000)
     knowledge_query: str | None = Field(default=None, min_length=1, max_length=4000)
     product_history_id: str | None = Field(default=None, min_length=1, max_length=96)
     product_detail_id: str | None = Field(default=None, min_length=1, max_length=96)
+    product_daily_id: str | None = Field(default=None, min_length=1, max_length=96)
     source: Literal["RULES", "MODEL_GATEWAY"]
 
     @field_validator("budget_max", mode="before")
@@ -71,6 +80,10 @@ class AgentPlan(BaseModel):
         return value
 
     def model_post_init(self, __context: Any) -> None:
+        if self.product_daily_id is not None:
+            ProductLookupQuery(product_id=self.product_daily_id)
+            if self.queries or self.analysis_question or self.knowledge_query or self.create_content or self.product_detail_id or self.product_history_id:
+                raise ValueError("product daily statistics must be an independent read-only plan")
         if self.product_history_id is not None:
             ProductHistoryQuery(product_id=self.product_history_id)
             if self.queries or self.analysis_question or self.knowledge_query or self.create_content or self.product_detail_id:
@@ -79,7 +92,7 @@ class AgentPlan(BaseModel):
             ProductLookupQuery(product_id=self.product_detail_id)
             if self.queries or self.analysis_question or self.knowledge_query or self.create_content or self.product_history_id:
                 raise ValueError("product detail must be an independent read-only plan")
-        if not (self.analysis_question or self.queries or self.knowledge_query or self.product_history_id or self.product_detail_id):
+        if not (self.analysis_question or self.queries or self.knowledge_query or self.product_history_id or self.product_detail_id or self.product_daily_id):
             raise ValueError("a plan must contain a product, history, detail, BI, or knowledge query")
         if self.analysis_question and (self.queries or self.knowledge_query):
             raise ValueError("BI analysis cannot share a plan with product or knowledge queries")
@@ -106,7 +119,7 @@ class AgentPlan(BaseModel):
 class ContentBrief(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    content_type: Literal["product_script"]
+    content_type: Literal["product_script", "product_media"]
     title: str = Field(min_length=1, max_length=200)
     body: str = Field(min_length=1, max_length=10000)
     source: Literal["INPUT_REQUEST"]
@@ -171,6 +184,7 @@ class AgentState(TypedDict, total=False):
     product_results: list[dict[str, Any]]
     product_history: dict[str, Any]
     product_detail: dict[str, Any]
+    product_daily: dict[str, Any]
     selected_product: dict[str, Any]
     content_brief: dict[str, Any]
     quote: dict[str, Any]
@@ -179,6 +193,9 @@ class AgentState(TypedDict, total=False):
     confirmed_quote: dict[str, Any]
     content_task: dict[str, Any]
     task_status: dict[str, Any]
+    media_request: dict[str, Any]
+    media_run: dict[str, Any]
+    media_status: dict[str, Any]
     idempotency_key: str
     summary: str
     error: str
@@ -205,12 +222,14 @@ class PlanResponse(BaseModel):
     summary: str = Field(min_length=1, max_length=500)
     queries: list[ProductQuery] = Field(max_length=4)
     create_content: StrictBool
-    content_type: Literal["", "product_script"]
+    content_type: Literal["", "product_script", "product_media"]
     budget_max: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    budget_currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     analysis_question: str | None = Field(default=None, max_length=4000)
     knowledge_query: str | None = Field(default=None, min_length=1, max_length=4000)
     product_history_id: str | None = Field(default=None, min_length=1, max_length=96)
     product_detail_id: str | None = Field(default=None, min_length=1, max_length=96)
+    product_daily_id: str | None = Field(default=None, min_length=1, max_length=96)
 
     @field_validator("budget_max", mode="before")
     @classmethod

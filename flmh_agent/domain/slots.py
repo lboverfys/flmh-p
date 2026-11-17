@@ -9,6 +9,7 @@ SLOT_NAMES = ("product", "region", "budget_max")
 INVALIDATION_ORDER = (
     "product_results", "selected_product", "content_brief", "quote", "confirmation",
     "confirmed_quote", "content_task", "task_status", "summary", "product_history", "product_detail",
+    "media_request", "media_run", "media_status", "product_daily",
 )
 SLOT_DEPENDENCIES = {
     "product_results": ("product", "region", "budget_max"),
@@ -22,6 +23,10 @@ SLOT_DEPENDENCIES = {
     "summary": SLOT_NAMES,
     "product_history": ("product",),
     "product_detail": ("product",),
+    "media_request": SLOT_NAMES,
+    "media_run": SLOT_NAMES,
+    "media_status": SLOT_NAMES,
+    "product_daily": ("product",),
 }
 
 
