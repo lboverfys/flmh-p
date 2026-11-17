@@ -108,6 +108,20 @@
               <div class="examples"><button type="button" class="chip" data-demo-user="alice">Mock Alice</button><button type="button" class="chip" data-demo-user="bob">Mock Bob</button><button type="button" class="chip" data-demo-user="admin">Mock Admin</button></div>
             </div>
           </form>
+          <details id="recovery-panel">
+            <summary>忘记密码</summary>
+            <p id="recovery-status" class="help" role="status" aria-live="polite">输入注册邮箱申请验证码。验证码有效期为 15 分钟；申请后请检查邮箱。</p>
+            <form id="recovery-request-form">
+              <label for="recovery-email">注册邮箱</label><input id="recovery-email" type="email" maxlength="320" autocomplete="username" required>
+              <button id="recovery-request" type="submit" class="secondary full-width">申请重置验证码</button>
+            </form>
+            <form id="recovery-reset-form">
+              <label for="recovery-code">六位验证码</label><input id="recovery-code" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code" required>
+              <label for="recovery-password">新密码</label><input id="recovery-password" type="password" minlength="6" maxlength="72" autocomplete="new-password" required>
+              <label for="recovery-confirm-password">确认新密码</label><input id="recovery-confirm-password" type="password" minlength="6" maxlength="72" autocomplete="new-password" required>
+              <button id="recovery-reset" type="submit" class="secondary full-width">确认重置密码</button>
+            </form>
+          </details>
           <div id="session-panel" hidden><div id="identity-fields" class="key-values"></div><button id="logout" type="button" class="secondary full-width">退出并换用户</button></div>
           <p class="help">登录凭证仅保存在当前页面内存；刷新或离开页面后需重新登录。换用户会清空展示结果与运行编号。</p>
         </section>

@@ -28,6 +28,7 @@ let productCatalog;
 let mediaAssets;
 const accounts = { profile: null, selected: null, listing: null, page: 1, search: "", listingVersion: 0, pointsUncertain: new Map() };
 const works = { listing: null, page: 1, selected: null, lineage: null, pendingSave: null };
+const recovery = { cooldowns: new Map(), timer: null };
 
 function text(value) { return value === null || value === undefined || value === "" ? "未提供" : String(value); }
 function node(tag, value, className = "") {
@@ -79,6 +80,11 @@ function updateControls() {
   ui["login-email"].disabled = state.authBusy;
   ui["login-password"].disabled = state.authBusy;
   visible("login-form", !state.user);
+  visible("recovery-panel", !state.user);
+  for (const id of ["recovery-email", "recovery-code", "recovery-password", "recovery-confirm-password", "recovery-request", "recovery-reset"]) ui[id].disabled = state.busy || state.authBusy || Boolean(state.user);
+  const cooldown = recoveryCooldown();
+  ui["recovery-request"].disabled ||= cooldown > 0;
+  ui["recovery-request"].textContent = cooldown > 0 ? `${cooldown} 秒后可重新申请` : "申请重置验证码";
   visible("session-panel", Boolean(state.user));
   visible("identity-source", Boolean(state.user));
   visible("account-panel", Boolean(state.user));
@@ -139,6 +145,7 @@ function errorMessage(status, data) {
       account_service_unavailable: "账号服务暂时不可用。变更可能已被接收，请先重新读取，勿重复提交积分调整。" }[data.error] || "账号操作未完成，请重新读取后核对。";
   }
   if (status === 401) return "登录已失效或访问凭据不匹配，请重新登录；服务要求 Agent 访问凭据时，也需填写访问设置。";
+  if (status === 429) return "认证请求过于频繁，请稍后再试。";
   if (status === 404) return "未找到该运行或商品。请核对编号；本地内存模式下，重启 Agent 会清空运行记录。";
   if (status === 409) return "运行状态或报价已变化。请刷新后再操作；已有生产任务不能改写。";
   if (status === 422 || status === 400) {
@@ -167,7 +174,7 @@ async function request(path, body, method = body === undefined ? "GET" : "POST",
     const response = await fetch(path, { method, headers, body: body === undefined ? undefined : binaryType ? body : JSON.stringify(body),
       signal: controller.signal, cache: "no-store", credentials: "omit" });
     let data;
-    try { data = await response.json(); } catch { throw new Error("服务返回了无法识别的响应。运行编号已保留，请刷新状态。"); }
+    try { data = await response.json(); } catch { throw new Error(authenticated ? "服务返回了无法识别的响应。运行编号已保留，请刷新状态。" : "认证服务返回了无法识别的响应。"); }
     if (version !== state.sessionVersion) throw new Error("用户会话已改变，已丢弃原用户的响应。");
     if (!response.ok) {
       const message = !authenticated && response.status === 401 ? "邮箱或密码错误、账号不可用，或服务要求的 Agent 访问凭据未提供。" : errorMessage(response.status, data);
@@ -178,8 +185,8 @@ async function request(path, body, method = body === undefined ? "GET" : "POST",
     }
     return data;
   } catch (error) {
-    if (error.name === "AbortError") throw new Error("请求已停止或超时。服务可能已经接收操作，请先刷新当前运行，避免重复提交。");
-    if (error instanceof TypeError) throw new Error("无法连接本机服务。请检查服务是否运行，再刷新当前运行；已保留运行编号。");
+    if (error.name === "AbortError") throw new Error(authenticated ? "请求已停止或超时。服务可能已经接收操作，请先刷新当前运行，避免重复提交。" : "认证请求已停止或超时，尚无法确定结果。");
+    if (error instanceof TypeError) throw new Error(authenticated ? "无法连接本机服务。请检查服务是否运行，再刷新当前运行；已保留运行编号。" : "无法连接认证服务，尚无法确定结果。");
     throw error;
   } finally {
     clearTimeout(timeout);
@@ -283,6 +290,7 @@ function clearSession(message = "已退出。请登录后继续；旧结果与�
   state.authBusy = false;
   ui["login-email"].value = "";
   ui["login-password"].value = "";
+  clearRecovery();
   ui["api-key"].value = "";
   ui["identity-fields"].replaceChildren();
   ui["identity-source"].textContent = "";
@@ -522,6 +530,7 @@ async function login() {
     const user = await request("/v1/identity/me");
     if (version !== state.sessionVersion) return;
     state.user = user;
+    clearRecovery();
     resetRun();
     fields(ui["identity-fields"], [["用户", user.id], ["角色", user.role], ["身份来源", user.source]]);
     ui["identity-source"].textContent = user.source === "LOCAL_MOCK" ? "本地 Mock" : "已核实用户";
@@ -535,6 +544,67 @@ async function login() {
   } finally {
     if (version === state.sessionVersion) {
       ui["login-password"].value = "";
+      state.authBusy = false;
+      updateControls();
+    }
+  }
+}
+function clearRecovery() {
+  clearTimeout(recovery.timer);
+  recovery.timer = null;
+  recovery.cooldowns.clear();
+  for (const id of ["recovery-email", "recovery-code", "recovery-password", "recovery-confirm-password"]) ui[id].value = "";
+  ui["recovery-panel"].open = false;
+  ui["recovery-status"].textContent = "输入注册邮箱申请验证码。验证码有效期为 15 分钟；申请后请检查邮箱。";
+}
+function recoveryCooldown() {
+  const now = Date.now();
+  for (const [email, deadline] of recovery.cooldowns) if (deadline <= now) recovery.cooldowns.delete(email);
+  return Math.max(0, Math.ceil(((recovery.cooldowns.get(ui["recovery-email"].value.trim()) || 0) - now) / 1000));
+}
+function tickRecoveryCooldown() {
+  clearTimeout(recovery.timer);
+  recovery.timer = null;
+  updateControls();
+  if (recovery.cooldowns.size) recovery.timer = setTimeout(tickRecoveryCooldown, 1000);
+}
+async function recoverPassword(reset) {
+  if (state.authBusy || state.busy || state.user) return;
+  if (!reset && recoveryCooldown() > 0) return;
+  const email = ui["recovery-email"].value.trim();
+  const code = ui["recovery-code"].value;
+  const newPassword = ui["recovery-password"].value;
+  if (!ui["recovery-email"].checkValidity() || reset && (!/^[0-9]{6}$/.test(code) || newPassword.length < 6 || new TextEncoder().encode(newPassword).length > 72)) {
+    ui["recovery-status"].textContent = "请填写注册邮箱；重置时需六位数字验证码，以及至少 6 个字符、最多 72 个 UTF-8 字节的新密码。";
+    return;
+  }
+  if (reset && newPassword !== ui["recovery-confirm-password"].value) {
+    ui["recovery-status"].textContent = "两次输入的新密码不一致，请核对后再提交。";
+    return;
+  }
+  const version = state.sessionVersion;
+  state.authBusy = true;
+  ui["recovery-status"].textContent = reset ? "正在重置密码…" : "正在提交重置申请…";
+  updateControls();
+  try {
+    const result = await request(`/v1/identity/${reset ? "reset-password" : "forgot-password"}`,
+      reset ? { email, code, newPassword } : { email }, "POST", { authenticated: false });
+    if (version !== state.sessionVersion) return;
+    const expected = reset ? "密码重置成功，请使用新密码登录。" : "如果该邮箱已注册，将收到密码重置邮件，请查收。";
+    if (result?.message !== expected) throw new Error("认证服务返回了无法识别的响应。");
+    ui["recovery-status"].textContent = expected;
+    if (reset) { ui["login-email"].value = email; ui["login-password"].value = ""; ui["auth-status"].textContent = expected; }
+    else { recovery.cooldowns.set(email, Date.now() + 60000); tickRecoveryCooldown(); }
+  } catch (error) {
+    if (version !== state.sessionVersion) return;
+    ui["recovery-status"].textContent = error.status === 429 ? "认证请求过于频繁，请稍后再试。"
+      : [400, 422].includes(error.status) ? "输入无效或验证码已失效，请核对邮箱、六位验证码和新密码。"
+      : error.status === 401 ? "服务要求的访问凭据未提供或不匹配，请检查访问设置。"
+      : reset ? "尚无法确认重置结果，请先尝试使用新密码登录。不会自动重复提交。"
+      : "尚无法确认申请结果，请先检查邮箱，稍后再决定是否重新申请。";
+  } finally {
+    if (version === state.sessionVersion) {
+      if (reset) { ui["recovery-code"].value = ""; ui["recovery-password"].value = ""; ui["recovery-confirm-password"].value = ""; }
       state.authBusy = false;
       updateControls();
     }
@@ -806,6 +876,9 @@ ui["lineage-prev"].addEventListener("click", () => { if (works.lineage?.page > 1
 ui["lineage-next"].addEventListener("click", () => { if (works.lineage && works.lineage.page < works.lineage.totalPages) workAction(() => loadLineage(works.lineage.page + 1), "已读取下一页来源。"); });
 ui["work-download"].addEventListener("click", () => workAction(downloadWork, "下载已取消。"));
 ui["login-form"].addEventListener("submit", event => { event.preventDefault(); login(); });
+ui["recovery-request-form"].addEventListener("submit", event => { event.preventDefault(); recoverPassword(false); });
+ui["recovery-reset-form"].addEventListener("submit", event => { event.preventDefault(); recoverPassword(true); });
+ui["recovery-email"].addEventListener("input", tickRecoveryCooldown);
 ui.logout.addEventListener("click", () => clearSession());
 document.querySelectorAll("[data-demo-user]").forEach(button => button.addEventListener("click", () => {
   if (state.authBusy || state.user) return;

@@ -20,7 +20,9 @@ from flmh_agent.application.rag import hybrid_retrieve
 from flmh_agent.bootstrap import open_runtime, runtime_loop_factory
 from flmh_agent.config import Settings
 from flmh_agent.domain.models import AgentStartRequest, ConfirmationInput, TextToSqlInput
-from flmh_agent.domain.identity import AuthenticationError, IdentityUnavailableError
+from flmh_agent.domain.identity import AuthenticationError, IdentityUnavailableError, IdentityRateLimitedError
+from flmh_agent.adapters.inbound.client_ip import client_address
+from flmh_agent.adapters.inbound.recovery import recovery_routes
 from flmh_agent.adapters.inbound.identity import IdentityMiddleware
 from flmh_agent.adapters.inbound.accounts import account_routes
 from flmh_agent.adapters.outbound.accounts import JavaUserAccounts
@@ -33,7 +35,7 @@ from flmh_agent.adapters.inbound.products import product_routes
 from flmh_agent.adapters.outbound.products import JavaProductBrowser
 from flmh_agent.adapters.inbound.assets import asset_routes
 from flmh_agent.adapters.outbound.assets import JavaMediaAssets
-from flmh_agent.ports.identity import IdentityLoginPort, IdentityVerifierPort
+from flmh_agent.ports.identity import IdentityLoginPort, IdentityVerifierPort, IdentityRecoveryPort
 
 
 logger = logging.getLogger("flmh.agent.api")
@@ -61,7 +63,8 @@ class LoginInput(BaseModel):
 def create_app(settings: Settings | None = None, *, identity_verifier: IdentityVerifierPort | None = None,
                identity_login: IdentityLoginPort | None = None, accounts: JavaUserAccounts | None = None,
                works: JavaWorkCatalog | None = None, workflows: JavaWorkflowClient | None = None,
-               products: JavaProductBrowser | None = None, assets: JavaMediaAssets | None = None) -> Starlette:
+               products: JavaProductBrowser | None = None, assets: JavaMediaAssets | None = None,
+               identity_recovery: IdentityRecoveryPort | None = None) -> Starlette:
     config = settings or Settings.from_env()
 
     @asynccontextmanager
@@ -73,6 +76,7 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
             application.state.rag = runtime.rag
             application.state.identity_verifier = identity_verifier or runtime.identity_verifier
             application.state.identity_login = identity_login or runtime.identity_verifier
+            application.state.identity_recovery = identity_recovery or runtime.identity_verifier
             application.state.accounts = accounts or JavaUserAccounts(config)
             application.state.works = works or JavaWorkCatalog(config)
             application.state.workflows = workflows or JavaWorkflowClient(config)
@@ -111,13 +115,15 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
         headers = {"Cache-Control": "no-store"}
         try:
             payload = LoginInput.model_validate(await _json_body(request))
-            result = await request.app.state.identity_login.login(payload.email.strip(), payload.password)
+            result = await request.app.state.identity_login.login(payload.email.strip(), payload.password, client_ip=client_address(request, config))
         except ValidationError as error:
             return _validation_response(error)
         except ValueError as error:
-            return JSONResponse({"error": str(error)}, status_code=413 if "exceeds" in str(error) else 400, headers=headers)
+            return JSONResponse({"error": "invalid_login_input"}, status_code=413 if "exceeds" in str(error) else 400, headers=headers)
         except AuthenticationError:
             return JSONResponse({"error": "invalid_credentials_or_inactive_user"}, status_code=401, headers=headers)
+        except IdentityRateLimitedError:
+            return JSONResponse({"error": "too_many_authentication_attempts"}, status_code=429, headers=headers)
         except IdentityUnavailableError:
             return JSONResponse({"error": "identity_service_unavailable"}, status_code=503, headers=headers)
         return JSONResponse(result, headers=headers)
@@ -315,10 +321,12 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
     routes.extend(workflow_routes(_json_body))
     routes.extend(product_routes())
     routes.extend(asset_routes())
+    routes.extend(recovery_routes(_json_body))
     public_paths = frozenset({"/", "/health/live", "/health/ready", *(f"/assets/{name}" for name in WORKBENCH_ASSETS)})
     app = Starlette(routes=routes, lifespan=lifespan, middleware=[
         Middleware(IdentityMiddleware, api_key=config.agent_api_key, public_paths=public_paths,
-                   anonymous_routes=frozenset({("POST", "/v1/identity/login")})),
+                   anonymous_routes=frozenset({("POST", "/v1/identity/login"), ("POST", "/v1/identity/forgot-password"),
+                                               ("POST", "/v1/identity/reset-password")})),
     ])
     app.state.settings = config
     return app
@@ -355,7 +363,7 @@ app = create_app()
 
 def main() -> None:
     settings = Settings.from_env()
-    server = uvicorn.Server(uvicorn.Config(app, host=settings.agent_host, port=settings.agent_port, access_log=True))
+    server = uvicorn.Server(uvicorn.Config(app, host=settings.agent_host, port=settings.agent_port, access_log=True, proxy_headers=False))
     asyncio.run(server.serve(), loop_factory=runtime_loop_factory(settings))
 
 

@@ -16,6 +16,14 @@ class IdentityUnavailableError(RuntimeError):
     pass
 
 
+class IdentityRateLimitedError(RuntimeError):
+    pass
+
+
+class IdentityInputError(ValueError):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class UserIdentity:
     user_id: str

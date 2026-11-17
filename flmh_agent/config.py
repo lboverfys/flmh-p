@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import ipaddress
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
@@ -26,6 +27,7 @@ class Settings(BaseModel):
     gateway_url: str = "http://127.0.0.1:8080"
     identity_service_url: str = "http://127.0.0.1:8085"
     gateway_api_key: str = ""
+    trusted_proxy_cidrs: tuple[str, ...] = ()
     mcp_host: str = "127.0.0.1"
     mcp_port: int = Field(default=8001, ge=1, le=65535)
     checkpointer_backend: Literal["memory", "postgres"] = "memory"
@@ -53,6 +55,15 @@ class Settings(BaseModel):
     sql_max_rows: int = Field(default=50, ge=1, le=50)
     request_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
 
+    @field_validator("trusted_proxy_cidrs", mode="before")
+    @classmethod
+    def proxy_networks(cls, value: Any) -> tuple[str, ...]:
+        values = value.split(",") if isinstance(value, str) and value.strip() else (() if isinstance(value, str) else value)
+        networks = tuple(ipaddress.ip_network(item.strip(), strict=False) for item in values)
+        if len(networks) > 64 or any(network.prefixlen == 0 for network in networks):
+            raise ValueError("trusted proxies require at most 64 explicit CIDRs; all-address ranges are forbidden")
+        return tuple(str(network) for network in networks)
+
     @field_validator("model_gateway_url", "mcp_tools_url", "gateway_url", "identity_service_url", mode="before")
     @classmethod
     def strip_urls(cls, value: str) -> str:
@@ -74,6 +85,8 @@ class Settings(BaseModel):
 
     @model_validator(mode="after")
     def validate_selected_adapters(self) -> Settings:
+        if self.trusted_proxy_cidrs and not self.gateway_api_key:
+            raise ValueError("JAVA_GATEWAY_API_KEY is required when AGENT_TRUSTED_PROXY_CIDRS is configured")
         if self.environment == "production" and not self.agent_api_key:
             raise ValueError("AGENT_API_KEY is required in production")
         if self.environment == "production" and self.planner_backend != "model_gateway":
@@ -119,6 +132,7 @@ class Settings(BaseModel):
             "model_gateway_api_key": "MODEL_GATEWAY_API_KEY", "mcp_tools_url": "MCP_TOOLS_URL",
             "gateway_url": "JAVA_GATEWAY_URL", "mcp_host": "MCP_HTTP_HOST", "mcp_port": "MCP_HTTP_PORT",
             "gateway_api_key": "JAVA_GATEWAY_API_KEY",
+            "trusted_proxy_cidrs": "AGENT_TRUSTED_PROXY_CIDRS",
             "identity_service_url": "IDENTITY_SERVICE_URL",
             "checkpointer_backend": "CHECKPOINTER_BACKEND", "postgres_checkpointer_uri": "POSTGRES_CHECKPOINTER_URI",
             "postgres_checkpoint_setup": "POSTGRES_CHECKPOINT_SETUP",

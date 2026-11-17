@@ -40,6 +40,7 @@ class Element {
   setAttribute() {}
   removeAttribute() {}
   focus() {}
+  checkValidity() { return this.id !== "recovery-email" || /^[^\s@]+@[^\s@]+$/.test(this.value.trim()); }
 }
 
 function harness({ authenticated = true } = {}) {
@@ -74,6 +75,7 @@ function harness({ authenticated = true } = {}) {
     crypto: { randomUUID: () => "test-uuid" },
     AbortController,
     AbortSignal,
+    TextEncoder,
     setTimeout(callback, delay) { timers.set(++timerId, { callback, delay }); return timerId; },
     clearTimeout(id) { timers.delete(id); },
     async fetch(url, options) {
@@ -114,6 +116,115 @@ function mediaResult(status = "QUEUED", overall = "processing", overrides = {}) 
 }
 
 async function settled() { await new Promise(resolve => setImmediate(resolve)); }
+
+test("未登录可显式申请恢复但不会登录或访问业务接口", async () => {
+  const page = harness({ authenticated: false });
+  assert.equal(page.ui("recovery-panel").hidden, false);
+  assert.equal(page.ui("recovery-request").disabled, false);
+  page.ui("api-key").value = "access-key";
+  page.ui("recovery-email").value = " user@example.invalid ";
+  page.response({ message: "如果该邮箱已注册，将收到密码重置邮件，请查收。" });
+  page.submit("recovery-request-form");
+  assert.equal(page.ui("login").disabled, true);
+  page.submit("recovery-request-form");
+  await settled();
+  assert.equal(page.calls.length, 1);
+  assert.equal(page.calls[0].url, "/v1/identity/forgot-password");
+  assert.deepEqual(JSON.parse(page.calls[0].options.body), { email: "user@example.invalid" });
+  assert.equal(page.calls[0].options.headers["X-Agent-Key"], "access-key");
+  assert.equal(page.calls[0].options.headers.Authorization, undefined);
+  assert.match(page.ui("recovery-status").textContent, /如果该邮箱已注册/);
+  assert.equal(page.ui("recovery-request").disabled, true);
+  assert.match(page.ui("recovery-request").textContent, /秒后可重新申请/);
+  page.submit("recovery-request-form"); await settled();
+  assert.equal(page.calls.length, 1);
+  page.ui("recovery-email").value = "another@example.invalid";
+  page.ui("recovery-email").dispatch("input");
+  assert.equal(page.ui("recovery-request").disabled, false);
+  page.ui("recovery-email").value = "user@example.invalid";
+  page.ui("recovery-email").dispatch("input");
+  assert.equal(page.ui("recovery-request").disabled, true);
+  page.run("clearSession()");
+  assert.equal(page.timers.size, 0);
+  assert.equal(page.run("state.user"), null);
+});
+
+test("重置密码成功后清除敏感输入并要求用户手动登录", async () => {
+  const page = harness({ authenticated: false });
+  page.ui("recovery-email").value = "user@example.invalid";
+  page.ui("recovery-code").value = "123456";
+  page.ui("recovery-password").value = "new-password";
+  page.ui("recovery-confirm-password").value = "new-password";
+  page.response({ message: "密码重置成功，请使用新密码登录。" });
+  page.submit("recovery-reset-form"); await settled();
+  assert.equal(page.calls.length, 1);
+  assert.deepEqual(JSON.parse(page.calls[0].options.body), { email: "user@example.invalid", code: "123456", newPassword: "new-password" });
+  assert.equal(page.ui("recovery-code").value, "");
+  assert.equal(page.ui("recovery-password").value, "");
+  assert.equal(page.ui("recovery-confirm-password").value, "");
+  assert.equal(page.ui("login-email").value, "user@example.invalid");
+  assert.equal(page.run("state.token"), "");
+  assert.equal(page.ui("recovery-reset").disabled, false);
+});
+
+test("重置验证码和UTF8密码长度先校验，未知结果不自动重复提交", async () => {
+  const page = harness({ authenticated: false });
+  page.ui("recovery-email").value = "user@example.invalid";
+  page.ui("recovery-code").value = "12345";
+  page.ui("recovery-password").value = "密".repeat(25);
+  page.submit("recovery-reset-form"); await settled();
+  assert.equal(page.calls.length, 0);
+  page.ui("recovery-code").value = "123456";
+  page.submit("recovery-reset-form"); await settled();
+  assert.equal(page.calls.length, 0);
+  page.ui("recovery-password").value = "密".repeat(24);
+  page.ui("recovery-confirm-password").value = "different";
+  page.submit("recovery-reset-form"); await settled();
+  assert.equal(page.calls.length, 0);
+  assert.match(page.ui("recovery-status").textContent, /不一致/);
+  page.ui("recovery-confirm-password").value = "密".repeat(24);
+  page.ui("recovery-email").value = "invalid";
+  page.submit("recovery-reset-form"); await settled();
+  assert.equal(page.calls.length, 0);
+  page.ui("recovery-email").value = "user@example.invalid";
+  page.response({ error: "unavailable" }, 503);
+  page.submit("recovery-reset-form"); await settled();
+  assert.equal(page.calls.length, 1);
+  assert.match(page.ui("recovery-status").textContent, /先尝试使用新密码登录/);
+  assert.equal(page.ui("recovery-code").value, "");
+  assert.equal(page.ui("recovery-password").value, "");
+  assert.equal(page.run("state.token"), "");
+  assert.equal(page.timers.size, 0);
+});
+
+test("恢复请求限流提示安全，退出后丢弃迟到响应并清空输入", async () => {
+  const page = harness({ authenticated: false });
+  page.ui("recovery-email").value = "user@example.invalid";
+  page.response({ error: "too_many_authentication_attempts" }, 429);
+  page.submit("recovery-request-form"); await settled();
+  assert.match(page.ui("recovery-status").textContent, /过于频繁/);
+  assert.doesNotMatch(page.ui("recovery-status").textContent, /运行编号/);
+  let finish;
+  page.respond(() => new Promise(resolve => { finish = resolve; }));
+  page.submit("recovery-request-form");
+  page.ui("recovery-code").value = "123456";
+  page.ui("recovery-password").value = "private";
+  page.run("clearSession()");
+  finish({ ok: true, status: 200, json: async () => ({ message: "如果该邮箱已注册，将收到密码重置邮件，请查收。" }) });
+  await settled();
+  assert.equal(page.ui("recovery-email").value, "");
+  assert.equal(page.ui("recovery-code").value, "");
+  assert.equal(page.ui("recovery-password").value, "");
+  assert.match(page.ui("recovery-status").textContent, /输入注册邮箱/);
+});
+
+test("已登录不能调用匿名密码恢复", async () => {
+  const page = harness();
+  assert.equal(page.ui("recovery-panel").hidden, true);
+  assert.equal(page.ui("recovery-request").disabled, true);
+  page.submit("recovery-request-form"); await settled();
+  assert.equal(page.calls.length, 0);
+});
 
 const savedWork = { id: "work-1", title: "保存文字", module: "notes", type: "script", content: "真实用户文字", source: "USER_SAVED", createdAt: "2026-11-17" };
 function workPage(records = [savedWork], page = 1, totalPages = 1) {
