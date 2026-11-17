@@ -15,6 +15,7 @@ REGION_ALIASES = {
 CONTENT_TERMS = ("文案", "口播", "脚本", "内容", "视频")
 BI_TERMS = ("销量", "销售额", "gmv", "增长", "排名", "top", "趋势", "机会分", "风险分", "排行榜", "类目统计", "数据分析")
 HISTORY_TERMS = ("历史", "趋势", "快照", "history", "trend")
+DETAIL_TERMS = ("详情", "detail")
 
 
 class Planner(Protocol):
@@ -38,6 +39,10 @@ class RuleBasedPlanner:
         if history_id is not None and not wants_content:
             return AgentPlan(summary="本地规则规划；查询指定商品的指标快照，保留采集时间与来源。",
                              queries=[], create_content=False, content_type="", product_history_id=history_id, source="RULES")
+        detail_id = find_detail_product_id(text, slots)
+        if detail_id is not None and not wants_content:
+            return AgentPlan(summary="本地规则规划；查询指定商品详情，保留来源与未知字段。",
+                             queries=[], create_content=False, content_type="", product_detail_id=detail_id, source="RULES")
         if any(term in text.casefold() for term in BI_TERMS):
             return AgentPlan(
                 summary="本地规则规划；将问题交给受控 BI SQL 服务。",
@@ -76,7 +81,15 @@ class RuleBasedPlanner:
 
 
 def find_history_product_id(text: str, slots: Mapping[str, object]) -> str | None:
-    if not any(term in text.casefold() for term in HISTORY_TERMS):
+    return _find_product_id(text, slots, HISTORY_TERMS)
+
+
+def find_detail_product_id(text: str, slots: Mapping[str, object]) -> str | None:
+    return _find_product_id(text, slots, DETAIL_TERMS)
+
+
+def _find_product_id(text: str, slots: Mapping[str, object], intent_terms: tuple[str, ...]) -> str | None:
+    if not any(term in text.casefold() for term in intent_terms):
         return None
     product_slot = slots.get("product")
     if isinstance(product_slot, str):

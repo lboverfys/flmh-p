@@ -78,6 +78,17 @@ Invoke-RestMethod 'http://127.0.0.1:8090/v1/agent/runs/local-request-001'
 
 该请求经 LangGraph 的 `read_product_history` 节点调用 MCP `product_history`，返回 Java 持久化的指标快照、采集时间、评分版本及各条来源。默认取最近 30 个版本；MCP 可传 `limit`（1–100）和 `before_version` 翻页，Agent 不自动加载全部历史。`productHistory` 保留原始 nullable 字段，汇总不补值、不计算增长率，也不把采集快照视为日统计。商品槽位修订会失效旧历史并重新读取；未提供明确商品 ID 的请求保留原有检索/BI 行为。
 
+将请求改为“查询 camping-lamp-001 的详情”，会经 MCP `product_detail` 返回 `productDetail`：商品、店铺、卖家、来源类目以及原始图片/详情链接。链接只作为数据保留，未自动访问；未知字段保持 null。商品槽位变化会清空旧详情再读取，失败时可重试对应节点。
+
+查询计划还支持 `category_from_query`：从直接上游查询的首条商品读取类目，再作为下游类目过滤条件。必须同时在 `depends_on` 引用该上游，不得同时填写静态 `category`。上游无结果或类目缺失/非法时，下游查询失败，不放宽成无类目搜索。每条计划最多一次 MCP 查询，计划最多 4 条；同层独立查询并行，缓存同时考虑实际参数和上游结果。现有本地规则不会自动推导这种复杂计划；已提供明确计划示例：
+
+```powershell
+Set-Location 'D:\Happy\芳\flmh-p'
+& 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m examples.cross_region_category
+```
+
+该示例在 Java 和 MCP 服务已启动时实际查询美国露营灯，再查询加拿大同类商品；使用 `SUPPLIED_EXAMPLE` 标记预先提供的计划，不调用或冒充模型规划。全自动验收脚本也会执行此例。
+
 重复 `run_id` 和完全相同输入回放已有状态；请求体发生变化返回 409。同一 run 的并发启动、确认、修订和刷新有运行协调锁；memory 模式在单进程内生效，Postgres 模式使用 PostgreSQL advisory lock。确认请求必须带当前报价 ID，避免修订后旧页面误确认新报价。任务幂等键包含报价 ID；缺少有效预算返回 `needs_input`，不猜金额、不请求报价。异步任务返回 `processing`，GET 运行记录刷新 Java 任务状态，直到已知终态。
 
 确认生产前可以显式修订运行记录；`expected_revision` 防止并发覆盖，成功后 revision 加 1。商品、地区、预算有独立 `slotVersions`，结论保留 `conclusionDependencies`，查询按实际参数和上游结果指纹缓存；未受影响的查询复用，其余重新执行。修订将旧报价确认失效，已确认或提交生产的运行禁止改写，应创建新 run。
@@ -141,7 +152,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m unittest discover -s tests -v
 ```
 
-测试覆盖确认闸门、预算、状态刷新、报价幂等、run_id 冲突、并发查询/同 run 协调、失败节点与失败查询重试、独立槽位版本、修订并发控制、旧报价确认拒绝、DAG 依赖校验、商品历史计划/工具/失败重试、模型/MCP/BGE/ES HTTP 合同、批量入库及发布隔离、RRF/父块、Text2SQL AST/权限、连接池并发初始化、MCP 会话生命周期与重复取消、advisory lock/PIT 清理失败、Windows PostgreSQL 事件循环及 API 输入。2026-11-17 使用上述 Python 3.12.14 环境运行 88 项测试全部通过，`pip check` 通过；日志为 `D:\rubbish\zhongjian\temp\flmh\agent-arch\product-history-full-tests.log`。此前入库 CLI `--help` 也已通过。已检查 PostgreSQL/Langfuse 可选库接口；这不等于真实服务联调。当前未在真实 PostgreSQL、Langfuse、BGE 服务或 Elasticsearch 上联调；没有运行性能基准，不以简历历史数字冒充本次数据。
+测试覆盖确认闸门、预算、状态刷新、报价幂等、run_id 冲突、并发查询/同 run 协调、失败节点与失败查询重试、独立槽位版本、修订并发控制、旧报价确认拒绝、DAG 类目绑定/缓存失效/并行校验、商品历史及详情计划/工具/失败重试、模型/MCP/BGE/ES HTTP 合同、批量入库及发布隔离、RRF/父块、Text2SQL AST/权限、连接池并发初始化、MCP 会话生命周期与重复取消、advisory lock/PIT 清理失败、Windows PostgreSQL 事件循环及 API 输入。2026-11-17 使用上述 Python 3.12.14 环境运行 110 项测试全部通过，`pip check` 通过；日志为 `D:\rubbish\zhongjian\temp\flmh\agent-arch\query-binding-full-tests.log`。此前入库 CLI `--help` 也已通过。已检查 PostgreSQL/Langfuse 可选库接口；这不等于真实服务联调。当前未在真实 PostgreSQL、Langfuse、BGE 服务或 Elasticsearch 上联调；没有运行性能基准，不以简历历史数字冒充本次数据。
 
 ## 待配置与未验证项
 

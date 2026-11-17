@@ -12,7 +12,7 @@ from flmh_agent.config import Settings
 
 
 REQUIRED_TOOLS = {
-    "product_search", "product_history", "content_quote_create", "content_quote_confirm", "content_task_submit", "content_task_get",
+    "product_search", "product_history", "product_detail", "content_quote_create", "content_quote_confirm", "content_task_submit", "content_task_get",
 }
 
 
@@ -56,6 +56,9 @@ class McpProductContentAdapter:
 
     async def get_product_history(self, product_id: str, *, limit: int = 30, before_version: int | None = None) -> dict[str, Any]:
         return await self._call("product_history", {"product_id": product_id, "limit": limit, "before_version": before_version})
+
+    async def get_product_detail(self, product_id: str) -> dict[str, Any]:
+        return await self._call("product_detail", {"product_id": product_id})
 
     async def create_quote(self, request: dict[str, Any]) -> dict[str, Any]:
         return await self._call("content_quote_create", request)

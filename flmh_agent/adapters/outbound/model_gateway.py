@@ -8,7 +8,7 @@ import httpx
 
 from flmh_agent.config import Settings
 from flmh_agent.domain.models import AgentPlan, PlanResponse
-from flmh_agent.domain.planning import find_history_product_id
+from flmh_agent.domain.planning import find_detail_product_id, find_history_product_id
 
 
 class ModelGatewayClient:
@@ -104,15 +104,20 @@ class ModelGatewayPlanner:
                     "role": "system",
                     "content": (
                         "将用户请求转换为严格 JSON 计划，不执行工具调用。结构为 {summary, queries, create_content, "
-                        "content_type, budget_max, analysis_question, knowledge_query, product_history_id}。商品流程中 queries 为 1 至 4 条商品查询，"
+                        "content_type, budget_max, analysis_question, knowledge_query, product_history_id, product_detail_id}。商品流程中 queries 为 1 至 4 条商品查询，"
                         "analysis_question=null；BI 分析流程中 queries=[] 且 analysis_question 为原始分析问题。"
-                        "商品查询字段为 region、keyword、category、max_price，以及可选的 query_id、depends_on；"
+                        "商品查询字段为 region、keyword、category、max_price，以及可选的 query_id、depends_on、category_from_query；"
                         "depends_on 只可引用本计划已有 query_id，依赖必须无环；互不依赖的查询将并行执行。"
+                        "跨地区同类选品可用 category_from_query 指定 depends_on 内的直接上游查询 ID，"
+                        "仅将该上游第一条商品的 category 绑定为本次查询的类目，不得同时填静态 category；"
+                        "可保留 region、keyword、max_price 等静态条件。上游为空或类目无效时下游失败，不会退化为无类目搜索。"
                         "region 使用两位大写国家代码；显式 slots 优先于原始请求中的旧值；"
                         "content_type 仅允许 product_script 或空字符串。不得推断未给出的预算。"
                         "用户要求检索知识库时 knowledge_query 为检索问题；可独立检索或为商品内容补充事实，未要求时为 null。"
                         "指定明确商品 ID（如 camping-lamp-001）的历史/趋势请求只填 product_history_id，queries=[]，"
                         "create_content=false，content_type=''，analysis_question 和 knowledge_query 为 null。"
+                        "明确商品 ID 的详情/detail 请求只填 product_detail_id，queries=[]，create_content=false，"
+                        "content_type=''，analysis_question、knowledge_query 和 product_history_id 为 null；详情和历史不可混在同一计划。"
                         "只可使用原始请求或 product 槽位明确提供的商品 ID，不得由商品名猜 ID；未给 ID 时保持 BI/商品检索。"
                     ),
                 },
@@ -125,6 +130,8 @@ class ModelGatewayPlanner:
             raise ValueError("model plan has inconsistent content_type")
         if plan.product_history_id is not None and plan.product_history_id != find_history_product_id(user_request, slots):
             raise ValueError("product history ID must match the explicit request or product slot")
+        if plan.product_detail_id is not None and plan.product_detail_id != find_detail_product_id(user_request, slots):
+            raise ValueError("product detail ID must match the explicit request or product slot")
         return AgentPlan(**plan.model_dump(), source="MODEL_GATEWAY")
 
 

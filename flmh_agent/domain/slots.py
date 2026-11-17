@@ -8,7 +8,7 @@ from typing import Any
 SLOT_NAMES = ("product", "region", "budget_max")
 INVALIDATION_ORDER = (
     "product_results", "selected_product", "content_brief", "quote", "confirmation",
-    "confirmed_quote", "content_task", "task_status", "summary", "product_history",
+    "confirmed_quote", "content_task", "task_status", "summary", "product_history", "product_detail",
 )
 SLOT_DEPENDENCIES = {
     "product_results": ("product", "region", "budget_max"),
@@ -21,6 +21,7 @@ SLOT_DEPENDENCIES = {
     "task_status": SLOT_NAMES,
     "summary": SLOT_NAMES,
     "product_history": ("product",),
+    "product_detail": ("product",),
 }
 
 

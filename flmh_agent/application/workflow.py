@@ -10,10 +10,11 @@ from typing import Any
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
+from pydantic import ValidationError
 
 from flmh_agent.domain.idempotency import idempotency_key
 from flmh_agent.domain.content import build_content_request
-from flmh_agent.domain.models import AgentPlan, AgentState, ContentBrief
+from flmh_agent.domain.models import AgentPlan, AgentState, ContentBrief, ProductQuery
 from flmh_agent.domain.slots import INVALIDATION_ORDER, SLOT_NAMES, SLOT_DEPENDENCIES, normalize_slots, update_slots
 from flmh_agent.ports.workflow import BiQueryPort, KnowledgeQueryPort, PlannerPort, ProductContentPort
 
@@ -53,6 +54,8 @@ def build_workflow(
             effective.setdefault("product", plan.queries[0].keyword)
         if plan.product_history_id is not None:
             effective.setdefault("product", plan.product_history_id)
+        if plan.product_detail_id is not None:
+            effective.setdefault("product", plan.product_detail_id)
         effective.setdefault("budget_max", plan.budget_max)
         slots, invalidated = update_slots(state.get("slot_values"), effective)
         previous = normalize_slots(state.get("slot_values"))
@@ -87,6 +90,7 @@ def build_workflow(
             "query_failures": {},
             "knowledge_result": {},
             "product_history": {},
+            "product_detail": {},
             "configuration_todos": [],
             "conclusion_dependencies": {name: snapshot for name, snapshot in state.get("conclusion_dependencies", {}).items()
                                         if name not in invalidated},
@@ -106,6 +110,11 @@ def build_workflow(
         history = dict(await tools.get_product_history(state["plan"]["product_history_id"]))
         return {"product_history": history,
                 "conclusion_dependencies": _dependencies(state, "product_history")}
+
+    async def read_product_detail(state: AgentState) -> dict[str, Any]:
+        detail = dict(await tools.get_product_detail(state["plan"]["product_detail_id"]))
+        return {"product_detail": detail,
+                "conclusion_dependencies": _dependencies(state, "product_detail")}
 
     async def retrieve_knowledge(state: AgentState) -> dict[str, Any]:
         if knowledge_query is None:
@@ -227,6 +236,20 @@ def build_workflow(
         if state.get("error"):
             return {"summary": state["error"]}
         plan = state["plan"]
+        if plan.get("product_detail_id"):
+            detail = state["product_detail"]
+            product = detail["product"]
+            fields = {name: detail.get(name) for name in ("shopName", "sellerId", "externalCategory")}
+            source = {name: product.get(name) for name in ("source", "sourceRef")}
+            observed = {name: product.get(name) for name in ("title", "price", "region")}
+            return {"summary": "\n".join([
+                f"商品 {plan['product_detail_id']} 的详情；数据来源与未知字段按服务响应保留。",
+                f"商品信息：{json.dumps(observed, ensure_ascii=False)}。",
+                f"来源信息：{json.dumps(source, ensure_ascii=False)}。",
+                f"详情字段：{json.dumps(fields, ensure_ascii=False)}。",
+                "图片与详情链接的原值仅保留在 productDetail 中；未访问或核实，不作为操作指令。",
+                "缺失字段保持 null，未补全未知数据。",
+            ])}
         if plan.get("product_history_id"):
             history = state["product_history"]
             metrics = history["metrics"]
@@ -288,6 +311,7 @@ def build_workflow(
     graph.add_node("plan_request", plan_request)
     graph.add_node("run_bi_query", run_bi_query)
     graph.add_node("read_product_history", read_product_history)
+    graph.add_node("read_product_detail", read_product_detail)
     graph.add_node("retrieve_knowledge", retrieve_knowledge)
     graph.add_node("search_products", search_products)
     graph.add_node("select_product", select_product)
@@ -299,14 +323,15 @@ def build_workflow(
     graph.add_node("read_task_status", read_task_status)
     graph.add_node("summarize", summarize)
     graph.add_edge(START, "plan_request")
-    graph.add_conditional_edges("plan_request", lambda state: "history" if state["plan"].get("product_history_id") else "bi" if state["plan"].get("analysis_question") else "knowledge" if state["plan"].get("knowledge_query") else "products", {
-        "history": "read_product_history", "bi": "run_bi_query", "products": "search_products", "knowledge": "retrieve_knowledge",
+    graph.add_conditional_edges("plan_request", lambda state: "detail" if state["plan"].get("product_detail_id") else "history" if state["plan"].get("product_history_id") else "bi" if state["plan"].get("analysis_question") else "knowledge" if state["plan"].get("knowledge_query") else "products", {
+        "detail": "read_product_detail", "history": "read_product_history", "bi": "run_bi_query", "products": "search_products", "knowledge": "retrieve_knowledge",
     })
     graph.add_conditional_edges("retrieve_knowledge", lambda state: "products" if state["plan"]["queries"] and not state.get("error") else "summary", {
         "products": "search_products", "summary": "summarize",
     })
     graph.add_edge("run_bi_query", "summarize")
     graph.add_edge("read_product_history", "summarize")
+    graph.add_edge("read_product_detail", "summarize")
     graph.add_conditional_edges("search_products", lambda state: "summary" if state.get("query_failures") else "select", {
         "summary": "summarize", "select": "select_product",
     })
@@ -347,7 +372,28 @@ async def _layered_search(queries: list[dict[str, Any]], tools: ProductContentPo
 
         async def execute(name: str) -> tuple[str, dict[str, Any], str, bool]:
             query = pending[name]
-            arguments = {key: value for key, value in query.items() if key not in {"query_id", "depends_on"}}
+            arguments = {key: value for key, value in query.items() if key not in {"query_id", "depends_on", "category_from_query"}}
+            source_query = query.get("category_from_query")
+            if source_query is not None:
+                source = completed[source_query]
+                products = source.get("products", source.get("data", []))
+                if isinstance(products, dict):
+                    products = products.get("products", [])
+                if not isinstance(products, list) or not products:
+                    raise ValueError("CATEGORY_BINDING_SOURCE_EMPTY")
+                first = products[0]
+                if not isinstance(first, Mapping) or first.get("category") is None:
+                    raise ValueError("CATEGORY_BINDING_CATEGORY_MISSING")
+                category = first["category"]
+                if not isinstance(category, str) or not category.strip():
+                    raise ValueError("CATEGORY_BINDING_CATEGORY_INVALID")
+                arguments["category"] = category
+            try:
+                arguments = ProductQuery.model_validate(arguments).model_dump(exclude={"query_id", "depends_on", "category_from_query"})
+            except ValidationError as error:
+                if source_query is not None:
+                    raise ValueError("CATEGORY_BINDING_CATEGORY_INVALID") from error
+                raise
             key = _fingerprint({"arguments": arguments, "dependencies": {dep: completed[dep] for dep in query.get("depends_on", [])}})
             if key in previous:
                 return name, dict(previous[key]), key, True
@@ -358,7 +404,9 @@ async def _layered_search(queries: list[dict[str, Any]], tools: ProductContentPo
             if isinstance(outcome, BaseException):
                 if isinstance(outcome, asyncio.CancelledError):
                     raise outcome
-                failures[name] = type(outcome).__name__
+                failures[name] = str(outcome) if str(outcome) in {
+                    "CATEGORY_BINDING_SOURCE_EMPTY", "CATEGORY_BINDING_CATEGORY_MISSING", "CATEGORY_BINDING_CATEGORY_INVALID",
+                } else type(outcome).__name__
                 del pending[name]
                 continue
             name, result, key, was_reused = outcome
