@@ -119,7 +119,7 @@ def build_workflow(
     async def retrieve_knowledge(state: AgentState) -> dict[str, Any]:
         if knowledge_query is None:
             return {"error": "知识库适配尚未配置；未生成检索结果。", "configuration_todos": [
-                "BGE_M3_URL", "BGE_M3_MODEL", "BGE_RERANKER_URL", "BGE_RERANKER_MODEL", "ELASTICSEARCH_URL", "ELASTICSEARCH_INDEX"
+                "BGE_M3_URL", "BGE_M3_MODEL", "BGE_M3_DIMENSION", "BGE_RERANKER_URL", "BGE_RERANKER_MODEL", "ELASTICSEARCH_URL", "ELASTICSEARCH_INDEX"
             ]}
         return {"knowledge_result": dict(await knowledge_query.retrieve(state["plan"]["knowledge_query"]))}
 

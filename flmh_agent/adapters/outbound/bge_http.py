@@ -26,6 +26,8 @@ class BgeM3HttpAdapter:
         return (await self.encode_many([text]))[0]
 
     async def encode_many(self, texts: Sequence[str]) -> list[tuple[list[float], dict[str, float]]]:
+        if self.settings.embedding_dimension is None:
+            raise ValueError("TODO: configure BGE_M3_DIMENSION before embedding")
         if not 1 <= len(texts) <= 32 or any(not text.strip() for text in texts):
             raise ValueError("embedding input is required")
         result = await self._post(self.settings.bge_m3_url, {
@@ -248,6 +250,8 @@ class ElasticsearchHybridStore:
         )
 
     async def ensure_index(self, document_id: str, version: str) -> None:
+        if self.settings.embedding_dimension is None:
+            raise ValueError("TODO: configure BGE_M3_DIMENSION before creating vector indices")
         properties = {name: {"type": "keyword"} for name in ("parent_id", "document_id", "version", "kind", "source_ref")}
         properties.update({"text": {"type": "text"},
             self.settings.elasticsearch_dense_field: {"type": "dense_vector", "dims": self.settings.embedding_dimension, "index": True, "similarity": "cosine"},
@@ -286,6 +290,8 @@ class ElasticsearchHybridStore:
             raise RuntimeError("Elasticsearch ingestion batch was not fully acknowledged")
 
     async def reserve_document(self, document_id: str, version: str, source_ref: str, content_hash: str) -> str:
+        if self.settings.embedding_dimension is None:
+            raise ValueError("TODO: configure BGE_M3_DIMENSION before reserving a document")
         identifier = self._manifest_id(document_id, version)
         document = {"document_id": document_id, "version": version, "source_ref": source_ref, "content_hash": content_hash,
                     "embedding_model": self.settings.bge_m3_model, "embedding_dimension": self.settings.embedding_dimension,

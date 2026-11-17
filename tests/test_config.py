@@ -14,6 +14,22 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.planner_backend, "rules")
         self.assertEqual(settings.checkpointer_backend, "memory")
         self.assertEqual(settings.embedding_backend, "")
+        self.assertIsNone(settings.embedding_dimension)
+
+    def test_embedding_dimension_is_explicit_and_empty_template_keeps_rag_disabled(self):
+        self.assertIsNone(Settings.from_env({"BGE_M3_DIMENSION": ""}).embedding_dimension)
+        for value in (0, -1, True, "not-a-dimension"):
+            with self.subTest(value=value), self.assertRaises(ConfigurationError):
+                Settings.from_env({"BGE_M3_DIMENSION": value})
+        configured = {
+            "EMBEDDING_BACKEND": "bge_m3_http", "BGE_M3_URL": "http://127.0.0.1:1/encode",
+            "BGE_M3_MODEL": "fixture-encoder", "BGE_RERANKER_URL": "http://127.0.0.1:1/rerank",
+            "BGE_RERANKER_MODEL": "fixture-reranker", "ELASTICSEARCH_URL": "http://127.0.0.1:2",
+            "ELASTICSEARCH_INDEX": "fixture",
+        }
+        with self.assertRaisesRegex(ConfigurationError, "BGE_M3_DIMENSION"):
+            Settings.from_env(configured)
+        self.assertEqual(Settings.from_env({**configured, "BGE_M3_DIMENSION": "2"}).embedding_dimension, 2)
 
     def test_production_requires_auth_model_gateway_and_persistent_checkpoint(self):
         with self.assertRaises(ConfigurationError):

@@ -11,6 +11,21 @@ from flmh_agent.domain.planning import RuleBasedPlanner
 
 
 class IngestionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unconfigured_dimension_prevents_embedding_and_index_writes(self):
+        calls = []
+        async def handler(request):
+            calls.append(request)
+            raise AssertionError("unconfigured adapters must not make a request")
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            with self.assertRaisesRegex(ValueError, "BGE_M3_DIMENSION"):
+                await BgeM3HttpAdapter(Settings(), client).encode("test")
+            store = ElasticsearchHybridStore(Settings(), client)
+            with self.assertRaisesRegex(ValueError, "BGE_M3_DIMENSION"):
+                await store.ensure_index("doc", "v1")
+            with self.assertRaisesRegex(ValueError, "BGE_M3_DIMENSION"):
+                await store.reserve_document("doc", "v1", "fixture", "hash")
+        self.assertEqual(calls, [])
+
     async def test_ingestion_batches_embeddings_and_keeps_sources_and_stable_ids(self):
         class Embedder:
             def __init__(self):
@@ -70,7 +85,7 @@ class IngestionTests(unittest.IsolatedAsyncioTestCase):
             if request.url.path.endswith("/_settings"):
                 return httpx.Response(200, json={})
             return httpx.Response(200, json={"_source": {"document_id": "doc", "version": "v1", "source_ref": "local:doc", "content_hash": "original", "kind": "manifest", "embedding_model": "", "embedding_dimension": 1024, "base_index": "anchor"}})
-        settings = Settings(elasticsearch_url="https://fixture", elasticsearch_index="chunks")
+        settings = Settings(embedding_dimension=1024, elasticsearch_url="https://fixture", elasticsearch_index="chunks")
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             store = ElasticsearchHybridStore(settings, client)
             await store.reserve_document("doc", "v1", "local:doc", "original")

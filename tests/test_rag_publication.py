@@ -23,7 +23,7 @@ class KnowledgePublicationTests(unittest.IsolatedAsyncioTestCase):
                 "embedding_dimension": 1024, "kind": "manifest", "base_index": "knowledge-anchor-old"}})
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            store = ElasticsearchHybridStore(Settings(elasticsearch_url="https://fixture", elasticsearch_index="knowledge"), client)
+            store = ElasticsearchHybridStore(Settings(embedding_dimension=1024, elasticsearch_url="https://fixture", elasticsearch_index="knowledge"), client)
             with self.assertRaisesRegex(ValueError, "baseline changed"):
                 await store.reserve_document("manual", "v1", "local:manual", "hash")
         self.assertEqual(calls, ["GET", "GET"])
@@ -75,7 +75,7 @@ class KnowledgePublicationTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200, json={"acknowledged": True})
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            store = ElasticsearchHybridStore(Settings(elasticsearch_url="https://fixture", elasticsearch_index="knowledge"), client)
+            store = ElasticsearchHybridStore(Settings(embedding_dimension=1024, elasticsearch_url="https://fixture", elasticsearch_index="knowledge"), client)
             await store.publish_document("manual", "v2", 2, 5)
         self.assertTrue(calls[1][1].endswith("/_block/write"))
         self.assertTrue(calls[2][1].endswith("/_refresh"))
@@ -95,7 +95,7 @@ class KnowledgePublicationTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200, json={"acknowledged": True})
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            store = ElasticsearchHybridStore(Settings(elasticsearch_url="https://fixture", elasticsearch_index="knowledge"), client)
+            store = ElasticsearchHybridStore(Settings(embedding_dimension=1024, elasticsearch_url="https://fixture", elasticsearch_index="knowledge"), client)
             with self.assertRaisesRegex(RuntimeError, "count differs"):
                 await store.publish_document("manual", "v2", 1, 1)
         self.assertNotIn("/_aliases", calls)
@@ -111,7 +111,7 @@ class KnowledgePublicationTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200, json={"acknowledged": True})
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            store = ElasticsearchHybridStore(Settings(elasticsearch_url="https://fixture", elasticsearch_index="knowledge"), client)
+            store = ElasticsearchHybridStore(Settings(embedding_dimension=1024, elasticsearch_url="https://fixture", elasticsearch_index="knowledge"), client)
             with self.assertRaises(httpx.HTTPStatusError):
                 await store.publish_document("manual", "v2", 1, 1)
 
@@ -138,7 +138,7 @@ class KnowledgePublicationTests(unittest.IsolatedAsyncioTestCase):
         embedder.encode.return_value = ([0.1], {"token": 1.0})
         reranker.rerank.side_effect = lambda query, chunks, limit: chunks
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            store = ElasticsearchHybridStore(Settings(elasticsearch_url="https://fixture", elasticsearch_index="knowledge"), client)
+            store = ElasticsearchHybridStore(Settings(embedding_dimension=1024, elasticsearch_url="https://fixture", elasticsearch_index="knowledge"), client)
             result = await hybrid_retrieve("查询", embedder, store, reranker)
         self.assertEqual(result[0].version, "v1")
         self.assertEqual(calls[-1], ("DELETE", "/_pit", {"id": "snapshot-before-v2"}))
@@ -155,7 +155,7 @@ class KnowledgePublicationTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200, json={"succeeded": True})
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            store = ElasticsearchHybridStore(Settings(elasticsearch_url="https://fixture", elasticsearch_index="knowledge"), client)
+            store = ElasticsearchHybridStore(Settings(embedding_dimension=1024, elasticsearch_url="https://fixture", elasticsearch_index="knowledge"), client)
             with self.assertRaises(httpx.HTTPStatusError):
                 async with store.snapshot() as snapshot:
                     await snapshot.search_dense([0.1], 3)

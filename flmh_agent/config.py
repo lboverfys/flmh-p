@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Literal, Mapping
+from typing import Any, Literal, Mapping
 
 from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -37,7 +37,7 @@ class Settings(BaseModel):
     bge_m3_url: str = ""
     bge_m3_model: str = ""
     bge_m3_api_key: str = ""
-    embedding_dimension: int = Field(default=1024, ge=1)
+    embedding_dimension: int | None = Field(default=None, ge=1)
     bge_reranker_url: str = ""
     bge_reranker_model: str = ""
     bge_reranker_api_key: str = ""
@@ -64,6 +64,15 @@ class Settings(BaseModel):
     def strip_optional_urls(cls, value: str) -> str:
         return value.strip().rstrip("/")
 
+    @field_validator("embedding_dimension", mode="before")
+    @classmethod
+    def optional_embedding_dimension(cls, value: Any) -> Any:
+        if isinstance(value, str) and not value.strip():
+            return None
+        if isinstance(value, bool):
+            raise ValueError("BGE_M3_DIMENSION must be a positive integer")
+        return value
+
     @model_validator(mode="after")
     def validate_selected_adapters(self) -> Settings:
         if self.environment == "production" and not self.agent_api_key:
@@ -87,6 +96,7 @@ class Settings(BaseModel):
             required = {
                 "BGE_M3_URL": self.bge_m3_url,
                 "BGE_M3_MODEL": self.bge_m3_model,
+                "BGE_M3_DIMENSION": self.embedding_dimension,
                 "BGE_RERANKER_URL": self.bge_reranker_url,
                 "BGE_RERANKER_MODEL": self.bge_reranker_model,
                 "ELASTICSEARCH_URL": self.elasticsearch_url,
