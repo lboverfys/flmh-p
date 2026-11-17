@@ -22,6 +22,8 @@ from flmh_agent.config import Settings
 from flmh_agent.domain.models import AgentStartRequest, ConfirmationInput, TextToSqlInput
 from flmh_agent.domain.identity import AuthenticationError, IdentityUnavailableError
 from flmh_agent.adapters.inbound.identity import IdentityMiddleware
+from flmh_agent.adapters.inbound.accounts import account_routes
+from flmh_agent.adapters.outbound.accounts import JavaUserAccounts
 from flmh_agent.ports.identity import IdentityLoginPort, IdentityVerifierPort
 
 
@@ -44,7 +46,7 @@ class LoginInput(BaseModel):
 
 
 def create_app(settings: Settings | None = None, *, identity_verifier: IdentityVerifierPort | None = None,
-               identity_login: IdentityLoginPort | None = None) -> Starlette:
+               identity_login: IdentityLoginPort | None = None, accounts: JavaUserAccounts | None = None) -> Starlette:
     config = settings or Settings.from_env()
 
     @asynccontextmanager
@@ -56,6 +58,7 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
             application.state.rag = runtime.rag
             application.state.identity_verifier = identity_verifier or runtime.identity_verifier
             application.state.identity_login = identity_login or runtime.identity_verifier
+            application.state.accounts = accounts or JavaUserAccounts(config)
             yield
 
     async def live(_request: Request) -> Response:
@@ -283,6 +286,7 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
         Route("/v1/bi/queries", query_bi, methods=["POST"]),
         Route("/v1/rag/search", rag_search, methods=["POST"]),
     ]
+    routes.extend(account_routes(_json_body))
     public_paths = frozenset({"/", "/health/live", "/health/ready", *(f"/assets/{name}" for name in WORKBENCH_ASSETS)})
     app = Starlette(routes=routes, lifespan=lifespan, middleware=[
         Middleware(IdentityMiddleware, api_key=config.agent_api_key, public_paths=public_paths,

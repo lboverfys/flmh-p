@@ -16,6 +16,42 @@
   <main class="workspace">
     <div class="intro"><div><p class="eyebrow">PRODUCT INTELLIGENCE</p><h1>从发现商品，到确认内容。</h1><p class="muted">把需求交给 Agent，查看有来源的结果，再决定下一步。</p></div><span class="edition">本机工作台</span></div>
     <div id="environment-notice" class="notice">本地演示：默认商品为固定演示数据，内容使用模拟模型。每项结果保留来源，不代表真实市场或模型效果。</div>
+    <details id="account-panel" class="panel account-panel" hidden>
+      <summary>账号资料与用户管理</summary>
+      <p id="account-message" class="help" role="status" aria-live="polite">点击读取资料后可修改自己的姓名、电话和密码。</p>
+      <div class="account-columns">
+        <section>
+          <div class="section-heading"><h2>我的资料</h2><button id="profile-load" class="secondary" type="button">读取资料</button></div>
+          <div id="profile-fields" class="key-values"></div>
+          <form id="profile-form" hidden>
+            <div class="field-pair"><div><label for="profile-name">姓名</label><input id="profile-name" maxlength="200" required></div><div><label for="profile-phone">电话</label><input id="profile-phone" maxlength="64"></div></div>
+            <button class="secondary full-width" type="submit">保存资料</button>
+          </form>
+          <form id="password-form">
+            <div class="field-pair"><div><label for="current-password">当前密码</label><input id="current-password" type="password" autocomplete="current-password" required></div><div><label for="new-password">新密码</label><input id="new-password" type="password" minlength="6" maxlength="72" autocomplete="new-password" required></div></div>
+            <button class="secondary full-width" type="submit">验证当前密码并修改</button>
+          </form>
+        </section>
+        <section id="admin-users" hidden>
+          <div class="section-heading"><h2>用户管理</h2><button id="user-new" class="secondary" type="button">新建用户</button></div>
+          <form id="user-search-form" class="inline"><input id="user-search" maxlength="200" aria-label="按姓名、邮箱或电话搜索用户" placeholder="姓名 / 邮箱 / 电话"><button class="secondary" type="submit">查询</button></form>
+          <div class="table-scroll"><table><thead><tr><th>用户</th><th>角色 / 状态</th><th>积分 / 来源</th><th>操作</th></tr></thead><tbody id="user-rows"></tbody></table></div>
+          <div class="button-row"><button id="users-prev" type="button" class="secondary">上一页</button><span id="users-page" class="help"></span><button id="users-next" type="button" class="secondary">下一页</button></div>
+          <form id="user-form">
+            <p id="user-edit-target" class="help">创建新用户</p>
+            <div class="field-pair"><div><label for="user-name">姓名</label><input id="user-name" maxlength="200" required></div><div><label for="user-email">邮箱</label><input id="user-email" type="email" maxlength="320" required></div></div>
+            <div class="field-pair"><div><label for="user-phone">电话</label><input id="user-phone" maxlength="64"></div><div><label for="user-password">密码（编辑时留空不修改）</label><input id="user-password" type="password" minlength="6" maxlength="72" autocomplete="new-password"></div></div>
+            <div class="field-pair"><div><label for="user-role">角色</label><select id="user-role"><option value="USER">普通用户</option><option value="ADMIN">管理员</option><option value="SUPER_ADMIN">超级管理员</option></select></div><div id="user-status-field" hidden><label for="user-status">状态</label><select id="user-status"><option value="ACTIVE">启用</option><option value="DISABLED">禁用</option></select></div></div>
+            <button id="user-save" class="primary full-width" type="submit">创建用户</button>
+          </form>
+          <div id="user-adjustments" hidden>
+            <form id="points-form"><div class="field-pair"><div><label for="points-amount">调整积分（负数为扣减）</label><input id="points-amount" type="number" step="1" min="-2147483648" max="2147483647" required></div><div><label for="points-reason">调整原因</label><input id="points-reason" maxlength="1000" required></div></div><button class="secondary full-width" type="submit">保存积分调整</button></form>
+            <form id="membership-form"><div class="field-pair"><div><label for="membership-level">会员等级</label><select id="membership-level"><option>FREE</option><option>BASIC</option><option>PRO</option><option>VOICE_AGENT</option><option>ENTERPRISE</option><option>ENTERPRISE_SUPREME</option></select></div><div><label for="membership-expiry">到期时间（本地时间，可留空）</label><input id="membership-expiry" type="datetime-local"></div></div><button class="secondary full-width" type="submit">保存会员设置</button></form>
+            <label class="delete-confirm"><input id="user-delete-confirm" type="checkbox">确认删除当前选中的用户</label><button id="user-delete" type="button" class="secondary">删除所选用户</button>
+          </div>
+        </section>
+      </div>
+    </details>
     <div class="columns">
       <aside class="controls">
         <section id="login-panel" class="panel">

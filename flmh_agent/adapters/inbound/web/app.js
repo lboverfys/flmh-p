@@ -22,6 +22,7 @@ const mediaNodeLabels = { image: "图片", video: "视频" };
 const state = { current: null, submission: null, busy: false, controller: null, pollTimer: null,
   pollCount: 0, productionLocked: false, uncertain: false, closing: false,
   token: "", user: null, authBusy: false, sessionVersion: 0 };
+const accounts = { profile: null, selected: null, listing: null, page: 1 };
 
 function text(value) { return value === null || value === undefined || value === "" ? "未提供" : String(value); }
 function node(tag, value, className = "") {
@@ -67,6 +68,12 @@ function updateControls() {
   visible("login-form", !state.user);
   visible("session-panel", Boolean(state.user));
   visible("identity-source", Boolean(state.user));
+  visible("account-panel", Boolean(state.user));
+  visible("admin-users", isAdministrator());
+  for (const id of ["profile-name", "profile-phone", "current-password", "new-password", "user-search", "user-name", "user-email", "user-phone", "user-password", "user-role", "user-status", "points-amount", "points-reason", "membership-level", "membership-expiry", "user-delete-confirm"]) ui[id].disabled = blocked;
+  ui["users-prev"].disabled = blocked || !isAdministrator() || accounts.page <= 1;
+  ui["users-next"].disabled = blocked || !isAdministrator() || !accounts.listing || accounts.page >= accounts.listing.totalPages;
+  ui["user-delete"].disabled = blocked || !isAdministrator() || !accounts.selected || accounts.selected.id === state.user?.id || !ui["user-delete-confirm"].checked;
   ui.request.disabled = blocked || Boolean(state.submission || state.current);
   ui.start.disabled = blocked || Boolean(state.current);
   ui.start.textContent = state.submission && !state.current ? "再次发送同一请求" : "开始处理 →";
@@ -88,6 +95,13 @@ function updateControls() {
   visible("revision-panel", canRevise());
 }
 function errorMessage(status, data) {
+  if (data.error?.startsWith("account_") || data.error === "admin_required" || data.error === "invalid_account_input") {
+    return { account_conflict: "账号变更冲突，邮箱可能已存在，或该用户仍被业务数据引用。请重新读取后核对。",
+      account_not_found: "用户已不存在，请重新查询。", admin_required: "当前账号没有管理员权限。",
+      account_input_rejected: "账号服务拒绝本次输入，请检查邮箱、密码、积分或会员信息。",
+      invalid_account_input: "账号输入格式无效，请检查必填项与长度。",
+      account_service_unavailable: "账号服务暂时不可用。变更可能已被接收，请先重新读取，勿重复提交积分调整。" }[data.error] || "账号操作未完成，请重新读取后核对。";
+  }
   if (status === 401) return "登录已失效或访问凭据不匹配，请重新登录；服务要求 Agent 访问凭据时，也需填写访问设置。";
   if (status === 404) return "未找到该运行或商品。请核对编号；本地内存模式下，重启 Agent 会清空运行记录。";
   if (status === 409) return "运行状态或报价已变化。请刷新后再操作；已有生产任务不能改写。";
@@ -235,10 +249,66 @@ function clearSession(message = "已退出。请登录后继续；旧结果与�
   ui["api-key"].value = "";
   ui["identity-fields"].replaceChildren();
   ui["identity-source"].textContent = "";
+  clearAccounts();
   ui.results.removeAttribute("aria-busy");
   resetRun();
   ui["auth-status"].textContent = message;
   updateControls();
+}
+function isAdministrator() { return ["ADMIN", "SUPER_ADMIN"].includes(state.user?.role); }
+function clearAccounts() {
+  accounts.profile = null; accounts.selected = null; accounts.listing = null; accounts.page = 1;
+  for (const id of ["profile-fields", "user-rows", "users-page", "account-message"]) ui[id].replaceChildren();
+  for (const id of ["profile-name", "profile-phone", "current-password", "new-password", "user-search", "user-name", "user-email", "user-phone", "user-password", "points-amount", "points-reason", "membership-expiry"]) ui[id].value = "";
+  ui["user-delete-confirm"].checked = false;
+  ui["user-role"].value = "USER"; ui["user-status"].value = "ACTIVE"; ui["membership-level"].value = "FREE";
+  ui["user-save"].textContent = "创建用户"; ui["user-edit-target"].textContent = "创建新用户";
+  for (const id of ["profile-form", "user-status-field", "user-adjustments"]) visible(id, false);
+}
+async function accountAction(operation, message) {
+  if (state.busy || state.authBusy || !requireUser()) return;
+  const version = state.sessionVersion;
+  state.busy = true; stopPolling(); updateControls();
+  ui["account-message"].textContent = "正在处理账号请求…";
+  try {
+    await operation(version);
+    if (version === state.sessionVersion) ui["account-message"].textContent = message;
+  } catch (error) {
+    if (version === state.sessionVersion) ui["account-message"].textContent = error.message;
+  } finally {
+    if (version === state.sessionVersion) { state.busy = false; updateControls(); }
+  }
+}
+function showProfile(profile) {
+  accounts.profile = profile;
+  state.user = { ...state.user, role: profile.role };
+  fields(ui["profile-fields"], [["邮箱", profile.email], ["角色", profile.role], ["积分", profile.points], ["会员", profile.membershipLevel], ["来源", profile.source]]);
+  ui["profile-name"].value = profile.name; ui["profile-phone"].value = profile.phone || "";
+  visible("profile-form", true);
+}
+function selectAccount(user) {
+  accounts.selected = user;
+  ui["user-edit-target"].textContent = user ? `正在编辑：${user.name}（${user.id}）` : "创建新用户";
+  for (const [field, key] of [["user-name", "name"], ["user-email", "email"], ["user-phone", "phone"]]) ui[field].value = user?.[key] || "";
+  ui["user-role"].value = user?.role || "USER"; ui["user-status"].value = user?.status || "ACTIVE";
+  ui["user-password"].value = ""; ui["points-amount"].value = ""; ui["points-reason"].value = "";
+  ui["user-delete-confirm"].checked = false; ui["membership-level"].value = user?.membershipLevel || "FREE";
+  const expiry = user?.membershipExpireAt ? new Date(user.membershipExpireAt) : null;
+  ui["membership-expiry"].value = expiry ? new Date(expiry.getTime() - expiry.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
+  visible("user-status-field", Boolean(user)); visible("user-adjustments", Boolean(user));
+  ui["user-save"].textContent = user ? "保存用户变更" : "创建用户";
+  updateControls();
+}
+async function loadAccounts() {
+  const result = await request(`/v1/identity/users?search=${encodeURIComponent(ui["user-search"].value.trim())}&page=${accounts.page}&pageSize=10`);
+  accounts.listing = result; accounts.page = result.page; ui["user-rows"].replaceChildren();
+  ui["users-page"].textContent = `第 ${result.page} 页 / 共 ${result.totalPages} 页，${result.total} 个用户`;
+  for (const user of result.users) {
+    const row = node("tr"); const name = node("td", user.name); name.append(node("small", user.email));
+    const controls = node("td"); const edit = node("button", "编辑"); edit.type = "button";
+    edit.addEventListener("click", () => { if (!state.busy && isAdministrator()) selectAccount(user); }); controls.append(edit);
+    row.append(name, node("td", `${user.role} / ${user.status}`), node("td", `${user.points} / ${user.source}`), controls); ui["user-rows"].append(row);
+  }
 }
 async function login() {
   if (state.authBusy || state.busy) return;
@@ -431,6 +501,79 @@ function renderHistory(history) {
     : metrics.length ? "已展示本次返回的全部历史快照。" : "该商品暂时没有已保存的指标快照。";
 }
 
+ui["profile-load"].addEventListener("click", () => accountAction(async () => showProfile(await request("/v1/identity/profile")), "已读取当前账号资料。"));
+ui["profile-form"].addEventListener("submit", event => {
+  event.preventDefault();
+  accountAction(async () => showProfile(await request("/v1/identity/profile", { name: ui["profile-name"].value.trim(), phone: ui["profile-phone"].value.trim() || null }, "PUT")), "资料已保存。");
+});
+ui["password-form"].addEventListener("submit", event => {
+  event.preventDefault();
+  const payload = { currentPassword: ui["current-password"].value, newPassword: ui["new-password"].value };
+  accountAction(async version => {
+    try { await request("/v1/identity/password", payload, "PUT"); }
+    finally { if (version === state.sessionVersion) { ui["current-password"].value = ""; ui["new-password"].value = ""; } }
+  }, "密码已修改，下次登录请使用新密码。");
+});
+ui["user-search-form"].addEventListener("submit", event => {
+  event.preventDefault(); if (!isAdministrator()) return;
+  accounts.page = 1; accountAction(loadAccounts, "已读取用户列表。点击编辑可修改所选用户。");
+});
+for (const [id, delta] of [["users-prev", -1], ["users-next", 1]]) ui[id].addEventListener("click", () => {
+  if (state.busy || !isAdministrator() || !accounts.listing) return;
+  const next = accounts.page + delta;
+  if (next < 1 || next > accounts.listing.totalPages) return;
+  accounts.page = next; accountAction(loadAccounts, "已读取用户列表。");
+});
+ui["user-new"].addEventListener("click", () => { if (!state.busy && isAdministrator()) selectAccount(null); });
+ui["user-form"].addEventListener("submit", event => {
+  event.preventDefault(); if (!isAdministrator()) return;
+  const selected = accounts.selected;
+  const payload = { name: ui["user-name"].value.trim(), email: ui["user-email"].value.trim(), phone: ui["user-phone"].value.trim() || null, role: ui["user-role"].value };
+  if (ui["user-password"].value) payload.password = ui["user-password"].value;
+  if (!selected && !payload.password) { ui["account-message"].textContent = "创建用户需要填写密码。"; return; }
+  if (selected) payload.status = ui["user-status"].value;
+  accountAction(async version => {
+    try {
+      const user = await request(`/v1/identity/users${selected ? "/" + encodeURIComponent(selected.id) : ""}`, payload, selected ? "PUT" : "POST");
+      selectAccount(user);
+      if (user.id === state.user.id) {
+        state.user = await request("/v1/identity/me");
+        if (!isAdministrator()) { clearAccounts(); return; }
+      }
+      await loadAccounts();
+    } finally { if (version === state.sessionVersion) ui["user-password"].value = ""; }
+  }, selected ? "用户变更已保存。" : "用户已创建。");
+});
+ui["points-form"].addEventListener("submit", event => {
+  event.preventDefault(); if (!isAdministrator() || !accounts.selected) return;
+  const id = accounts.selected.id;
+  accountAction(async () => {
+    const result = await request(`/v1/identity/users/${encodeURIComponent(id)}/points`, { amount: Number(ui["points-amount"].value), reason: ui["points-reason"].value.trim() }, "PUT");
+    accounts.selected = { ...accounts.selected, points: result.points };
+    ui["points-amount"].value = ""; ui["points-reason"].value = "";
+    await loadAccounts();
+  }, "积分调整已保存，列表展示持久化后的实际余额。");
+});
+ui["membership-form"].addEventListener("submit", event => {
+  event.preventDefault(); if (!isAdministrator() || !accounts.selected) return;
+  const id = accounts.selected.id;
+  const expiry = ui["membership-expiry"].value;
+  accountAction(async () => {
+    selectAccount(await request(`/v1/identity/users/${encodeURIComponent(id)}/membership`, {
+      membershipLevel: ui["membership-level"].value, membershipExpireAt: expiry ? new Date(expiry).toISOString() : null,
+    }, "PUT"));
+    await loadAccounts();
+  }, "会员设置已保存。");
+});
+ui["user-delete-confirm"].addEventListener("change", updateControls);
+ui["user-delete"].addEventListener("click", () => {
+  if (!isAdministrator() || !accounts.selected || accounts.selected.id === state.user.id || !ui["user-delete-confirm"].checked) return;
+  const id = accounts.selected.id;
+  accountAction(async () => {
+    await request(`/v1/identity/users/${encodeURIComponent(id)}`, undefined, "DELETE");
+    selectAccount(null); accounts.page = 1; await loadAccounts();
+  }, "所选用户已删除。");
+});
 ui["login-form"].addEventListener("submit", event => { event.preventDefault(); login(); });
 ui.logout.addEventListener("click", () => clearSession());
 document.querySelectorAll("[data-demo-user]").forEach(button => button.addEventListener("click", () => {

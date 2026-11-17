@@ -115,6 +115,70 @@ function mediaResult(status = "QUEUED", overall = "processing", overrides = {}) 
 
 async function settled() { await new Promise(resolve => setImmediate(resolve)); }
 
+test("账号面板只向已登录用户显示，管理区只向管理员显示", () => {
+  const page = harness({ authenticated: false });
+  assert.equal(page.ui("account-panel").hidden, true);
+  page.run('state.token="unit"; state.user={id:"alice",role:"USER"}; updateControls();');
+  assert.equal(page.ui("account-panel").hidden, false);
+  assert.equal(page.ui("admin-users").hidden, true);
+  page.submit("user-search-form");
+  assert.equal(page.calls.length, 0);
+  page.run('state.user.role="ADMIN"; updateControls();');
+  assert.equal(page.ui("admin-users").hidden, false);
+});
+
+test("资料保存不包含权限字段，退出清空资料与管理密码", async () => {
+  const page = harness();
+  page.response({ id: "alice", name: "Alice", phone: null, role: "USER", points: 1, source: "LOCAL_MOCK" });
+  page.click("profile-load"); await settled();
+  assert.equal(page.ui("profile-form").hidden, false);
+  page.ui("profile-name").value = "新姓名"; page.ui("profile-phone").value = "";
+  page.submit("profile-form"); await settled();
+  assert.deepEqual(JSON.parse(page.calls[1].options.body), { name: "新姓名", phone: null });
+  assert.equal(page.calls[1].options.method, "PUT");
+  page.ui("user-password").value = "private";
+  page.click("logout");
+  assert.equal(page.ui("profile-fields").textContent, "");
+  assert.equal(page.ui("user-password").value, "");
+  assert.equal(page.ui("account-panel").hidden, true);
+});
+
+test("改密必须显式提交当前密码且响应后清空密码字段", async () => {
+  const page = harness();
+  page.response({ success: true });
+  page.ui("current-password").value = "old-password"; page.ui("new-password").value = "new-password";
+  page.submit("password-form"); await settled();
+  assert.equal(page.calls[0].url, "/v1/identity/password");
+  assert.deepEqual(JSON.parse(page.calls[0].options.body), { currentPassword: "old-password", newPassword: "new-password" });
+  assert.equal(page.ui("current-password").value, "");
+  assert.equal(page.ui("new-password").value, "");
+});
+
+test("用户列表按页查询且把姓名按文本展示", async () => {
+  const page = harness(); page.run('state.user.role="ADMIN"; updateControls();');
+  page.response({ users: [{ id: "user1", name: "<img src=x>", email: "u@example.invalid", role: "USER", status: "ACTIVE", points: 12, source: "LOCAL_MOCK" }], total: 11, page: 1, totalPages: 2 });
+  page.ui("user-search").value = "A&B"; page.submit("user-search-form"); await settled();
+  assert.equal(page.calls[0].url, "/v1/identity/users?search=A%26B&page=1&pageSize=10");
+  assert.match(page.ui("user-rows").textContent, /<img src=x>/);
+  assert.equal(page.createdTags.includes("img"), false);
+  assert.equal(page.ui("users-prev").disabled, true);
+  assert.equal(page.ui("users-next").disabled, false);
+});
+
+test("删除用户需选中目标并明确勾选，禁止删除当前登录用户", async () => {
+  const page = harness(); page.run('state.user.role="ADMIN"; selectAccount({id:"target",name:"Target",role:"USER"});');
+  page.click("user-delete"); assert.equal(page.calls.length, 0);
+  page.ui("user-delete-confirm").checked = true;
+  page.respond(async (url, options) => ({ ok: true, status: 200, json: async () => options.method === "DELETE" ? { success: true } : { users: [], total: 0, page: 1, totalPages: 0 } }));
+  page.click("user-delete"); await settled();
+  assert.equal(page.calls[0].url, "/v1/identity/users/target");
+  assert.equal(page.calls[0].options.method, "DELETE");
+  assert.equal(page.ui("user-adjustments").hidden, true);
+  page.run('selectAccount({id:"alice",name:"Alice",role:"ADMIN"});');
+  page.ui("user-delete-confirm").checked = true;
+  page.click("user-delete"); assert.equal(page.calls.length, 2);
+});
+
 test("零元媒体报价保留显式确认并展示已报价的规格", async () => {
   const page = harness();
   page.show({
