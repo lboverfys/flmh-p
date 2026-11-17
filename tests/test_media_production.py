@@ -265,6 +265,18 @@ class MediaProductionTests(unittest.IsolatedAsyncioTestCase):
             await server.call_tool("content_quote_confirm", {"quote_id": "q", "confirmed": True})
             confirm.assert_awaited_once_with("q")
 
+    async def test_media_submit_limits_match_java_before_network(self):
+        with patch("flmh_agent.adapters.inbound.mcp_tools.JavaGatewayClient.submit_media_run", new_callable=AsyncMock) as submit:
+            submit.return_value = {"runId": "r"}
+            server = create_mcp_server(Settings())
+            for invalid in ({"quote_id": "q" * 97}, {"idempotency_key": "k" * 141},
+                            {"idempotency_key": " key"}, {"idempotency_key": " "}, {"quote_id": " "}):
+                with self.subTest(invalid=invalid), self.assertRaises(Exception):
+                    await server.call_tool("media_production_submit", {"quote_id": "q", "idempotency_key": "k", **invalid})
+            submit.assert_not_awaited()
+            await server.call_tool("media_production_submit", {"quote_id": "q" * 96, "idempotency_key": "k" * 140})
+            self.assertEqual(submit.await_count, 1)
+
     def test_mock_output_and_unknown_status_cannot_be_reported_as_completion(self):
         base = {"runId": "r", "status": "MOCKED", "executionMode": "MOCK_ONLY", "artifacts": [], "nodes": []}
         for changed in ({"runId": "other"}, {"status": "NOT_A_STATE"}, {"executionMode": "HTTP"},

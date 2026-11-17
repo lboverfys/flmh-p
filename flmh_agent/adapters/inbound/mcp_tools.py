@@ -133,10 +133,12 @@ def create_mcp_server(settings: Settings | None = None) -> FastMCP:
 
     @server.tool(name="media_production_submit")
     async def media_production_submit(
-        quote_id: Annotated[str, Field(min_length=1, max_length=128)],
-        idempotency_key: Annotated[str, Field(min_length=1, max_length=145)],
+        quote_id: Annotated[str, Field(min_length=1, max_length=96)],
+        idempotency_key: Annotated[str, Field(min_length=1, max_length=140)],
     ) -> dict[str, Any]:
         """Create a media run from an already confirmed quote. The service enforces confirmation and idempotency."""
+        if not quote_id.strip() or not idempotency_key.strip() or idempotency_key != idempotency_key.strip():
+            raise ValueError("quote_id and idempotency_key must be non-blank; key cannot have surrounding whitespace")
         return await gateway.submit_media_run(quote_id, idempotency_key)
 
     @server.tool(name="media_production_get")
