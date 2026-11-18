@@ -1,6 +1,6 @@
 # FLMH Agent 平台接口参考（v16）
 
-本页保留历史 API 和单服务调试示例；当前本地演示统一从项目根目录的 [main.py](main.py) 启动，操作步骤见 [Python README](README.md)。
+本页保留历史 API 和单服务调试示例；Python 的两个常驻服务统一从本仓根目录的 [main.py](main.py) 启动，操作步骤见 [Python README](README.md)。
 
 此工程以旧项目 `flmh/server/src/modules/product-radar` 的选品、BI 和内容请求行为，以及正式简历中的 LangGraph、MCP、PostgreSQL Checkpointer、Langfuse、Text2SQL、BGE-M3/BGE-Reranker 和 Elasticsearch 为依据重构。旧项目和正式 PDF 保持只读。Python 负责规划、状态编排和工具调用；商品、报价、任务状态和模型供应商路由归 Java 服务。
 
@@ -34,9 +34,9 @@ MCP 工具桥仅允许绑定本机回环地址。CLI 和 API 在 Windows 启用 
 
 本机已验证 Python 为 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`（3.12.14）。包缓存放在 `D:\rubbish\zhongjian\caches\python\flmh`，本轮临时与验收目录为 `D:\rubbish\zhongjian\temp\flmh\enterprise-20261118\v16`；Java构建目录为 `D:\rubbish\zhongjian\build\flmh\enterprise-20261118\v16`。不需要下载任何模型权重，不把依赖、缓存或临时数据写入C盘。
 
-整套项目的标准入口是 [main.py](main.py)，结束时输入 `stop`；仅自动验收用 `main.py --verify-only`。下面两组命令仅供单独调试，已经启动整套时不再执行。
+Python 的标准入口是 [main.py](main.py)：一次启动 Agent API 和 MCP，不管理 Java。结束时输入 `stop`；`main.py --verify-only` 只检查两个 Python 监听。下面两组命令仅供单独调试，统一入口已运行时不再执行。
 
-分开启动时，先按Java说明启动Gateway和服务，并给MCP/Agent传入同一任务服务密钥对应的 `JAVA_GATEWAY_API_KEY`/`MODEL_GATEWAY_API_KEY`；服务密钥不能代替用户JWT。需要自定义配置时再复制 `.env.example` 为 `.env`，已有 `.env` 不覆盖；环境变量优先于 `.env`。模型和外部组件空配置保持TODO，本地适配器不需要真实模型凭据。
+Python 服务可以独立启动。需要联调登录、商品和内容等业务时，Java Gateway 和对应服务须另行就绪，给 MCP/Agent 传入同一任务服务密钥对应的 `JAVA_GATEWAY_API_KEY`/`MODEL_GATEWAY_API_KEY`；服务密钥不能代替用户 JWT。需要自定义配置时再复制 `.env.example` 为 `.env`，已有 `.env` 不覆盖；环境变量优先于 `.env`。模型和外部组件空配置保持 TODO，本地适配器不需要真实模型凭据。
 
 窗口一：启动 MCP 工具桥。
 

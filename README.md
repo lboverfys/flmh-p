@@ -4,7 +4,7 @@ LangGraph 负责计划、查询、修订与人为确认；通过 MCP 调用 Java
 
 ## 标准启动入口：main.py
 
-**本地开发联调和面试演示，统一运行 Python 项目根目录的 [main.py](main.py)。** 它一次启动六个 Java 服务（`8080–8085`）、Python MCP 工具服务（`8001`）和 Agent 网页工作台（`8090`）。[api.py](flmh_agent/api.py) 只启动 Agent；不要在运行 `main.py` 前另外启动它或 MCP。所需端口已被占用时，启动器会报出端口和 PID，保留原进程。
+**Python 项目统一运行根目录的 [main.py](main.py)。** 它在一个 Python 进程里启动本项目的两个服务：**Agent API 和网页工作台**（`http://127.0.0.1:8090/`），以及 **MCP 工具服务**（`http://127.0.0.1:8001/mcp`）。不要求安装 JDK，也不会启动、停止 Java 或调用 Java 仓库的脚本。
 
 在 **PyCharm** 打开 `D:\Happy\芳\flmh-p`，项目解释器选 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`，右键根目录的 **`main.py` → 运行**，不需要填参数。用终端时，同一个入口只需一条命令，可在任意工作目录执行：
 
@@ -12,11 +12,11 @@ LangGraph 负责计划、查询、修订与人为确认；通过 MCP 调用 Java
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' 'D:\Happy\芳\flmh-p\main.py'
 ```
 
-等控制台显示工作台地址后再打开页面。**停止整套服务：**在同一运行窗口输入 `stop` 并回车，等进程退出。**只做自动验收：**给同一命令追加 `--verify-only`，跑完后自动退出。
+等控制台显示两个服务均已就绪，即可打开工作台。**停止两个 Python 服务：**在运行窗口输入 `stop` 并回车，或按 `Ctrl+C`。给同一命令追加 `--verify-only` 只检查两个 Python 服务能否完成启动并监听，随即退出。任一端口占用会报错退出，已存在的监听保持不动。
 
-此入口用于本机 Windows 演示，依赖同级 `flmh-j`、已有的六个服务 JAR、JDK 17、PowerShell 7 和当前项目的 Python 3.12+ 环境。它复用 Java 仓的进程管理脚本：每次使用独立的本地数据目录，在 Mock 数据上走一遍选品、报价、确认和任务完成，然后开放工作台供手动体验。运行日志、数据和 `result.json` 在 `D:\rubbish\zhongjian\temp\flmh\verification` 的当次子目录下；启动不安装依赖，也不需要供应商密钥。
+入口使用当前 Python 3.12+ 项目环境，默认读取本仓根目录的 `.env`（可选，模板见 [.env.example](.env.example)）。需要单独调试时，可分别运行 `flmh_agent.api` 或 `flmh_agent.adapters.inbound.mcp_tools` 模块。更改 MCP 端口时，记得将 `MCP_TOOLS_URL` 中的端口改为相同值。
 
-在工作台 `http://127.0.0.1:8090/` 使用 **Mock Alice → 登录**。三个请求可直接输入：
+**Java 是业务请求的外部依赖。** 即使 Java 没运行，工作台和 Agent 健康检查也可访问；登录、查询商品和创建内容任务需要对应的 Java 服务另行就绪。在已连接本地演示后端的工作台中使用 **Mock Alice → 登录**，可输入：
 
 - `查美国商品榜单前3名`：读取已发布的 Java 榜单，报告索引类型和来源；不把普通目录查询冒充榜单。
 - `查 camping-lamp-001 的关联达人数`：读最多 30 条商品观测，缺值保留；不返回个人账号或名单。
