@@ -2,9 +2,19 @@
 
 LangGraph 负责计划、查询、修订与人为确认；通过 MCP 调用 Java 商品和内容服务。未填模型配置时，本机计划标记为 `RULES`，不会调用外部模型或产生费用。[联合演示与八个源码入口](../flmh-j/docs/interview.md) · [本轮交付](../flmh-j/docs/delivery.md)
 
+## 标准启动入口：main.py
+
+**本地开发联调和面试演示，统一运行 Python 项目根目录的 [main.py](main.py)。** 它一次启动六个 Java 服务（`8080–8085`）、Python MCP 工具服务（`8001`）和 Agent 网页工作台（`8090`）。[api.py](flmh_agent/api.py) 只启动 Agent；不要在运行 `main.py` 前另外启动它或 MCP。所需端口已被占用时，启动器会报出端口和 PID，保留原进程。
+
+在 **PyCharm** 打开 `D:\Happy\芳\flmh-p`，项目解释器选 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`，右键根目录的 **`main.py` → 运行**，不需要填参数。用终端时，同一个入口只需一条命令，可在任意工作目录执行：
+
 ```powershell
-& 'D:\Happy\芳\flmh-j\start.ps1'
+& 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' 'D:\Happy\芳\flmh-p\main.py'
 ```
+
+等控制台显示工作台地址后再打开页面。**停止整套服务：**在同一运行窗口输入 `stop` 并回车，等进程退出。**只做自动验收：**给同一命令追加 `--verify-only`，跑完后自动退出。
+
+此入口用于本机 Windows 演示，依赖同级 `flmh-j`、已有的六个服务 JAR、JDK 17、PowerShell 7 和当前项目的 Python 3.12+ 环境。它复用 Java 仓的进程管理脚本：每次使用独立的本地数据目录，在 Mock 数据上走一遍选品、报价、确认和任务完成，然后开放工作台供手动体验。运行日志、数据和 `result.json` 在 `D:\rubbish\zhongjian\temp\flmh\verification` 的当次子目录下；启动不安装依赖，也不需要供应商密钥。
 
 在工作台 `http://127.0.0.1:8090/` 使用 **Mock Alice → 登录**。三个请求可直接输入：
 

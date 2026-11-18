@@ -1,6 +1,6 @@
 # FLMH Agent 平台接口参考（v16）
 
-本页保留历史 API 示例；本轮启动方式、范围及证据见 [面试入口](README.md)。
+本页保留历史 API 和单服务调试示例；当前本地演示统一从项目根目录的 [main.py](main.py) 启动，操作步骤见 [Python README](README.md)。
 
 此工程以旧项目 `flmh/server/src/modules/product-radar` 的选品、BI 和内容请求行为，以及正式简历中的 LangGraph、MCP、PostgreSQL Checkpointer、Langfuse、Text2SQL、BGE-M3/BGE-Reranker 和 Elasticsearch 为依据重构。旧项目和正式 PDF 保持只读。Python 负责规划、状态编排和工具调用；商品、报价、任务状态和模型供应商路由归 Java 服务。
 
@@ -30,11 +30,11 @@ MCP 工具桥仅允许绑定本机回环地址。CLI 和 API 在 Windows 启用 
 
 ## 本机启动
 
-最新本机验收与两行启动命令见 [v16 交付说明](../flmh-j/docs/delivery-v16.md)。独立改图从“我的上传素材 → 用于模特适配”进入，单独核算预算、确认并推进。再次精修仍取初始素材与输出比例；按报价编号可以只读恢复原任务。`MOCK_ONLY` 完成时不会生成图片。
+历史 v16 的环境与验收记录见 [当版交付说明](../flmh-j/docs/delivery-v16.md)。独立改图从“我的上传素材 → 用于模特适配”进入，单独核算预算、确认并推进。再次精修仍取初始素材与输出比例；按报价编号可以只读恢复原任务。`MOCK_ONLY` 完成时不会生成图片。
 
 本机已验证 Python 为 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`（3.12.14）。包缓存放在 `D:\rubbish\zhongjian\caches\python\flmh`，本轮临时与验收目录为 `D:\rubbish\zhongjian\temp\flmh\enterprise-20261118\v16`；Java构建目录为 `D:\rubbish\zhongjian\build\flmh\enterprise-20261118\v16`。不需要下载任何模型权重，不把依赖、缓存或临时数据写入C盘。
 
-最简整链启动使用 [Java README](../flmh-j/REFERENCE.md#本机启动) 的 `verify-local.ps1` 命令，它会启动六个Java服务、MCP和Agent，完成验证后自动收尾；手动体验时显式追加 `-KeepAlive`，结束后在原终端输入 `stop`。该脚本已经启动Python服务时，不再执行下面两组命令。
+整套项目的标准入口是 [main.py](main.py)，结束时输入 `stop`；仅自动验收用 `main.py --verify-only`。下面两组命令仅供单独调试，已经启动整套时不再执行。
 
 分开启动时，先按Java说明启动Gateway和服务，并给MCP/Agent传入同一任务服务密钥对应的 `JAVA_GATEWAY_API_KEY`/`MODEL_GATEWAY_API_KEY`；服务密钥不能代替用户JWT。需要自定义配置时再复制 `.env.example` 为 `.env`，已有 `.env` 不覆盖；环境变量优先于 `.env`。模型和外部组件空配置保持TODO，本地适配器不需要真实模型凭据。
 
