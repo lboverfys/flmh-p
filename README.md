@@ -1,6 +1,6 @@
 # FLMH 选品与内容 Agent · Python
 
-LangGraph 负责计划、查询、修订与人为确认；通过 MCP 调用 Java 商品和内容服务。未填模型配置时，本机计划标记为 `RULES`，不会调用外部模型或产生费用。[联合演示与八个源码入口](../flmh-j/docs/interview.md) · [本轮交付](../flmh-j/docs/delivery.md)
+LangGraph 负责计划、查询、修订与人为确认；通过 MCP 调用 Java 商品和内容服务。未填模型配置时，本机计划标记为 `RULES`，不会调用外部模型或产生费用。[联合演示与八个源码入口](https://github.com/lboverfys/flmh-j/blob/main/docs/interview.md) · [本轮交付](https://github.com/lboverfys/flmh-j/blob/main/docs/delivery.md)
 
 ## 标准启动入口：main.py
 
