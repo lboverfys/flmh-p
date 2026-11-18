@@ -79,7 +79,7 @@ class LoginHttpTests(unittest.TestCase):
     def test_login_is_explicit_and_me_verifies_token_without_returning_credentials(self):
         login = FixtureLogin()
         with TestClient(create_app(Settings(), identity_verifier=FixtureIdentityVerifier(), identity_login=login), client=("127.0.0.1", 50000)) as client:
-            self.assertEqual(client.get("/").status_code, 200)
+            self.assertEqual(client.get("/health/ready").status_code, 200)
             self.assertEqual(login.calls, [])
             self.assertEqual(client.get("/v1/identity/me").status_code, 401)
             response = client.post("/v1/identity/login", json={"email": " alice@example.invalid ", "password": "input-password"})

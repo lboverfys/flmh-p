@@ -4,7 +4,7 @@ LangGraph 负责计划、查询、修订与人为确认；通过 MCP 调用 Java
 
 ## 标准启动入口：main.py
 
-**Python 项目统一运行根目录的 [main.py](main.py)。** 它在一个 Python 进程里启动本项目的两个服务：**Agent API 和网页工作台**（`http://127.0.0.1:8090/`），以及 **MCP 工具服务**（`http://127.0.0.1:8001/mcp`）。不要求安装 JDK，也不会启动、停止 Java 或调用 Java 仓库的脚本。
+**Python 服务的唯一标准启动入口是根目录的 [main.py](main.py)。** 它在一个 Python 进程里启动 **Agent API**（健康检查 `http://127.0.0.1:8090/health/ready`）和 **MCP 工具服务**（`http://127.0.0.1:8001/mcp`）。不启动 Java 或前端，也不提供网页。工作台由 [flmh-j/frontend](https://github.com/lboverfys/flmh-j/tree/main/frontend) 独立提供，浏览器地址是 `http://127.0.0.1:8091/`。
 
 在 **PyCharm** 打开 `D:\Happy\芳\flmh-p`，项目解释器选 `D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe`，右键根目录的 **`main.py` → 运行**，不需要填参数。用终端时，同一个入口只需一条命令，可在任意工作目录执行：
 
@@ -12,11 +12,11 @@ LangGraph 负责计划、查询、修订与人为确认；通过 MCP 调用 Java
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' 'D:\Happy\芳\flmh-p\main.py'
 ```
 
-等控制台显示两个服务均已就绪，即可打开工作台。**停止两个 Python 服务：**在运行窗口输入 `stop` 并回车，或按 `Ctrl+C`。给同一命令追加 `--verify-only` 只检查两个 Python 服务能否完成启动并监听，随即退出。任一端口占用会报错退出，已存在的监听保持不动。
+控制台会列出两个 Python 服务的地址。**停止两个 Python 服务：**在运行窗口输入 `stop` 并回车，或按 `Ctrl+C`。给同一命令追加 `--verify-only` 只检查两个 Python 服务能否完成启动并监听，随即退出。任一端口占用会报错退出，已存在的监听保持不动。
 
 入口使用当前 Python 3.12+ 项目环境，默认读取本仓根目录的 `.env`（可选，模板见 [.env.example](.env.example)）。需要单独调试时，可分别运行 `flmh_agent.api` 或 `flmh_agent.adapters.inbound.mcp_tools` 模块。更改 MCP 端口时，记得将 `MCP_TOOLS_URL` 中的端口改为相同值。
 
-**Java 是业务请求的外部依赖。** 即使 Java 没运行，工作台和 Agent 健康检查也可访问；登录、查询商品和创建内容任务需要对应的 Java 服务另行就绪。在已连接本地演示后端的工作台中使用 **Mock Alice → 登录**，可输入：
+**演示顺序：**先在 Java 仓运行 `./start.ps1`，打开工作台，使用 **Mock Alice → 登录**，可直接查商品和已发布榜单，不需要 Python。要使用对话，在另一个终端运行上面的 `main.py`，回到同一页面点击“刷新连接”。本机默认经 Java 网关（8080）核验用户令牌；保留的旧 `/v1/identity` 等兼容 API 不再是工作台的数据入口。Agent 示例：
 
 - `查美国商品榜单前3名`：读取已发布的 Java 榜单，报告索引类型和来源；不把普通目录查询冒充榜单。
 - `查 camping-lamp-001 的关联达人数`：读最多 30 条商品观测，缺值保留；不返回个人账号或名单。

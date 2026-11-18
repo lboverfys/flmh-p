@@ -25,7 +25,7 @@ class Settings(BaseModel):
     model_gateway_api_key: str = ""
     mcp_tools_url: str = "http://127.0.0.1:8001/mcp"
     gateway_url: str = "http://127.0.0.1:8080"
-    identity_service_url: str = "http://127.0.0.1:8085"
+    identity_service_url: str = "http://127.0.0.1:8080"
     gateway_api_key: str = ""
     trusted_proxy_cidrs: tuple[str, ...] = ()
     mcp_host: str = "127.0.0.1"

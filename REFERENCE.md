@@ -60,7 +60,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m flmh_agent.api
 ```
 
-启动后在本机浏览器打开 `http://127.0.0.1:8090/`，先登录再使用中文工作台；它复用同一 Agent API，无需额外前端服务或依赖。页面提供选品与内容、商品目录筛选分页、商品历史/详情、作品目录、上传素材、可编辑工作流及其历史分页和会话目录，内容报价必须点击“确认并创建任务”后才提交。本机Mock账号为 `alice@demo.flmh.invalid` / `DemoAlice2026!`、`bob@demo.flmh.invalid` / `DemoBob2026!`；管理员为 `admin@demo.flmh.invalid` / `DemoAdmin2026!`。用户JWT只在页面内存中，换用户会清空结果与运行编号。配置了 `AGENT_API_KEY` 时还需在访问设置填写独立的Agent访问凭据，使用 `X-Agent-Key` 发送；Java服务key不会进入浏览器。超时或连接中断后先用保留的运行编号读取状态，避免盲目新建重复请求。
+先启动 Java 仓的独立前端（见两仓 README），浏览器打开 `http://127.0.0.1:8091/`。登录、目录和业务查询直达 Java 网关；对话、确认与会话调用 Python Agent。页面提供选品与内容、商品目录筛选分页、商品历史/详情、作品目录、上传素材、可编辑工作流及其历史分页和会话目录，内容报价必须点击“确认并创建任务”后才提交。本机Mock账号为 `alice@demo.flmh.invalid` / `DemoAlice2026!`、`bob@demo.flmh.invalid` / `DemoBob2026!`；管理员为 `admin@demo.flmh.invalid` / `DemoAdmin2026!`。用户JWT只在页面内存中，换用户会清空结果与运行编号。配置了 `AGENT_API_KEY` 时还需在访问设置填写独立的Agent访问凭据，使用 `X-Agent-Key` 发送；Java服务key不会进入浏览器。超时或连接中断后先用保留的运行编号读取状态，避免盲目新建重复请求。
 
 Java账户和业务资源保存在H2文件中，上传素材元数据也由Java持久化，local实际文件位于 `LOCAL_STATE_DIR/assets`；手动启动复用同一 `LOCAL_STATE_DIR` 才保留原状态，验收脚本每次建立独立状态目录。Python默认 `CHECKPOINTER_BACKEND=memory`，检查点、会话目录和运行锁随进程退出消失。关闭本次手动服务时分别在原终端按 `Ctrl+C`，核实8001/8090监听已消失；不要停止任务开始前已有的服务。
 
@@ -196,7 +196,8 @@ $env:TMP = $env:TEMP
 if (!(Test-Path -LiteralPath $env:TEMP)) { New-Item -ItemType Directory -Path $env:TEMP | Out-Null }
 $env:PYTHONDONTWRITEBYTECODE = '1'
 & 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe' -m unittest discover -s tests -v
-& 'D:\Code\nodejs\node.exe' --test tests/test_workbench_media.cjs tests/test_workflow_editor.cjs tests/test_sessions_ui.cjs tests/test_product_catalog.cjs tests/test_assets_ui.cjs
+# 前端交互测试位于相邻的 Java 仓（也可在 flmh-j/frontend 下单独运行）。
+& 'D:\Code\nodejs\node.exe' --test '../flmh-j/frontend/tests/*.cjs'
 ```
 
 测试覆盖确认闸门、预算/币种、幂等、查询DAG、槽位失效、日统计、FAILED媒体修订、未知结果恢复、MCP、RAG、Text2SQL、账号权限、商品目录、素材/作品、工作流及会话/SSE。v15新增管理员用量详情BFF及来源统计页面，保留422有界限制与会话/所选用户迟到响应隔离。实际通过Python 282项、Node 101项及pip check；Java 575项/87个测试集和本机整链118/118通过，10组22个登记进程退出。Chrome8项观察通过，临时page13已关闭；独立Redis本轮未重跑，v13结果仅属于历史记录；完整边界见[Java交付记录](../flmh-j/docs/delivery-v16.md)。

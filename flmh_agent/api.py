@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any
 
 import uvicorn
@@ -12,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, Response
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from flmh_agent.application.service import RunConflictError, RunNotFoundError
@@ -40,18 +39,6 @@ from flmh_agent.ports.identity import IdentityLoginPort, IdentityVerifierPort, I
 
 logger = logging.getLogger("flmh.agent.api")
 MAX_JSON_BODY_BYTES = 64 * 1024
-WORKBENCH_ROOT = Path(__file__).parent / "adapters" / "inbound" / "web"
-WORKBENCH_ASSETS = {"app.css": "text/css", "app.js": "text/javascript",
-                    "workflows.css": "text/css", "workflows.js": "text/javascript",
-                    "sessions.css": "text/css", "sessions.js": "text/javascript",
-                    "products.css": "text/css", "products.js": "text/javascript",
-                    "assets.js": "text/javascript", "portraits.js": "text/javascript"}
-WORKBENCH_HEADERS = {
-    "Cache-Control": "no-store",
-    "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "no-referrer",
-    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
-}
 
 
 class LoginInput(BaseModel):
@@ -86,15 +73,6 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
 
     async def live(_request: Request) -> Response:
         return JSONResponse({"status": "alive"})
-
-    async def workbench(_request: Request) -> Response:
-        return FileResponse(WORKBENCH_ROOT / "index.html", media_type="text/html", headers=WORKBENCH_HEADERS)
-
-    async def workbench_asset(request: Request) -> Response:
-        name = request.path_params["filename"]
-        if name not in WORKBENCH_ASSETS:
-            return Response(status_code=404)
-        return FileResponse(WORKBENCH_ROOT / name, media_type=WORKBENCH_ASSETS[name], headers=WORKBENCH_HEADERS)
 
     async def ready(request: Request) -> Response:
         current: Settings = request.app.state.settings
@@ -300,8 +278,6 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
         ]})
 
     routes = [
-        Route("/", workbench, methods=["GET"]),
-        Route("/assets/{filename:str}", workbench_asset, methods=["GET"]),
         Route("/health/live", live, methods=["GET"]),
         Route("/health/ready", ready, methods=["GET"]),
         Route("/v1/identity/login", login, methods=["POST"]),
@@ -322,7 +298,7 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
     routes.extend(product_routes())
     routes.extend(asset_routes())
     routes.extend(recovery_routes(_json_body))
-    public_paths = frozenset({"/", "/health/live", "/health/ready", *(f"/assets/{name}" for name in WORKBENCH_ASSETS)})
+    public_paths = frozenset({"/health/live", "/health/ready"})
     app = Starlette(routes=routes, lifespan=lifespan, middleware=[
         Middleware(IdentityMiddleware, api_key=config.agent_api_key, public_paths=public_paths,
                    anonymous_routes=frozenset({("POST", "/v1/identity/login"), ("POST", "/v1/identity/forgot-password"),

@@ -41,7 +41,7 @@ class PythonEntrypointTests(unittest.TestCase):
         self.mcp.close()
         result = self.launch(stdin="stop\n")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(f"http://{HOST}:{self.agent_port}/", result.stdout)
+        self.assertIn(f"http://{HOST}:{self.agent_port}/health/ready", result.stdout)
         self.assertIn(f"http://{HOST}:{self.mcp_port}/mcp", result.stdout)
         self.reserve(self.agent_port)
         self.reserve(self.mcp_port)

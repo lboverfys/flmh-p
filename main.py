@@ -56,7 +56,8 @@ def run(verify_only: bool) -> None:
                 for name, server in services.items():
                     host = server.config.host
                     address = f"[{host}]" if ":" in host else host
-                    print(f"{name} 已就绪：http://{address}:{server.config.port}{'/mcp' if name == 'MCP' else '/'}", flush=True)
+                    path = "/mcp" if name == "MCP" else "/health/ready"
+                    print(f"{name} 已就绪：http://{address}:{server.config.port}{path}", flush=True)
                 if not verify_only:
                     print("输入 stop 并回车，或按 Ctrl+C，停止两个 Python 服务。", flush=True)
                     if sys.stdin is not None:
