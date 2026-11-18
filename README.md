@@ -16,7 +16,9 @@ LangGraph 负责计划、查询、修订与人为确认；通过 MCP 调用 Java
 
 入口使用当前 Python 3.12+ 项目环境，默认读取本仓根目录的 `.env`（可选，模板见 [.env.example](.env.example)）。需要单独调试时，可分别运行 `flmh_agent.api` 或 `flmh_agent.adapters.inbound.mcp_tools` 模块。更改 MCP 端口时，记得将 `MCP_TOOLS_URL` 中的端口改为相同值。
 
-**演示顺序：**先在 Java 仓运行 `./start.ps1`，打开工作台，使用 **Mock Alice → 登录**，可直接查商品和已发布榜单，不需要 Python。要使用对话，在另一个终端运行上面的 `main.py`，回到同一页面点击“刷新连接”。本机默认经 Java 网关（8080）核验用户令牌；保留的旧 `/v1/identity` 等兼容 API 不再是工作台的数据入口。Agent 示例：
+**演示顺序**　在 Java 仓的 IDEA 中运行 **FLMH 本地服务**，再在该仓的 `frontend` 目录执行 `npm start`。打开图鉴，点露营灯，再选 **Mock Alice → 登录**，可查看商品与来源。单独运行本仓的 `main.py` 后，从商品观测点 **交给 Agent**。连接状态可以在 **更多操作 → 刷新连接** 查看。Agent 经本机 Java 网关（8080）核验用户令牌。[Java 与工作台启动说明](https://github.com/lboverfys/flmh-j/blob/main/README.md)
+
+可直接输入以下请求。
 
 - `查美国商品榜单前3名`：读取已发布的 Java 榜单，报告索引类型和来源；不把普通目录查询冒充榜单。
 - `查 camping-lamp-001 的关联达人数`：读最多 30 条商品观测，缺值保留；不返回个人账号或名单。
