@@ -58,6 +58,7 @@
 | --- | --- |
 | `model_calls` / `pinned_model_responses` | 前者是客户端发出的模型请求次数，含 HTTP 失败。后者有网关返回且命中指定真实供应商与模型。网关内部重试、切备和供应商账单次数需查网关或供应商日志。 |
 | `input_tokens` / `output_tokens` / `total_tokens` | 只读网关 `usage.inputTokens/outputTokens`。总量为两者之和。保留供应商报告的零。缺一项则该项合计和总量写 `null`。逐次 `usage_status` 标出 `complete`、`partial`、`missing` 或 `invalid`。即使模型 JSON 错误，仍保留已收到的真实 usage。 |
+| `decision_and_tool_rounds` | 明确按 `model_calls + tool_batches` 计算，合并表示模型决策请求数与工具调度批次数；并行派发的一批算一个工具执行轮次。 |
 | `tool_calls` / `tool_batches` / `parallel_batches` | 分别是实际派发的工具调用数、非空批次数、宽度大于 1 的批次数。`tool_trace` 的每个内层数组是一批。被上游依赖阻断的节点不会产生调用。 |
 | `matched` / `evaluated` / `expected` | 正确字段数、实际评分的字段数、计划评分的字段数。`retention_rate = matched / expected` 要求所有字段都可评分。执行中断时全量率为 `null`，另给 `unscored` 和已评分部分的 `observed_rate`。 |
 

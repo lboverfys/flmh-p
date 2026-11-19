@@ -397,8 +397,11 @@ def metrics(calls: list[dict], batches: list[list[dict]]) -> dict:
         status = "partial"
     else:
         status = "missing"
-    return {"model_calls": len(calls), "pinned_model_responses": len(pinned), "usage_complete_calls": complete,
-            "usage_status": status, **tokens, "tool_calls": sum(map(len, batches)), "tool_batches": len(batches),
+    model_calls = len(calls)
+    tool_batches = len(batches)
+    return {"model_calls": model_calls, "pinned_model_responses": len(pinned), "usage_complete_calls": complete,
+            "usage_status": status, **tokens, "tool_calls": sum(map(len, batches)), "tool_batches": tool_batches,
+            "decision_and_tool_rounds": model_calls + tool_batches,
             "parallel_batches": sum(len(batch) > 1 for batch in batches)}
 
 
@@ -438,7 +441,7 @@ def summarize(suite: str, runs: list[dict]) -> dict:
     for arm in arms:
         records = [pair[arm] for pair in pairs.values()]
         averages = {field: sum(pairs[k][arm]["metrics"][field] for k in paired) / len(paired) if paired else None
-                    for field in ("model_calls", "tool_calls", "tool_batches", "parallel_batches")}
+                    for field in ("model_calls", "tool_calls", "tool_batches", "decision_and_tool_rounds", "parallel_batches")}
         token_sums = {field: sum(pairs[k][arm]["metrics"][field] for k in with_usage) if with_usage else None
                       for field in ("input_tokens", "output_tokens", "total_tokens")}
         result = {"failed_ids": [r["case_id"] for r in records if r["status"] == "failed"],

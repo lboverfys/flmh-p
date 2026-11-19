@@ -82,6 +82,7 @@ class AgentEvaluationTests(unittest.IsolatedAsyncioTestCase):
         for row, expected in [(planned, (2, 3, 2, 1)), (serial, (4, 3, 3, 0))]:
             self.assertTrue(row["correct"])
             self.assertEqual(tuple(row["metrics"][k] for k in ("model_calls", "tool_calls", "tool_batches", "parallel_batches")), expected)
+            self.assertEqual(row["metrics"]["decision_and_tool_rounds"], expected[0] + expected[2])
             self.assertEqual(row["metrics"]["total_tokens"], expected[0] * 12)
         self.assertEqual([len(batch) for batch in planned["tool_trace"]], [2, 1])
         self.assertEqual([event for batch in planned["tool_trace"] for event in batch],
@@ -218,6 +219,8 @@ class AgentEvaluationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(summary["paired_token_reduction"]["total_tokens"])
         self.assertEqual(summary["arms"]["planner"]["failed_ids"], ["failed"])
         self.assertEqual(summary["arms"]["react"]["paired_means"]["tool_calls"], 1)
+        self.assertEqual(summary["arms"]["planner"]["paired_means"]["decision_and_tool_rounds"], 3)
+        self.assertEqual(summary["arms"]["react"]["paired_means"]["decision_and_tool_rounds"], 3)
         full_react, _ = await self.play(task, "react", [reply({"query": query}, usage={"inputTokens": 30, "outputTokens": 2}), reply(final)])
         complete = summarize("planning", [planner, full_react])
         self.assertEqual(complete["usage_paired_ids"], [task.id])
