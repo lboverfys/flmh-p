@@ -134,9 +134,12 @@ class AgentEvaluationTests(unittest.IsolatedAsyncioTestCase):
         dialogue = self.samples["character-cutoff"]
         history = [line for t in dialogue.turns[:2] for line in (t.user, t.assistant)]
         text, info = history_window(history, "message", HISTORY_CHARS)
-        self.assertGreater(info["dropped_chars"], 0)
-        self.assertEqual(len(text), HISTORY_CHARS)
-        self.assertNotIn("收纳盒", text)
+        self.assertIn("收纳盒", text)
+        self.assertEqual(info, {"dropped_messages": 0, "dropped_chars": 0})
+        long_history = ["x" * 1800, "y" * 1800]
+        text, info = history_window(long_history, "message", HISTORY_CHARS)
+        self.assertEqual(text, ("\n".join(long_history))[-HISTORY_CHARS:])
+        self.assertEqual(info, {"dropped_messages": 0, "dropped_chars": 601})
         self.assertGreater(len(self.samples["window-eviction"].turns), 13)
 
     async def test_slots_only_store_model_updates_and_missing_is_not_an_explicit_clear(self):
