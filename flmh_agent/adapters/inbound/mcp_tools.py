@@ -249,9 +249,16 @@ def create_mcp_server(settings: Settings | None = None, *, identity_verifier: Id
     return server
 
 
+def managed_mcp_app():
+    from flmh_agent.live_app import ManagedApp
+    return ManagedApp(lambda settings, _: create_mcp_server(settings).streamable_http_app())
+
+
 def main() -> None:
-    config = Settings.from_env()
-    create_mcp_server(config).run(transport="streamable-http")
+    import uvicorn
+    app = managed_mcp_app()
+    config = app.state.settings
+    uvicorn.run(app, host=config.mcp_host, port=config.mcp_port, proxy_headers=False)
 
 
 if __name__ == "__main__":

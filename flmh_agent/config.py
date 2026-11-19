@@ -1,12 +1,34 @@
 from __future__ import annotations
 
-import os
 import ipaddress
-from pathlib import Path
 from typing import Any, Literal, Mapping
 
-from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+
+
+SETTING_NAMES = {
+    "environment": "APP_ENV", "agent_host": "AGENT_HTTP_HOST", "agent_port": "AGENT_HTTP_PORT",
+    "agent_api_key": "AGENT_API_KEY",
+    "planner_backend": "PLANNER_BACKEND", "model_gateway_url": "MODEL_GATEWAY_URL",
+    "model_gateway_api_key": "MODEL_GATEWAY_API_KEY", "mcp_tools_url": "MCP_TOOLS_URL",
+    "gateway_url": "JAVA_GATEWAY_URL", "mcp_host": "MCP_HTTP_HOST", "mcp_port": "MCP_HTTP_PORT",
+    "gateway_api_key": "JAVA_GATEWAY_API_KEY",
+    "trusted_proxy_cidrs": "AGENT_TRUSTED_PROXY_CIDRS",
+    "identity_service_url": "IDENTITY_SERVICE_URL",
+    "checkpointer_backend": "CHECKPOINTER_BACKEND", "postgres_checkpointer_uri": "POSTGRES_CHECKPOINTER_URI",
+    "postgres_checkpoint_setup": "POSTGRES_CHECKPOINT_SETUP",
+    "langfuse_host": "LANGFUSE_HOST", "langfuse_public_key": "LANGFUSE_PUBLIC_KEY",
+    "langfuse_secret_key": "LANGFUSE_SECRET_KEY", "embedding_backend": "EMBEDDING_BACKEND",
+    "bge_m3_url": "BGE_M3_URL", "bge_m3_model": "BGE_M3_MODEL", "bge_m3_api_key": "BGE_M3_API_KEY",
+    "embedding_dimension": "BGE_M3_DIMENSION", "bge_reranker_url": "BGE_RERANKER_URL",
+    "bge_reranker_model": "BGE_RERANKER_MODEL", "bge_reranker_api_key": "BGE_RERANKER_API_KEY",
+    "elasticsearch_url": "ELASTICSEARCH_URL",
+    "elasticsearch_api_key": "ELASTICSEARCH_API_KEY", "elasticsearch_index": "ELASTICSEARCH_INDEX",
+    "elasticsearch_dense_field": "ELASTICSEARCH_DENSE_FIELD", "elasticsearch_sparse_field": "ELASTICSEARCH_SPARSE_FIELD",
+    "sql_dialect": "SQL_DIALECT",
+    "bi_sql_role_tables_json": "BI_SQL_ROLE_TABLES_JSON", "bi_database_uri": "BI_DATABASE_URI",
+    "sql_max_rows": "SQL_MAX_ROWS", "request_timeout_seconds": "REQUEST_TIMEOUT_SECONDS",
+}
 
 
 class ConfigurationError(ValueError):
@@ -121,34 +143,11 @@ class Settings(BaseModel):
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> Settings:
         if environ is None:
-            env_file = Path(os.environ.get("FLMH_ENV_FILE", ".env"))
-            source = {**({key: value for key, value in dotenv_values(env_file).items() if value is not None} if env_file.is_file() else {}), **os.environ}
+            from flmh_agent.managed_settings import SettingsSource
+            return SettingsSource().initial
         else:
             source = environ
-        mapping = {
-            "environment": "APP_ENV", "agent_host": "AGENT_HTTP_HOST", "agent_port": "AGENT_HTTP_PORT",
-            "agent_api_key": "AGENT_API_KEY",
-            "planner_backend": "PLANNER_BACKEND", "model_gateway_url": "MODEL_GATEWAY_URL",
-            "model_gateway_api_key": "MODEL_GATEWAY_API_KEY", "mcp_tools_url": "MCP_TOOLS_URL",
-            "gateway_url": "JAVA_GATEWAY_URL", "mcp_host": "MCP_HTTP_HOST", "mcp_port": "MCP_HTTP_PORT",
-            "gateway_api_key": "JAVA_GATEWAY_API_KEY",
-            "trusted_proxy_cidrs": "AGENT_TRUSTED_PROXY_CIDRS",
-            "identity_service_url": "IDENTITY_SERVICE_URL",
-            "checkpointer_backend": "CHECKPOINTER_BACKEND", "postgres_checkpointer_uri": "POSTGRES_CHECKPOINTER_URI",
-            "postgres_checkpoint_setup": "POSTGRES_CHECKPOINT_SETUP",
-            "langfuse_host": "LANGFUSE_HOST", "langfuse_public_key": "LANGFUSE_PUBLIC_KEY",
-            "langfuse_secret_key": "LANGFUSE_SECRET_KEY", "embedding_backend": "EMBEDDING_BACKEND",
-            "bge_m3_url": "BGE_M3_URL", "bge_m3_model": "BGE_M3_MODEL", "bge_m3_api_key": "BGE_M3_API_KEY",
-            "embedding_dimension": "BGE_M3_DIMENSION", "bge_reranker_url": "BGE_RERANKER_URL",
-            "bge_reranker_model": "BGE_RERANKER_MODEL", "bge_reranker_api_key": "BGE_RERANKER_API_KEY",
-            "elasticsearch_url": "ELASTICSEARCH_URL",
-            "elasticsearch_api_key": "ELASTICSEARCH_API_KEY", "elasticsearch_index": "ELASTICSEARCH_INDEX",
-            "elasticsearch_dense_field": "ELASTICSEARCH_DENSE_FIELD", "elasticsearch_sparse_field": "ELASTICSEARCH_SPARSE_FIELD",
-            "sql_dialect": "SQL_DIALECT",
-            "bi_sql_role_tables_json": "BI_SQL_ROLE_TABLES_JSON", "bi_database_uri": "BI_DATABASE_URI",
-            "sql_max_rows": "SQL_MAX_ROWS", "request_timeout_seconds": "REQUEST_TIMEOUT_SECONDS",
-        }
-        values = {field: source[name] for field, name in mapping.items() if name in source}
+        values = {field: source[name] for field, name in SETTING_NAMES.items() if name in source}
         try:
             return cls.model_validate(values)
         except ValidationError as error:

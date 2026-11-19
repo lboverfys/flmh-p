@@ -42,7 +42,19 @@ def runtime_loop_factory(settings: Settings) -> Callable[[], asyncio.AbstractEve
 
 
 @asynccontextmanager
-async def open_runtime(settings: Settings) -> AsyncIterator[Runtime]:
+async def open_session_state(settings: Settings):
+    async with open_checkpointer(settings) as checkpointer, open_run_coordinator(settings) as coordinator, \
+            open_session_directory(settings) as directory:
+        yield checkpointer, coordinator, directory
+
+
+@asynccontextmanager
+async def open_runtime(settings: Settings, session_state=None) -> AsyncIterator[Runtime]:
+    if session_state is None:
+        async with open_session_state(settings) as storage, open_runtime(settings, storage) as runtime:
+            yield runtime
+        return
+    checkpointer, coordinator, session_directory = session_state
     async with httpx.AsyncClient(
         base_url=settings.model_gateway_url,
         timeout=settings.request_timeout_seconds,
@@ -50,39 +62,37 @@ async def open_runtime(settings: Settings) -> AsyncIterator[Runtime]:
     ) as model_http, httpx.AsyncClient(
         base_url=settings.identity_service_url, timeout=settings.request_timeout_seconds, trust_env=False,
     ) as identity_http:
-        async with open_checkpointer(settings) as checkpointer, open_run_coordinator(settings) as coordinator, \
-                open_session_directory(settings) as session_directory:
-            model_gateway = ModelGatewayClient(settings, client=model_http)
-            planner = ModelGatewayPlanner(model_gateway) if settings.planner_backend == "model_gateway" else RuleBasedPlanner()
-            runner = AsyncPostgresReadOnlyRunner(settings) if settings.bi_database_uri else None
-            sql_permissions = ConfiguredSqlPermissionPolicy(settings) if runner is not None else None
-            text_to_sql = TextToSqlService(
-                permissions=sql_permissions,
-                model=ModelGatewaySqlGenerator(model_gateway),
-                runner=runner,
-                dialect=settings.sql_dialect,
-                max_rows=settings.sql_max_rows,
-            ) if runner is not None else None
-            rag = {
-                "embedder": BgeM3HttpAdapter(settings),
-                "store": ElasticsearchHybridStore(settings),
-                "reranker": BgeRerankerHttpAdapter(settings),
-            } if settings.embedding_backend == "bge_m3_http" else None
-            trace_factory = LangfuseCallbackFactory(settings)
-            agent = AgentApplication(
-                settings=settings,
-                planner=planner,
-                checkpointer=checkpointer,
-                tool_session_factory=lambda: McpProductContentAdapter(settings),
-                trace_factory=trace_factory,
-                run_coordinator=coordinator,
-                bi_query=text_to_sql,
-                knowledge_query=HybridKnowledgeService(**rag) if rag else None,
-                session_directory=session_directory,
-            )
-            try:
-                yield Runtime(agent, text_to_sql, sql_permissions, rag, JavaIdentityVerifier(settings, identity_http))
-            finally:
-                if runner is not None:
-                    await runner.close()
-                trace_factory.close()
+        model_gateway = ModelGatewayClient(settings, client=model_http)
+        planner = ModelGatewayPlanner(model_gateway) if settings.planner_backend == "model_gateway" else RuleBasedPlanner()
+        runner = AsyncPostgresReadOnlyRunner(settings) if settings.bi_database_uri else None
+        sql_permissions = ConfiguredSqlPermissionPolicy(settings) if runner is not None else None
+        text_to_sql = TextToSqlService(
+            permissions=sql_permissions,
+            model=ModelGatewaySqlGenerator(model_gateway),
+            runner=runner,
+            dialect=settings.sql_dialect,
+            max_rows=settings.sql_max_rows,
+        ) if runner is not None else None
+        rag = {
+            "embedder": BgeM3HttpAdapter(settings),
+            "store": ElasticsearchHybridStore(settings),
+            "reranker": BgeRerankerHttpAdapter(settings),
+        } if settings.embedding_backend == "bge_m3_http" else None
+        trace_factory = LangfuseCallbackFactory(settings)
+        agent = AgentApplication(
+            settings=settings,
+            planner=planner,
+            checkpointer=checkpointer,
+            tool_session_factory=lambda: McpProductContentAdapter(settings),
+            trace_factory=trace_factory,
+            run_coordinator=coordinator,
+            bi_query=text_to_sql,
+            knowledge_query=HybridKnowledgeService(**rag) if rag else None,
+            session_directory=session_directory,
+        )
+        try:
+            yield Runtime(agent, text_to_sql, sql_permissions, rag, JavaIdentityVerifier(settings, identity_http))
+        finally:
+            if runner is not None:
+                await runner.close()
+            trace_factory.close()

@@ -16,7 +16,8 @@ from starlette.routing import Route
 
 from flmh_agent.application.service import RunConflictError, RunNotFoundError
 from flmh_agent.application.rag import hybrid_retrieve
-from flmh_agent.bootstrap import open_runtime, runtime_loop_factory
+from flmh_agent.bootstrap import open_runtime, open_session_state, runtime_loop_factory
+from flmh_agent.live_app import ManagedApp
 from flmh_agent.config import Settings
 from flmh_agent.domain.models import AgentStartRequest, ConfirmationInput, TextToSqlInput
 from flmh_agent.domain.identity import AuthenticationError, IdentityUnavailableError, IdentityRateLimitedError
@@ -51,12 +52,12 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
                identity_login: IdentityLoginPort | None = None, accounts: UserAccountsPort | None = None,
                works: JavaWorkCatalog | None = None, workflows: JavaWorkflowClient | None = None,
                products: JavaProductBrowser | None = None, assets: JavaMediaAssets | None = None,
-               identity_recovery: IdentityRecoveryPort | None = None) -> Starlette:
+               identity_recovery: IdentityRecoveryPort | None = None, session_state=None) -> Starlette:
     config = settings or Settings.from_env()
 
     @asynccontextmanager
     async def lifespan(application: Starlette):
-        async with open_runtime(config) as runtime:
+        async with open_runtime(config, session_state) as runtime:
             application.state.agent = runtime.agent
             application.state.text_to_sql = runtime.text_to_sql
             application.state.sql_permissions = runtime.sql_permissions
@@ -334,7 +335,7 @@ def _validation_response(error: ValidationError) -> JSONResponse:
     return JSONResponse({"error": "validation_failed", "details": details}, status_code=422)
 
 
-app = create_app()
+app = ManagedApp(lambda settings, session: create_app(settings, session_state=session), storage=open_session_state)
 
 
 def main() -> None:

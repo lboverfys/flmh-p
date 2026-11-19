@@ -2,6 +2,10 @@
 
 LangGraph 负责计划、查询、修订与人为确认；通过 MCP 调用 Java 商品和内容服务。未填模型配置时，本机计划标记为 `RULES`，不会调用外部模型或产生费用。[联合演示与八个源码入口](https://github.com/lboverfys/flmh-j/blob/main/docs/interview.md) · [本轮交付](https://github.com/lboverfys/flmh-j/blob/main/docs/delivery.md)
 
+## 工作台管理员配置
+
+管理员可在工作台的 **更多操作 → 系统配置** 中选择 **Python Agent / MCP**。规划器、模型与检索连接、访问凭据、BI 和请求超时会在后续请求读取，进行中的请求继续使用开始时的配置。监听地址和会话存储在下次启动读取。各服务使用同一配置根目录和部署主密钥，部署参数见 Java 工程 README 的「管理员系统配置」。
+
 ## 标准启动入口：main.py
 
 **Python 服务的唯一标准启动入口是根目录的 [main.py](main.py)。** 它在一个 Python 进程里启动 **Agent API**（健康检查 `http://127.0.0.1:8090/health/ready`）和 **MCP 工具服务**（`http://127.0.0.1:8001/mcp`）。不启动 Java 或前端，也不提供网页。工作台由 [flmh-j/frontend](https://github.com/lboverfys/flmh-j/tree/main/frontend) 独立提供，浏览器地址是 `http://127.0.0.1:8091/`。

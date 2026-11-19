@@ -10,7 +10,7 @@ from threading import Event, Thread
 
 import uvicorn
 
-from flmh_agent.adapters.inbound.mcp_tools import create_mcp_server
+from flmh_agent.adapters.inbound.mcp_tools import managed_mcp_app
 from flmh_agent.bootstrap import runtime_loop_factory
 from flmh_agent.config import ConfigurationError, Settings
 
@@ -38,7 +38,7 @@ def run(verify_only: bool) -> None:
     from flmh_agent.api import app  # The standalone ASGI app reads settings on import.
 
     settings = app.state.settings
-    mcp_app = create_mcp_server(settings).streamable_http_app()
+    mcp_app = managed_mcp_app()
     services = {
         "Agent API": uvicorn.Server(uvicorn.Config(app, host=settings.agent_host, port=settings.agent_port,
                                                    lifespan="on", proxy_headers=False)),
