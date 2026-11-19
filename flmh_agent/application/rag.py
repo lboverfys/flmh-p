@@ -28,6 +28,22 @@ def reciprocal_rank_fusion(
     ]
 
 
+def ranked_parent_ids(children: Sequence[Chunk], limit: int) -> list[str]:
+    parents: dict[str, None] = {}
+    for child in children:
+        if child.parent_id:
+            parents[child.parent_id] = None
+            if len(parents) == limit:
+                break
+    return list(parents)
+
+
+async def hybrid_child_ranking(query: str, dense: Sequence[Chunk], sparse: Sequence[Chunk],
+                               reranker: RerankerPort, candidate_limit: int) -> tuple[list[Chunk], Sequence[Chunk]]:
+    fused = reciprocal_rank_fusion(dense, sparse)
+    return fused, await reranker.rerank(query, fused, candidate_limit)
+
+
 async def hybrid_retrieve(
     query: str,
     embedder: HybridEmbeddingPort,
@@ -53,15 +69,9 @@ async def hybrid_retrieve(
             if isinstance(recall, BaseException):
                 raise recall
         dense, sparse = recalls
-        fused = reciprocal_rank_fusion(dense, sparse)
-        reranked = await reranker.rerank(query, fused, candidate_limit)
-        parent_ids: dict[str, None] = {}
-        for chunk in reranked:
-            if chunk.parent_id:
-                parent_ids[chunk.parent_id] = None
-                if len(parent_ids) == limit:
-                    break
-        parents = await published.get_parents(list(parent_ids)) if parent_ids else []
+        _, reranked = await hybrid_child_ranking(query, dense, sparse, reranker, candidate_limit)
+        parent_ids = ranked_parent_ids(reranked, limit)
+        parents = await published.get_parents(parent_ids) if parent_ids else []
     by_id = {chunk.chunk_id: chunk for chunk in parents}
     return [by_id[parent_id] for parent_id in parent_ids if parent_id in by_id]
 

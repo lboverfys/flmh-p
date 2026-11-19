@@ -49,6 +49,6 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & $py -B -m flmh_agent.evaluate --judgments examples/rag-evaluation/judgments.json --run examples/rag-evaluation/scripted-ranking.json
 ```
 
-评测器按问题等权平均 `Recall@k`（默认 5）；MRR 取提供的完整排名中第一个相关结果的名次倒数。明确返回空列表计零；漏题、重复命中或题集版本不符会报错。标注里的文档 ID 对应旧项目商品雷达和工作流模块；三问及排序是新写的 `SCRIPTED_FIXTURE`。有实际检索输出后，为同一题集分别导出稠密基线与混合结果，标明 `RECORDED_RETRIEVAL`，重复传 `--run` 对比。交付中没有真实召回效果、Token 节省或线上耗时数据。
+评测器按问题等权平均 `Recall@k`（默认 5）；MRR 取提供的完整排名中第一个相关结果的名次倒数。明确返回空列表计零；漏题、重复命中或题集版本不符会报错。标注里的文档 ID 对应旧项目商品雷达和工作流模块；三问及排序是新写的 `SCRIPTED_FIXTURE`。有实际检索输出后，为同一题集分别导出稠密基线与混合结果，标明 `RECORDED_RETRIEVAL`，重复传 `--run` 对比。本轮的[运营规则 RAG 基准](examples/rag-evaluation/README.md)支持人工复核、成对采样和查看具体题目。[Agent 对照基准](examples/agent-evaluation/README.md)提供规划决策、token 和约束保留率的采样入口。真实指标由手动运行后生成。
 
 生产选择在 [.env.example](.env.example) 保持空值：LLM 经 Java 模型网关；Embedding 和重排端点/模型、ES、PostgreSQL 检查点、BI 只读库、Langfuse 均按实际配置启用。当前演示用内存检查点，关闭 Agent 就不会保留会话。旧版完整接口及平台外围功能见 [详细参考](REFERENCE.md)。

@@ -15,9 +15,9 @@ from pydantic import ValidationError
 from flmh_agent.domain.content import build_content_request
 from flmh_agent.domain.media_production import MediaOptions, MediaProductionRequest, media_status, summarize_media
 from flmh_agent.domain.models import AgentPlan, AgentState, ContentBrief, ProductQuery
-from flmh_agent.domain.planning import CREATOR_COUNT_TERMS
+from flmh_agent.domain.planning import CREATOR_COUNT_TERMS, request_amounts
 from flmh_agent.domain.product_trend import compare_product_snapshots
-from flmh_agent.domain.slots import INVALIDATION_ORDER, SLOT_NAMES, SLOT_DEPENDENCIES, normalize_slots, update_slots
+from flmh_agent.domain.slots import INVALIDATION_ORDER, SLOT_NAMES, SLOT_DEPENDENCIES, invalidated_conclusions, normalize_slots, slot_changes
 from flmh_agent.ports.workflow import BiQueryPort, KnowledgeQueryPort, PlannerPort, ProductContentPort
 
 
@@ -33,29 +33,40 @@ def build_workflow(
     graph = StateGraph(AgentState)
 
     async def plan_request(state: AgentState) -> dict[str, Any]:
-        overrides = {**state.get("slot_overrides", {}), **state.get("slot_updates", {})}
-        normalize_slots(overrides)
+        state = upgrade_slot_checkpoint(state)
+        previous_plan = state.get("plan", {})
+        previous_queries = previous_plan.get("queries", [])
+        previous_price, previous_local_prices = _query_price_limits(previous_queries)
+        updates = state.get("slot_updates", {})
+        prior_overrides = state.get("slot_overrides", {})
+        overrides = {**prior_overrides, **updates}
+        normalized = normalize_slots(overrides)
+        request_changed = state.get("last_user_request", state["user_request"]) != state["user_request"]
+        edited = {key for key in updates if key not in prior_overrides or overrides[key] != prior_overrides[key]}
+        keep_plan = bool(previous_plan and not request_changed and edited <= {"budget_max", "product_max_price"})
         media_context = state.get("media_revision_context")
         if media_context:
             plan = AgentPlan.model_validate({
                 **media_context["plan"], "summary": "基于明确修订字段重新规划媒体生产；本次字段合并使用本地规则，未调用模型。",
                 "media_options": media_context["updates"], "budget_currency": media_context["budget_currency"], "source": "RULES",
             })
+        elif keep_plan:
+            plan = AgentPlan.model_validate(previous_plan)
         else:
             plan = await planner.plan(state["user_request"], overrides)
-        if overrides and plan.queries:
-            updates = {}
-            if "region" in overrides:
-                updates["region"] = normalize_slots(overrides)["region"]
-            if "product" in overrides:
-                updates["keyword"] = normalize_slots(overrides)["product"]
-            if "budget_max" in overrides and not plan.create_content:
-                updates["max_price"] = normalize_slots(overrides)["budget_max"]
-            plan = AgentPlan.model_validate({
-                **plan.model_dump(),
-                "queries": [{**query.model_dump(), **updates} for query in plan.queries],
-                **({"budget_max": normalize_slots(overrides)["budget_max"]} if "budget_max" in overrides else {}),
-            })
+        explicit = {key: normalized[key] for key in overrides}
+        if (plan.queries and not plan.create_content and "budget_max" in explicit and "product_max_price" not in explicit
+                and not request_amounts(state["user_request"], create_content=False)):
+            # Legacy purchase forms supplied a single budget for the selected product and region.
+            product_form = {"product", "region", "budget_max"} <= updates.keys()
+            prior_slots = state.get("slot_values", {})
+            replaced_product = any(normalized[key] != prior_slots.get(key) for key in ("product", "region"))
+            if (product_form and replaced_product) or (not previous_plan and all(q.max_price is None for q in plan.queries)):
+                explicit["product_max_price"] = explicit["budget_max"]
+            elif previous_queries and not request_changed and not previous_plan["create_content"] and not previous_local_prices:
+                explicit["product_max_price"] = previous_price
+        plan = _bind_plan_slots(plan, explicit, currency=state.get("budget_currency_override"))
+        bound_queries = [query.model_dump() for query in plan.queries]
         _validate_plan_content(plan)
         effective = dict(overrides)
         if plan.queries:
@@ -68,22 +79,37 @@ def build_workflow(
         if plan.product_daily_id is not None:
             effective.setdefault("product", plan.product_daily_id)
         effective.setdefault("budget_max", plan.budget_max)
-        slots, invalidated = update_slots(state.get("slot_values"), effective)
-        previous = normalize_slots(state.get("slot_values"))
-        changed = {name for name in SLOT_NAMES if previous[name] != slots[name]}
+        price, local_prices = _query_price_limits(bound_queries)
+        effective.setdefault("product_max_price", price)
+        slots, changed = slot_changes(state.get("slot_values"), effective)
+        if local_prices != previous_local_prices:
+            changed.add("product_max_price")
         versions = {name: state.get("slot_versions", {}).get(name, 0) + int(name in changed) for name in SLOT_NAMES}
-        request_changed = state.get("last_user_request", state["user_request"]) != state["user_request"]
-        if request_changed or media_context:
-            invalidated = list(dict.fromkeys([*invalidated, *INVALIDATION_ORDER[1:]]))
+        invalidated = set(invalidated_conclusions(changed))
+        if previous_plan and [ProductQuery.model_validate(q).model_dump() for q in previous_queries] != bound_queries:
+            invalidated.update(("product_results", "selected_product", "content_brief"))
+        if state.get("slot_overrides", {}).get("product") != overrides.get("product"):
+            invalidated.update(("selected_product", "content_brief"))
+        if request_changed:
+            invalidated.add("content_brief")
+        if state.get("quote") or request_changed or media_context:
+            invalidated.update(invalidated_conclusions({"budget_max"}))
+        previous_request = state.get("last_user_request", state["user_request"])
+        for name in ("product_history", "product_detail", "product_daily"):
+            if previous_plan.get(name + "_id") != getattr(plan, name + "_id"):
+                invalidated.add(name)
+        if _creator_count_request(previous_request) != _creator_count_request(state["user_request"]):
+            invalidated.add("product_history")
+        slot_input = {**slots, "query_prices": local_prices} if local_prices else slots
         result = {
             "slot_values": slots,
             "slot_overrides": overrides,
             "slot_updates": {},
             "slot_versions": versions,
-            "invalidated": invalidated,
+            "invalidated": [name for name in INVALIDATION_ORDER if name in invalidated],
             "slot_version": int(state.get("slot_version", 0)) + int(bool(changed)),
-            "slot_snapshot": _fingerprint(slots),
-            "input_snapshot": _fingerprint({"request": state["user_request"], "slots": slots}),
+            "slot_snapshot": _fingerprint(slot_input),
+            "input_snapshot": _fingerprint({"request": state["user_request"], "slots": slot_input}),
             "last_user_request": state["user_request"],
             "plan": plan.model_dump(mode="json"),
             "quote": {},
@@ -102,10 +128,8 @@ def build_workflow(
             "bi_result": {},
             "required_slots": [],
             "query_failures": {},
+            "reused_queries": [],
             "knowledge_result": {},
-            "product_history": {},
-            "product_detail": {},
-            "product_daily": {},
             "configuration_todos": [],
             "conclusion_dependencies": {name: snapshot for name, snapshot in state.get("conclusion_dependencies", {}).items()
                                         if name not in invalidated},
@@ -113,6 +137,9 @@ def build_workflow(
         for name in ("product_results", "selected_product", "content_brief"):
             if name not in state or name in invalidated or not plan.queries or name == "content_brief" and not plan.create_content:
                 result[name] = [] if name == "product_results" else {}
+        for name in ("product_history", "product_detail", "product_daily"):
+            if name in invalidated or not getattr(plan, name + "_id"):
+                result[name] = {}
         return result
 
     async def run_bi_query(state: AgentState) -> dict[str, Any]:
@@ -122,18 +149,24 @@ def build_workflow(
         return {"bi_result": dict(result)}
 
     async def read_product_history(state: AgentState) -> dict[str, Any]:
+        if state.get("product_history"):
+            return {}
         product = state["plan"]["product_history_id"]
-        history = dict(await tools.get_creator_observations(product) if any(term in state["user_request"] for term in CREATOR_COUNT_TERMS)
+        history = dict(await tools.get_creator_observations(product) if _creator_count_request(state["user_request"])
                        else await tools.get_product_history(product))
         return {"product_history": history,
                 "conclusion_dependencies": _dependencies(state, "product_history")}
 
     async def read_product_detail(state: AgentState) -> dict[str, Any]:
+        if state.get("product_detail"):
+            return {}
         detail = dict(await tools.get_product_detail(state["plan"]["product_detail_id"]))
         return {"product_detail": detail,
                 "conclusion_dependencies": _dependencies(state, "product_detail")}
 
     async def read_product_daily(state: AgentState) -> dict[str, Any]:
+        if state.get("product_daily"):
+            return {}
         product_id = state["plan"]["product_daily_id"]
         detail = await tools.get_product_detail(product_id)
         source = detail["product"]["source"]
@@ -152,32 +185,33 @@ def build_workflow(
 
     async def search_products(state: AgentState) -> dict[str, Any]:
         queries = state["plan"]["queries"]
+        snapshot = _fingerprint(queries)
+        if state.get("product_results") and state.get("product_results_snapshot") == snapshot:
+            return {"reused_queries": [query.get("query_id") or f"query-{index}" for index, query in enumerate(queries, 1)]}
         results, cache, reused, failures = await _layered_search(queries, tools, state.get("query_cache", {}))
-        return {"product_results": results, "query_cache": cache, "reused_queries": reused,
+        return {"product_results": results, "product_results_snapshot": "" if failures else snapshot,
+                **({"selected_product": {}} if results != state.get("product_results") else {}),
+                "query_cache": cache, "reused_queries": reused,
                 "query_failures": failures, "error": "部分查询失败；成功结果已保留，可重试失败查询。" if failures else "",
                 "conclusion_dependencies": _dependencies(state, "product_results")}
 
     def select_product(state: AgentState) -> dict[str, Any]:
         product_slot = state.get("slot_overrides", {}).get("product")
-        products = [product for result in state["product_results"] for product in _extract_products(result)]
-        if product_slot:
-            selected = next(
-                (product for product in products if product.get("id") == product_slot or product_slot in product.get("title", "")),
-                None,
-            )
-        else:
-            selected = products[0] if products else None
+        selected = state.get("selected_product")
+        if not selected:
+            selected = next((product for result in state["product_results"] for product in _extract_products(result)
+                             if not product_slot or product.get("id") == product_slot or product_slot in product.get("title", "")), None)
         if selected is None:
             reason = "未找到指定商品" if product_slot else "未找到符合条件的商品"
             return {"error": f"{reason}；未创建内容任务。"}
         if not selected.get("id"):
             return {"error": "商品服务返回记录缺少 ID；未创建内容任务。"}
+        result: dict[str, Any] = {"selected_product": selected, "conclusion_dependencies": _dependencies(state, "selected_product")}
         if state["plan"]["create_content"] and (
             state["plan"]["budget_max"] is None or state["plan"]["budget_max"] < 0.01
         ):
-            return {"selected_product": selected, "required_slots": ["budget_max"],
-                    "error": "内容生产需要明确且至少为 0.01 的预算上限；尚未创建报价或任务。"}
-        return {"selected_product": selected, "conclusion_dependencies": _dependencies(state, "selected_product")}
+            result.update(required_slots=["budget_max"], error="内容生产需要明确且至少为 0.01 的预算上限；尚未创建报价或任务。")
+        return result
 
     def prepare_content_request(state: AgentState) -> dict[str, Any]:
         snapshot = _fingerprint({"product": state["selected_product"], "request": state["user_request"],
@@ -222,8 +256,12 @@ def build_workflow(
         quote_id = _required_identifier(quote, "quoteId", "id", "quote_id")
         budget = state["plan"]["budget_max"]
         budget_currency = state["plan"].get("budget_currency")
+        dependencies = _dependencies(state, "quote")
+        if media_request:
+            dependencies["media_request"] = dict(dependencies["quote"])
         if budget_currency and quote.get("currency") != budget_currency:
             return {"quote": dict(quote), "media_request": media_request, "budget_ok": False,
+                    "conclusion_dependencies": dependencies,
                     "error": f"请求明确使用 {budget_currency} 预算，但报价使用 {quote.get('currency')}；未换汇、未确认或创建任务，请修订预算币种。"}
         within_budget = budget is None or amount <= Decimal(str(budget))
         prompt = {
@@ -244,14 +282,15 @@ def build_workflow(
             "quote": dict(quote), "budget_ok": within_budget, "idempotency_key": quote_id,
             "confirmation_request": prompt if within_budget else {},
             "media_request": media_request,
-            "conclusion_dependencies": _dependencies(state, "quote"),
+            "conclusion_dependencies": dependencies,
         }
 
     def request_confirmation(state: AgentState) -> dict[str, Any]:
         prompt = state["confirmation_request"]
         decision = interrupt(prompt)
         confirmed = isinstance(decision, dict) and decision.get("confirmed") is True
-        return {"confirmation": {"confirmed": confirmed}, "confirmation_request": prompt}
+        return {"confirmation": {"confirmed": confirmed}, "confirmation_request": prompt,
+                "conclusion_dependencies": _dependencies(state, "confirmation")}
 
     async def confirm_quote(state: AgentState) -> dict[str, Any]:
         quote_id = _required_identifier(state["quote"], "quoteId", "id", "quote_id")
@@ -272,7 +311,7 @@ def build_workflow(
 
     async def read_task_status(state: AgentState) -> dict[str, Any]:
         task_id = _required_identifier(state["content_task"], "taskId", "id", "task_id")
-        return {"task_status": dict(await tools.get_task(task_id))}
+        return {"task_status": dict(await tools.get_task(task_id)), "conclusion_dependencies": _dependencies(state, "task_status")}
 
     async def submit_media_run(state: AgentState) -> dict[str, Any]:
         quote_id = _required_identifier(state["quote"], "quoteId")
@@ -474,8 +513,9 @@ def build_workflow(
 
 
 def _media_specification(state: AgentState) -> dict[str, Any]:
+    state = upgrade_slot_checkpoint(state)
     product = state["selected_product"]
-    region = state["plan"]["queries"][0]["region"]
+    region = selected_query_region(state)
     context = state.get("media_revision_context")
     product_context = (f"商品ID：{product['id']}\n商品：{product.get('title', product['id'])}\n目标地区：{region}\n"
                        f"数据来源：{product.get('source')}\n来源引用：{product.get('sourceRef')}\n")
@@ -483,7 +523,7 @@ def _media_specification(state: AgentState) -> dict[str, Any]:
         specification = dict(context["request"])
         if (specification["product_id"] != str(product["id"])
                 or context["slots"].get("product") != state["slot_values"].get("product")
-                or context["slots"].get("region") != state["slot_values"].get("region")):
+                or context["slots"].get("region") != region):
             specification.update(image_prompt=product_context + "制作商品图片。",
                                  video_prompt=product_context + "根据商品图片制作视频。")
     else:
@@ -495,6 +535,14 @@ def _media_specification(state: AgentState) -> dict[str, Any]:
         specification[field] = product_context + value if field in {"image_prompt", "video_prompt"} else value
     specification.update(product_id=str(product["id"]), budget_max=state["plan"]["budget_max"])
     return specification
+
+
+def selected_query_region(state: AgentState) -> str:
+    queries = state["plan"]["queries"]
+    for query, result in zip(queries, state.get("product_results", [])):
+        if state["selected_product"] in _extract_products(result):
+            return query["region"]
+    return queries[0]["region"]  # Older checkpoints may retain only the selected product.
 
 
 def _validate_media_revision_quote(quote: Mapping[str, Any], origin: Mapping[str, Any], request: Mapping[str, Any]) -> None:
@@ -583,7 +631,55 @@ def _fingerprint(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def _creator_count_request(text: str) -> bool:
+    return any(term in text for term in CREATOR_COUNT_TERMS)
+
+
+def _bind_plan_slots(plan: AgentPlan, explicit: dict[str, Any], *, currency: str | None) -> AgentPlan:
+    fields = {field: explicit[slot] for slot, field in (
+        ("region", "region"), ("product", "keyword"), ("product_max_price", "max_price")) if slot in explicit}
+    queries = []
+    for query in plan.queries:
+        overrides = fields if query.ranking_limit is None else {key: value for key, value in fields.items() if key == "region"}
+        queries.append({**query.model_dump(), **overrides})
+    return AgentPlan.model_validate({**plan.model_dump(), "queries": queries, "budget_max": explicit.get("budget_max", plan.budget_max),
+                                    "budget_currency": currency or plan.budget_currency})
+
+
+def _query_price_limits(queries: list[dict[str, Any]]) -> tuple[float | None, dict[str, float | None]]:
+    prices = {q.get("query_id") or f"query-{i}": q.get("max_price")
+              for i, q in enumerate(queries, 1) if q.get("ranking_limit") is None}
+    distinct = set(prices.values())
+    if len(distinct) > 1:
+        return None, prices
+    return next(iter(distinct), None), {}
+
+
+def upgrade_slot_checkpoint(state: AgentState) -> AgentState:
+    """Project three-slot checkpoints on read, including resumes that skip plan_request."""
+    saved = state.get("slot_values", {})
+    plan = state.get("plan", {})
+    if (not saved and not plan) or ("product_max_price" in saved and "product_max_price" in state.get("slot_versions", {})):
+        return state
+    queries = plan.get("queries", [])
+    price, local_prices = _query_price_limits(queries)
+    inferred = {"product_max_price": price, "budget_max": plan.get("budget_max")}
+    if queries:
+        inferred.update(region=queries[0]["region"], product=queries[0].get("keyword"))
+    else:
+        inferred["product"] = plan.get("product_history_id") or plan.get("product_detail_id") or plan.get("product_daily_id")
+    slots = normalize_slots({**inferred, **saved})
+    versions = dict.fromkeys(SLOT_NAMES, 0) | state.get("slot_versions", {})
+    dependencies = {name: {slot: snapshot.get(slot, versions[slot]) for slot in SLOT_DEPENDENCIES[name]}
+                    for name, snapshot in state.get("conclusion_dependencies", {}).items()}
+    slot_input = {**slots, "query_prices": local_prices} if local_prices else slots
+    return {**state, "slot_values": slots, "slot_versions": versions, "conclusion_dependencies": dependencies,
+            "slot_snapshot": _fingerprint(slot_input),
+            "input_snapshot": _fingerprint({"request": state["user_request"], "slots": slot_input})}
+
+
 def _dependencies(state: AgentState, conclusion: str) -> dict[str, dict[str, int]]:
+    state = upgrade_slot_checkpoint(state)
     return {**state.get("conclusion_dependencies", {}), conclusion: {
         name: state["slot_versions"][name] for name in SLOT_DEPENDENCIES[conclusion]
     }}

@@ -1,0 +1,34 @@
+{
+  "dialogues": [
+    {"id":"budget-is-not-price", "turns":[
+      {"user":"做一份美国选品简报。关键词用「露营灯」，商品单价上限 40，内容制作预算上限 200。", "assistant":"好，我按这份需求整理。", "check":{"product":"露营灯","region":"US","product_max_price":40,"budget_max":200}},
+      {"user":"拍摄的钱收紧到 120，只改内容制作预算。", "assistant":"收到这次预算调整。", "check":{"product_max_price":40,"budget_max":120}},
+      {"user":"单件商品可以放宽到 55，其他照旧。", "assistant":"我会沿用其余条件。", "check":{"product":"露营灯","region":"US","product_max_price":55,"budget_max":120}},
+      {"user":"市场改去英国，选品关键词换成「保温杯」。", "assistant":"市场和关键词的修改收到。", "check":{"product":"保温杯","region":"GB","product_max_price":55,"budget_max":120}},
+      {"user":"商品这边取消价格上限，拍摄经费维持刚才那版。", "assistant":"记下了。", "check":{"product_max_price":null,"budget_max":120}}
+    ]},
+    {"id":"window-eviction", "turns":[
+      {"user":"这单给美国市场做，关键词是「便携风扇」，商品单价不超过 28，制作预算 130。", "assistant":"已收到最初的选品需求。", "check":{"product":"便携风扇","region":"US","product_max_price":28,"budget_max":130}},
+      {"user":"还是做加拿大市场，前面其他条件继续用。", "assistant":"收到市场变更。", "check":{"region":"CA","product":"便携风扇"}},
+      {"user":"开头先交代用户在什么场景会用到。", "assistant":"我会先安排场景。"},
+      {"user":"标题用短句，移动端不用滑动就能读完。", "assistant":"标题要求已记下。"},
+      {"user":"如果缺少实测数据就写待验证。", "assistant":"我会标明待验证的地方。"},
+      {"user":"先把这版发给内容组审，运营后看。", "assistant":"了解审阅顺序。"},
+      {"user":"脚本文字分成开场、演示和收尾。", "assistant":"会分成三个部分。"},
+      {"user":"演示时不要出现未经许可的商标。", "assistant":"收到画面要求。"},
+      {"user":"额外留一行写拍摄时的环境噪声。", "assistant":"我会给收音留出位置。", "check":{"product":"便携风扇","region":"CA","product_max_price":28,"budget_max":130}},
+      {"user":"背景干净一些，删掉花哨的转场。", "assistant":"了解视觉方向。"},
+      {"user":"先给编辑纯文字稿，配图之后再补。", "assistant":"这版先交文字。"},
+      {"user":"卖点写给第一次用这个品类的人看。", "assistant":"会照顾初次使用者。"},
+      {"user":"每段末尾给剪辑留一个停顿。", "assistant":"收到节奏要求。"},
+      {"user":"最后一句改成邀请大家分享使用体验。", "assistant":"已记下结尾方向。"},
+      {"user":"制作预算最终定在 95，其余选品条件按之前说的交接。", "assistant":"收到最后的变更。", "check":{"product":"便携风扇","region":"CA","product_max_price":28,"budget_max":95}}
+    ]},
+    {"id":"character-cutoff", "turns":[
+      {"user":"英国市场，关键词用「收纳盒」。商品单价最多 34，内容制作预算最多 180。", "assistant":"收到。", "check":{"region":"GB","product":"收纳盒","product_max_price":34,"budget_max":180}},
+      {"user":"给剪辑组留一段英文的交接便条，重点说镜头怎么接。上面的选品需求不变。", "assistant":"Editing handoff for the studio team. Open on a clean desk with a notebook still visible at the edge of the frame. Keep the camera position fixed while the presenter moves the sample into view. Use the same angle for the before and after shots so viewers can tell what changed. Cut on the movement of a hand instead of inserting a transition. Leave a beat after each action for subtitles. Record room tone before moving any equipment. If a close-up is soft, use the spare take from the side camera. End on the finished desk, hold the frame for a moment, and leave the lower third clear for the editor who adds captions."},
+      {"user":"那段便条不用改。只把商品单件上限调低到 26，按当前条件给采购交接。", "assistant":"收到商品限价。", "check":{"region":"GB","product":"收纳盒","product_max_price":26,"budget_max":180}},
+      {"user":"内容制作预算也取消上限，市场和商品继续沿用。", "assistant":"明白。", "check":{"region":"GB","product":"收纳盒","product_max_price":26,"budget_max":null}}
+    ]}
+  ]
+}

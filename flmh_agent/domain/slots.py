@@ -5,16 +5,17 @@ import re
 from typing import Any
 
 
-SLOT_NAMES = ("product", "region", "budget_max")
+PRODUCT_SLOTS = ("product", "region", "product_max_price")
+SLOT_NAMES = (*PRODUCT_SLOTS, "budget_max")
 INVALIDATION_ORDER = (
     "product_results", "selected_product", "content_brief", "quote", "confirmation",
     "confirmed_quote", "content_task", "task_status", "summary", "product_history", "product_detail",
     "media_request", "media_run", "media_status", "product_daily",
 )
 SLOT_DEPENDENCIES = {
-    "product_results": ("product", "region", "budget_max"),
-    "selected_product": ("product", "region", "budget_max"),
-    "content_brief": ("product", "region"),
+    "product_results": PRODUCT_SLOTS,
+    "selected_product": PRODUCT_SLOTS,
+    "content_brief": PRODUCT_SLOTS,
     "quote": SLOT_NAMES,
     "confirmation": SLOT_NAMES,
     "confirmed_quote": SLOT_NAMES,
@@ -35,7 +36,7 @@ def normalize_slots(values: dict[str, Any] | None = None) -> dict[str, Any]:
     unknown = set(source) - set(SLOT_NAMES)
     if unknown:
         raise ValueError(f"unknown slot names: {sorted(unknown)}")
-    normalized: dict[str, Any] = {"product": None, "region": "ID", "budget_max": None}
+    normalized: dict[str, Any] = {"product": None, "region": "ID", "product_max_price": None, "budget_max": None}
     for name in SLOT_NAMES:
         if name not in source:
             continue
@@ -54,7 +55,7 @@ def normalize_slots(values: dict[str, Any] | None = None) -> dict[str, Any]:
                 raise ValueError("region slot must be a two-letter ISO code")
             normalized[name] = region
         else:
-            normalized[name] = _number_or_none(value)
+            normalized[name] = _number_or_none(name, value)
     return normalized
 
 
@@ -63,25 +64,30 @@ def is_product_identifier(value: str) -> bool:
                 and (value.isdigit() or any(char.isdigit() for char in value) and any(char in value for char in "-_:")))
 
 
-def update_slots(current: dict[str, Any] | None, updates: dict[str, Any] | None) -> tuple[dict[str, Any], list[str]]:
+def slot_changes(current: dict[str, Any] | None, updates: dict[str, Any] | None) -> tuple[dict[str, Any], set[str]]:
     before = normalize_slots(current)
-    unknown = set(updates or {}) - set(SLOT_NAMES)
-    if unknown:
-        raise ValueError(f"unknown slot names: {sorted(unknown)}")
     after = normalize_slots({**before, **(updates or {})})
-    changed = {name for name in SLOT_NAMES if before[name] != after[name]}
-    return after, [name for name in INVALIDATION_ORDER if changed.intersection(SLOT_DEPENDENCIES[name])]
+    return after, {name for name in SLOT_NAMES if before[name] != after[name]}
 
 
-def _number_or_none(value: Any) -> float | None:
+def invalidated_conclusions(changed: set[str]) -> list[str]:
+    return [name for name in INVALIDATION_ORDER if changed.intersection(SLOT_DEPENDENCIES[name])]
+
+
+def update_slots(current: dict[str, Any] | None, updates: dict[str, Any] | None) -> tuple[dict[str, Any], list[str]]:
+    after, changed = slot_changes(current, updates)
+    return after, invalidated_conclusions(changed)
+
+
+def _number_or_none(name: str, value: Any) -> float | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError("budget_max must be a finite non-negative number")
+        raise ValueError(f"{name} must be a finite non-negative number")
     try:
         valid = math.isfinite(value) and value >= 0
     except OverflowError:
         valid = False
     if not valid:
-        raise ValueError("budget_max must be a finite non-negative number")
+        raise ValueError(f"{name} must be a finite non-negative number")
     return float(value)

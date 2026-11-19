@@ -131,11 +131,19 @@ Set-Location 'D:\Happy\芳\flmh-p'
 
 同一用户重复 `run_id` 和完全相同输入回放已有状态；不同用户的同名运行独立。服务端按用户ID与run_id派生检查点和锁键，用户不能通过工具参数自报owner。历史无归属检查点保留且不会被新用户读取。请求体发生变化返回 409。同一 run 的并发启动、确认、修订和刷新有运行协调锁；memory 模式在单进程内生效，Postgres 模式使用 PostgreSQL advisory lock。确认请求必须带当前报价 ID，避免修订后旧页面误确认新报价。任务幂等键包含报价 ID；缺少有效预算返回 `needs_input`，不猜金额、不请求报价。异步任务返回 `processing`，GET 运行记录刷新 Java 任务状态，直到已知终态。
 
-确认生产前可以显式修订运行记录；`expected_revision` 防止并发覆盖，成功后 revision 加 1。商品、地区、预算有独立 `slotVersions`，结论保留 `conclusionDependencies`，查询按实际参数和上游结果指纹缓存；未受影响的查询复用，其余重新执行。修订将旧报价确认失效；已确认且尚未获得提交结果的运行和已提交文本任务禁止改写。媒体运行仅在服务端核实为 `FAILED` 后支持新报价修订，详见下方媒体主流程。
+确认生产前可以显式修订运行记录。请求携带当前 `expected_revision`，成功修订后 `revision` 加 1。启动与修订共用 `slot_updates`，只发送要覆盖的字段。`product`、`region`、`product_max_price`、`budget_max` 各有独立的 `slotVersions`。两个金额接受有限非负 JSON 数字，显式 `null` 清除对应限制，进入创作报价仍需至少 0.01 的预算。
+
+- `product_max_price` 设置目录查询的商品单价上限，对应 `plan.queries[].max_price`。修改后按每条查询的实际入参和上游结果指纹复用或重查，再选品、报价。榜单按地区和名次读取。同一计划可以有多个地区各自的限价，此时 `slotValues.product_max_price` 为 `null`，各自的值见查询计划。
+- `budget_max` 设置本次创作预算。只改预算保留已有商品结果、选择和查询绑定，重新报价并要求确认新的报价 ID。独立商品历史按商品 ID 和读取类型复用。`invalidated` 列出失效结论，`conclusionDependencies` 给出它们依赖的槽位版本。
+- 仅选品时，“预算50”或“不超过50”表示商品限价。旧客户端初次选品可以用 `budget_max` 提供缺省限价，改选商品或地区时一起重填商品、地区、预算的旧表单也沿用购买限价语义。单独修订结构化 `budget_max` 只更新创作预算。创作请求可同时说“商品单价不超过100元，创作预算10美元”。只含金额的修订沿用原任务，结构化字段优先。
+- 读取旧的三槽位检查点时，服务端从当时保存的查询还原商品限价，新槽位版本以 0 为基线。历史报价沿用原报价 ID 和任务幂等键。
+- PostgreSQL 后端在确认和会执行生产写入的重试中使用 `durability="sync"`。Agent 先保存确认报价的检查点，再调用 Java 提交任务。Java 已接单但 Agent 丢失回执时，通过 `POST /v1/agent/runs/{run_id}/retry` 按原幂等键取回任务。
+
+已确认且尚未取得提交结果的运行和已提交文本任务禁止改写。媒体运行仅在服务端核实为 `FAILED` 后支持新报价修订，详见下方媒体主流程。
 
 ```powershell
 Invoke-RestMethod -Method Post 'http://127.0.0.1:8090/v1/agent/runs/local-request-001/revision' `
-  -Headers $headers -ContentType 'application/json' -Body '{"expected_revision":0,"slot_updates":{"region":"CA","budget_max":40}}'
+  -Headers $headers -ContentType 'application/json' -Body '{"expected_revision":0,"slot_updates":{"product_max_price":25,"budget_max":40}}'
 ```
 
 计划最多 4 条商品查询，可选 `query_id` 与 `depends_on`。校验拒绝未知引用、重复 ID 和环；按依赖层并行执行，无依赖查询同批运行。失败后 `POST /v1/agent/runs/{run_id}/retry` 继续 LangGraph checkpoint 的失败节点；并行查询部分失败时保存成功结果，只重试失败查询及其后继。报价等待确认时不能通过 retry 绕过确认。

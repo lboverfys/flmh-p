@@ -13,12 +13,22 @@ REGION_ALIASES = {
     "印尼": "ID", "印度尼西亚": "ID", "美国": "US", "越南": "VN",
     "泰国": "TH", "英国": "GB", "马来西亚": "MY", "菲律宾": "PH",
 }
+_REGION_NAME = "(?:" + "|".join(REGION_ALIASES) + ")"
+_REGION_GROUP = re.compile(_REGION_NAME + r"(?:\s*(?:和|与|及|以及|、)\s*" + _REGION_NAME + ")*")
 CONTENT_TERMS = ("文案", "口播", "脚本", "内容", "视频", "图片")
 BI_TERMS = ("销量", "销售额", "gmv", "增长", "排名", "top", "趋势", "机会分", "风险分", "排行榜", "类目统计", "数据分析")
 CREATOR_COUNT_TERMS = ("关联达人数", "关联达人数量")
 HISTORY_TERMS = ("历史", "趋势", "快照", "history", "trend", *CREATOR_COUNT_TERMS)
 DETAIL_TERMS = ("详情", "detail")
 DAILY_TERMS = ("日统计", "日报", "每日统计", "日评分", "daily")
+
+_AMOUNT = r"\s*(人民币|美元|美金|[A-Z]{3}|¥|￥)?\s*(\d+(?:\.\d+)?)\s*(人民币|美元|美金|[A-Z]{3}|元)?"
+_CHANGE = r"\s*(?:改为|改成|修改为|修改成|调整为|调整成|[:：=]|为)?\s*"
+_LIMIT = r"(?:不超过|不高于|最多)"
+_BUDGET = re.compile(r"(?:创作|内容(?:生产)?|制作|生产)?预算(?:上限)?" + _CHANGE + _LIMIT + "?" + _AMOUNT, re.I)
+_PRICE = re.compile(r"(?:(?:商品|产品)?(?:价格|单价|售价|限价)|(?:商品|产品|选品|采购|购买)预算)(?:上限)?"
+                    + _CHANGE + _LIMIT + "?" + _AMOUNT, re.I)
+_BARE_LIMIT = re.compile(_LIMIT + _AMOUNT, re.I)
 
 
 class Planner(Protocol):
@@ -39,7 +49,8 @@ class RuleBasedPlanner:
             return AgentPlan(summary="按地区读取已发布榜单索引。", queries=[ProductQuery(region=region, ranking_limit=int(ranking[2] or 20))],
                              create_content=False, content_type="", source="RULES")
         knowledge_query = text if "知识库" in text or "检索资料" in text else None
-        wants_content = any(term in text for term in CONTENT_TERMS)
+        intent = _BUDGET.sub("", text)
+        wants_content = any(term in intent for term in CONTENT_TERMS)
         wants_media = "视频" in text and not any(term in text for term in ("脚本", "文案", "口播"))
         daily_id = find_daily_product_id(text, slots)
         if daily_id is not None and not wants_content:
@@ -66,32 +77,32 @@ class RuleBasedPlanner:
                 analysis_question=text,
                 source="RULES",
             )
-        regions = ([normalized["region"]] if "region" in slots else _find_regions(text)) or [normalized["region"]]
+        filters = without_media_fields(text)
+        request_regions = _find_regions(filters)
+        regions = ([normalized["region"]] if "region" in slots else request_regions) or [normalized["region"]]
         if len(regions) > 4:
             raise ValueError("at most 4 independent region queries are allowed")
-        budget = normalized["budget_max"]
-        if "budget_max" not in slots:
-            budget = _find_budget(text, content_budget=wants_content)
-        keyword = normalized["product"] or _find_keyword(text)
+        amounts = request_amounts(filters, wants_content)
+        budget = slots.get("budget_max", amounts.get("budget_max"))
+        price = amounts.get("product_max_price")
+        keyword = normalized["product"] if "product" in slots else _find_keyword(filters)
+        regional = _regional_filters(filters, request_regions, wants_content)
+        regional_keywords = "product" not in slots and any(word is not None for word, _ in regional.values())
+        regional_limits = any(limit is not None for _, limit in regional.values())
         queries = []
         for region in regions:
-            query: dict[str, object] = {"region": region}
-            if keyword:
-                query["keyword"] = keyword
-            if budget is not None and not wants_content:
-                query["max_price"] = budget
-            if wants_content:
-                price = re.search(r"商品(?:价格|单价|售价)\s*(?:不超过|不高于|最多)\s*(\d+(?:\.\d+)?)", text)
-                if price:
-                    query["max_price"] = float(price.group(1))
-            queries.append(ProductQuery.model_validate(query))
+            local_keyword, local_price = regional.get(region, (None, None))
+            query_keyword = local_keyword if regional_keywords else keyword
+            query_price = local_price if regional_limits else price
+            queries.append(ProductQuery(region=region, keyword=query_keyword,
+                                        max_price=slots.get("product_max_price", query_price)))
         return AgentPlan(
             summary="本地规则规划；未调用模型。",
             queries=queries,
             create_content=wants_content,
             content_type="product_media" if wants_media else "product_script" if wants_content else "",
             budget_max=budget,
-            budget_currency=find_budget_currency(text, content_budget=wants_content),
+            budget_currency=find_budget_currency(text, create_content=wants_content) if "budget_max" in amounts else None,
             media_options=explicit_media_options(text) if wants_media else {},
             analysis_question=None,
             knowledge_query=knowledge_query,
@@ -135,15 +146,58 @@ def _find_regions(text: str) -> list[str]:
     return list(dict.fromkeys(code for _, code in matches))
 
 
-def _budget_match(text: str, content_budget: bool):
-    budget_prefix = r"预算\s*(?:改为|改成|修改为|修改成|调整为|调整成|[:：=])?\s*(?:不超过|不高于|最多)?"
-    prefix = budget_prefix if content_budget else rf"(?:{budget_prefix}|最多|不超过|不高于)"
-    return re.search(prefix + r"\s*(人民币|美元|美金|[A-Z]{3}|¥|￥)?\s*(\d+(?:\.\d+)?)\s*(人民币|美元|美金|[A-Z]{3}|元)?", without_media_fields(text), re.IGNORECASE)
+def _money_matches(text: str, create_content: bool) -> tuple[re.Match | None, re.Match | None]:
+    text = without_media_fields(text)
+    price = _PRICE.search(text)
+    remaining = _PRICE.sub(" ", text)
+    budget = None
+    for match in _BUDGET.finditer(remaining):
+        if not create_content and match[0].startswith("预算"):
+            price = price or match
+        elif budget is None:
+            budget = match
+    if price is None and not create_content:
+        price = _BARE_LIMIT.search(_BUDGET.sub(" ", remaining))
+    return price, budget
 
 
-def _find_budget(text: str, *, content_budget: bool = False) -> float | None:
-    match = _budget_match(text, content_budget)
-    return float(match.group(2)) if match else None
+def request_amounts(text: str, create_content: bool) -> dict[str, float]:
+    price, budget = _money_matches(text, create_content)
+    amounts = {"product_max_price": float(price[2])} if price else {}
+    if budget:
+        amounts["budget_max"] = float(budget[2])
+    return amounts
+
+
+def _regional_filters(text: str, regions: list[str], create_content: bool) -> dict[str, tuple[str | None, float | None]]:
+    if len(regions) < 2:
+        return {}
+    scoped = {}
+    active = []
+    # Enumeration commas inside a region list join its members; elsewhere they separate filters.
+    text = _REGION_GROUP.sub(lambda m: m[0].replace("、", "和"), text)
+    for clause in re.split(r"[，,；;。、\n]", text):
+        boundaries = [match.start() for match in _REGION_GROUP.finditer(clause)][1:]
+        for start, end in zip([0, *boundaries], [*boundaries, len(clause)]):
+            part = clause[start:end]
+            local = _find_regions(part)
+            if local:
+                active = local
+            keyword = _find_keyword(part) if local else None
+            price = request_amounts(part, create_content).get("product_max_price")
+            for region in active:
+                previous_keyword, previous_price = scoped.get(region, (None, None))
+                scoped[region] = (keyword or previous_keyword, price if price is not None else previous_price)
+    return scoped
+
+
+def money_revision_slots(text: str, create_content: bool) -> dict[str, float]:
+    remaining = _BUDGET.sub("", _PRICE.sub("", text))
+    if not create_content:
+        remaining = _BARE_LIMIT.sub("", remaining)
+    if re.fullmatch(r"(?:[\s，,；;。！!、]|请|把|将|并且|并|和|以及)*", remaining):
+        return request_amounts(text, create_content)
+    return {}
 
 
 def explicit_revision_slots(text: str) -> dict[str, object]:
@@ -157,15 +211,13 @@ def explicit_revision_slots(text: str) -> dict[str, object]:
     if region:
         raw = region.group(1).strip()
         updates["region"] = REGION_ALIASES.get(raw, raw)
-    budget = _find_budget(text, content_budget=True)
-    if budget is not None:
-        updates["budget_max"] = budget
+    updates.update(request_amounts(text, create_content=True))
     normalized = normalize_slots(updates)
     return {key: normalized[key] for key in updates}
 
 
-def find_budget_currency(text: str, *, content_budget: bool = False) -> str | None:
-    match = _budget_match(text, content_budget)
+def find_budget_currency(text: str, *, create_content: bool = True) -> str | None:
+    _, match = _money_matches(text, create_content)
     if not match:
         return None
     unit = (match.group(1) or match.group(3) or "").upper()
@@ -179,7 +231,7 @@ def find_budget_currency(text: str, *, content_budget: bool = False) -> str | No
 
 
 def _find_keyword(text: str) -> str | None:
-    cleaned = re.sub(r"商品(?:价格|单价|售价)\s*(?:不超过|不高于|最多)\s*\d+(?:\.\d+)?\s*(?:元|美元)?", " ", without_media_fields(text))
+    cleaned = _BARE_LIMIT.sub(" ", _BUDGET.sub(" ", _PRICE.sub(" ", text)))
     for phrase in (
         "请帮我", "请给我", "帮我", "给我", "帮忙", "请问", "请", "在", "查找", "查询", "搜索", "查", "找",
         "生成", "制作", "写一段", "写个", "写", "比较", "对比", "选品并", "选品", "商品", "产品",
@@ -188,6 +240,6 @@ def _find_keyword(text: str) -> str | None:
     ):
         cleaned = cleaned.replace(phrase, " ")
     cleaned = re.sub(r"(?:人民币|美元|美金|[A-Z]{3}|¥|￥)?\s*\d+(?:\.\d+)?\s*(?:人民币|美元|美金|[A-Z]{3}|元)?", " ", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"[，,。；;]", " ", cleaned)
+    cleaned = re.sub(r"[，,。；;、]", " ", cleaned)
     keyword = " ".join(cleaned.split()).strip(" ，,。；;的和并为给")
     return keyword[:80] or None

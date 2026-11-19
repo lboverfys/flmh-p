@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Literal, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 from datetime import date
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, with_config
 
 from flmh_agent.domain.media_production import MediaOptions
 
@@ -134,11 +134,22 @@ class ContentBrief(BaseModel):
     provider: str
 
 
+SlotAmount = Annotated[int, Field(strict=True, ge=0)] | Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
+
+
+@with_config(ConfigDict(extra="forbid"))
+class SlotUpdates(TypedDict, total=False):
+    product: str | None
+    region: str | None
+    product_max_price: SlotAmount | None
+    budget_max: SlotAmount | None
+
+
 class AgentInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     user_request: str = Field(min_length=1, max_length=4000)
-    slot_updates: dict[str, Any] = Field(default_factory=dict)
+    slot_updates: SlotUpdates = Field(default_factory=dict)
 
     @field_validator("user_request")
     @classmethod
@@ -170,7 +181,7 @@ class RevisionInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int = Field(strict=True, ge=0)
     user_request: str | None = Field(default=None, min_length=1, max_length=4000)
-    slot_updates: dict[str, Any] = Field(default_factory=dict)
+    slot_updates: SlotUpdates = Field(default_factory=dict)
     media_updates: MediaOptions = Field(default_factory=MediaOptions)
 
     @field_validator("user_request")
@@ -217,8 +228,10 @@ class AgentState(TypedDict, total=False):
     revision: int
     slot_versions: dict[str, int]
     slot_overrides: dict[str, Any]
+    budget_currency_override: str | None
     last_user_request: str
     query_cache: dict[str, dict[str, Any]]
+    product_results_snapshot: str
     conclusion_dependencies: dict[str, dict[str, int]]
     reused_queries: list[str]
     query_failures: dict[str, str]

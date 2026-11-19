@@ -8,18 +8,24 @@ from flmh_agent.domain.rag import Chunk
 from flmh_agent.ports.rag import HybridEmbeddingPort, KnowledgeIngestionStorePort
 
 
-def chunk_document(document_id: str, version: str, source_ref: str, text: str) -> Iterator[tuple[Chunk, list[Chunk]]]:
+PARENT_SIZE = 3000
+CHILD_SIZE = 800
+CHILD_STRIDE = 700
+
+
+def chunk_document(document_id: str, version: str, source_ref: str, text: str, *,
+                   parent_start: int = 0) -> Iterator[tuple[Chunk, list[Chunk]]]:
     if not document_id.strip() or not version.strip() or not source_ref.strip() or not text.strip():
         raise ValueError("document_id, version, source_ref and text are required")
     if len(text.encode("utf-8")) > 1024 * 1024:
         raise ValueError("one ingestion document must not exceed 1 MiB")
     prefix = hashlib.sha256(f"{document_id}\n{version}".encode()).hexdigest()[:32]
-    for parent_index, offset in enumerate(range(0, len(text), 3000)):
-        parent_text = text[offset:offset+3000]
+    for parent_index, offset in enumerate(range(0, len(text), PARENT_SIZE), start=parent_start):
+        parent_text = text[offset:offset + PARENT_SIZE]
         parent = Chunk(f"{prefix}-p{parent_index}", "", parent_text, source_ref=source_ref, document_id=document_id, version=version)
-        children = [Chunk(f"{parent.chunk_id}-c{index}", parent.chunk_id, parent_text[start:start+800],
+        children = [Chunk(f"{parent.chunk_id}-c{index}", parent.chunk_id, parent_text[start:start + CHILD_SIZE],
                           source_ref=source_ref, document_id=document_id, version=version)
-                    for index, start in enumerate(range(0, len(parent_text), 700))]
+                    for index, start in enumerate(range(0, len(parent_text), CHILD_STRIDE))]
         yield parent, children
 
 
@@ -30,9 +36,13 @@ class KnowledgeIngestion:
 
     async def ingest(self, document_id: str, version: str, source_ref: str, text: str) -> dict:
         groups = chunk_document(document_id, version, source_ref, text)
+        return await self.ingest_groups(document_id, version, source_ref, hashlib.sha256(text.encode()).hexdigest(), groups)
+
+    async def ingest_groups(self, document_id: str, version: str, source_ref: str, content_hash: str,
+                            groups: Iterator[tuple[Chunk, list[Chunk]]]) -> dict:
         first = next(groups)
         await self.store.ensure_index(document_id, version)
-        reservation = await self.store.reserve_document(document_id, version, source_ref, hashlib.sha256(text.encode("utf-8")).hexdigest())
+        reservation = await self.store.reserve_document(document_id, version, source_ref, content_hash)
         if reservation == "PUBLISHED":
             return {"documentId": document_id, "version": version, "sourceRef": source_ref,
                     "mode": "ALREADY_PUBLISHED", "source": "CONFIGURED_ADAPTERS"}

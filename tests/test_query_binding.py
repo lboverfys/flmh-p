@@ -193,6 +193,37 @@ class QueryBindingTests(IdentityTestCase):
         self.assertEqual(calls[3], {"region": "TH", "keyword": "red", "category": "red-category", "max_price": 40})
         self.assertEqual(len(calls), 4)
 
+        budget = await application.revise("bound-slots", {"expected_revision": 1, "slot_updates": {"budget_max": 35}})
+        self.assertEqual(budget["slotValues"]["product_max_price"], 40)
+        self.assertNotIn("selected_product", budget["invalidated"])
+        self.assertEqual(len(calls), 4)
+
+    async def test_heterogeneous_price_change_reuses_only_unaffected_queries(self):
+        origin, child = binding_plan().queries
+        ranking = ProductQuery(region="CA", query_id="ranking", ranking_limit=5)
+        planner = AsyncMock(side_effect=[query_plan(origin, child, ranking),
+                                         query_plan(origin, child.model_copy(update={"max_price": 7}), ranking)])
+        search = AsyncMock(side_effect=fixture_products)
+        graph = build_workflow(planner=SimpleNamespace(plan=planner), tools=SimpleNamespace(search_products=search))
+        config = {"configurable": {"thread_id": "local-prices"}}
+        first = await graph.ainvoke({"user_request": "美国选品、印尼同类限价20和加拿大榜单"}, config)
+        budget = await graph.ainvoke({"slot_updates": {"budget_max": 100}}, config)
+        self.assertEqual(planner.await_count, 1)
+        self.assertEqual(search.await_count, 3)
+        self.assertEqual([q["max_price"] for q in budget["plan"]["queries"]], [None, 20, None])
+        self.assertNotIn("product_results", budget["invalidated"])
+        changed = await graph.ainvoke({"user_request": "美国选品、印尼同类限价7和加拿大榜单"}, config)
+        self.assertIsNone(changed["slot_values"]["product_max_price"])
+        self.assertEqual(changed["slot_versions"]["product_max_price"], first["slot_versions"]["product_max_price"] + 1)
+        self.assertNotEqual(changed["slot_snapshot"], budget["slot_snapshot"])
+        self.assertEqual(changed["reused_queries"], ["origin", "ranking"])
+        self.assertEqual(search.await_count, 4)
+        self.assertEqual(search.await_args.args[0], {"region": "ID", "category": "camping", "keyword": "gift", "max_price": 7})
+        global_cap = await graph.ainvoke({"slot_updates": {"product_max_price": 7}}, config)
+        self.assertEqual([q["max_price"] for q in global_cap["plan"]["queries"]], [7, 7, None])
+        self.assertEqual(global_cap["reused_queries"], ["ranking", "similar"])
+        self.assertEqual(search.await_count, 5)
+
     async def test_model_planner_accepts_and_describes_the_narrow_binding_contract(self):
         requests = []
 
@@ -209,3 +240,5 @@ class QueryBindingTests(IdentityTestCase):
         self.assertIn("category_from_query", prompt)
         self.assertIn("第一条商品", prompt)
         self.assertIn("不得同时填静态 category", prompt)
+        self.assertIn("slots.product_max_price", prompt)
+        self.assertIn("budget_max", prompt)

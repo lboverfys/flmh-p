@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Annotated, Literal
@@ -14,6 +15,8 @@ class Record(BaseModel):
 
 
 Identifier = Annotated[str, Field(min_length=1)]
+Digest = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+Granularity = Literal["document", "parent"]
 
 
 class Case(Record):
@@ -25,6 +28,12 @@ class Case(Record):
 class Judgments(Record):
     dataset: Identifier
     cases: list[Case] = Field(min_length=1)
+    granularity: Granularity = "document"
+    corpus_sha256: Digest | None = None
+    reviewer: str = ""
+
+    def fingerprint(self) -> str:
+        return hashlib.sha256(self.model_dump_json().encode()).hexdigest()
 
     @model_validator(mode="after")
     def unique_labels(self):
@@ -35,16 +44,40 @@ class Judgments(Record):
         return self
 
 
+class Recording(Record):
+    judgments_sha256: Digest
+    corpus_sha256: Digest
+    pit_sha256: Digest
+    recorded_at_utc: Identifier
+    indices: list[Identifier] = Field(min_length=1)
+    embedding_model: Identifier
+    embedding_dimension: int = Field(ge=1)
+    reranker_model: Identifier
+    ranking_depth: int = Field(ge=1, le=100)
+    candidate_multiplier: int = Field(ge=1, le=10)
+
+
 class Rankings(Record):
     name: Identifier
     dataset: Identifier
     source: Literal["SCRIPTED_FIXTURE", "RECORDED_RETRIEVAL"]
     rankings: dict[Identifier, list[Identifier]]
+    granularity: Granularity = "document"
+    recording: Recording | None = None
 
 
 def score(gold: Judgments, run: Rankings, k: int = 5) -> dict:
     if k < 1 or run.dataset != gold.dataset or set(run.rankings) != {c.id for c in gold.cases}:
         raise ValueError("positive k, matching dataset and exactly one ranking per question required")
+    if run.granularity != gold.granularity:
+        raise ValueError("ranking and judgment granularity differ")
+    if gold.corpus_sha256 is not None or run.recording is not None:
+        meta = run.recording
+        if (meta is None or run.source != "RECORDED_RETRIEVAL" or meta.corpus_sha256 != gold.corpus_sha256
+                or meta.judgments_sha256 != gold.fingerprint() or k > meta.ranking_depth):
+            raise ValueError("recording does not match frozen labels, corpus or requested depth")
+        if any(len(ids) > meta.ranking_depth for ids in run.rankings.values()):
+            raise ValueError("ranking exceeds recorded depth")
     recalls, reciprocal_ranks = [], []
     for case in gold.cases:
         ranked = run.rankings[case.id]
@@ -54,8 +87,33 @@ def score(gold: Judgments, run: Rankings, k: int = 5) -> dict:
         recalls.append(len(relevant.intersection(ranked[:k])) / len(relevant))
         first = next((i for i, doc in enumerate(ranked, 1) if doc in relevant), None)
         reciprocal_ranks.append(1 / first if first else 0.0)
-    return {"dataset": gold.dataset, "run": run.name, "source": run.source, "queries": len(gold.cases),
-            f"recall@{k}": sum(recalls) / len(recalls), "mrr": sum(reciprocal_ranks) / len(reciprocal_ranks)}
+    result = {"dataset": gold.dataset, "run": run.name, "source": run.source, "queries": len(gold.cases),
+              f"recall@{k}": sum(recalls) / len(recalls), "mrr": sum(reciprocal_ranks) / len(reciprocal_ranks)}
+    if run.recording:
+        result.update(granularity=gold.granularity, ranking_depth=run.recording.ranking_depth)
+    return result
+
+
+def paired_report(gold: Judgments, runs: list[Rankings], k: int) -> dict:
+    by_name = {run.name: run for run in runs}
+    if len(runs) != 2 or set(by_name) != {"dense-only", "hybrid"}:
+        raise ValueError("case comparison requires one dense-only and one hybrid recording")
+    dense, hybrid = by_name["dense-only"], by_name["hybrid"]
+    if gold.granularity != "parent" or dense.recording is None or dense.recording != hybrid.recording:
+        raise ValueError("case comparison requires two parent rankings from the same recording and PIT")
+    scores = [score(gold, run, k) for run in (dense, hybrid)]
+    groups: dict[str, list[dict]] = {"recovered": [], "still_missed": [], "regressed": []}
+    for case in gold.cases:
+        baseline, combined = dense.rankings[case.id][:k], hybrid.rankings[case.id][:k]
+        relevant = set(case.relevant)
+        before, after = bool(relevant.intersection(baseline)), bool(relevant.intersection(combined))
+        if before and after:
+            continue
+        group = "recovered" if after else "regressed" if before else "still_missed"
+        groups[group].append({"id": case.id, "question": case.question, "relevant": case.relevant,
+                              "dense_top_k": baseline, "hybrid_top_k": combined})
+    return {"k": k, "granularity": "parent", "recording": dense.recording.model_dump(),
+            "scores": scores, **groups}
 
 
 def main() -> None:
@@ -63,13 +121,26 @@ def main() -> None:
     parser.add_argument("--judgments", required=True, type=Path)
     parser.add_argument("--run", required=True, type=Path, action="append", help="rankings from one retriever; repeat for a baseline")
     parser.add_argument("--k", type=int, default=5)
+    parser.add_argument("--compare-cases", action="store_true", help="extract recovered, still-missed and regressed questions")
+    parser.add_argument("--output", type=Path, help="save to a new JSON file instead of stdout")
     args = parser.parse_args()
     try:
         gold = Judgments.model_validate_json(args.judgments.read_bytes())
-        scores = [score(gold, Rankings.model_validate_json(path.read_bytes()), args.k) for path in args.run]
+        runs = [Rankings.model_validate_json(path.read_bytes()) for path in args.run]
+        if args.compare_cases:
+            report = paired_report(gold, runs, args.k)
+        else:
+            if runs[0].recording is not None and any(run.recording != runs[0].recording for run in runs):
+                raise ValueError("cannot compare runs from different recordings")
+            report = [score(gold, run, args.k) for run in runs]
+        text = json.dumps(report, ensure_ascii=False, indent=2)
+        if args.output:
+            with args.output.open("x", encoding="utf-8") as output:
+                print(text, file=output)
+        else:
+            print(text)
     except (OSError, ValidationError, ValueError) as error:
         parser.exit(2, f"evaluation failed: {error}\n")
-    print(json.dumps(scores, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

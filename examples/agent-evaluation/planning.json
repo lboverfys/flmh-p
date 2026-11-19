@@ -1,0 +1,33 @@
+{
+  "catalog": [
+    {"id":"us-a4", "title":"折叠露营灯", "region":"US", "category":"LT-07", "price":29},
+    {"id":"us-k9", "title":"充电露营灯", "region":"US", "category":"LT-07", "price":48},
+    {"id":"us-r3", "title":"折叠水杯", "region":"US", "category":"DR-12", "price":12},
+    {"id":"ca-h8", "title":"随行保温杯", "region":"CA", "category":"DR-12", "price":24},
+    {"id":"ca-s5", "title":"户外餐盒", "region":"CA", "category":"KT-06", "price":17},
+    {"id":"ca-n7", "title":"钛制保温杯", "region":"CA", "category":"DR-12", "price":65},
+    {"id":"id-p2", "title":"竹编餐篮", "region":"ID", "category":"KT-06", "price":18},
+    {"id":"id-w6", "title":"营地挂灯", "region":"ID", "category":"LT-07", "price":31},
+    {"id":"id-b1", "title":"应急手提灯", "region":"ID", "category":"LT-07", "price":39},
+    {"id":"gb-d3", "title":"桌面收纳盒", "region":"GB", "category":"ST-03", "price":21},
+    {"id":"gb-f8", "title":"便携风扇", "region":"GB", "category":"CL-02", "price":32}
+  ],
+  "tasks": [
+    {"id":"single-price", "request":"在美国目录用关键词「露营灯」查询，商品单价最多 30，给我所有符合条件的商品 ID。", "checks":[
+      {"query":{"region":"US","keyword":"露营灯","max_price":30},"ids":["us-a4"]}
+    ]},
+    {"id":"independent-markets", "request":"并列查两件事：加拿大榜单前两名，以及英国目录里关键词「收纳盒」的全部商品。按市场分别给商品 ID。", "checks":[
+      {"query":{"region":"CA","ranking_limit":2},"ids":["ca-h8","ca-s5"]},
+      {"query":{"region":"GB","keyword":"收纳盒"},"ids":["gb-d3"]}
+    ]},
+    {"id":"bound-category", "request":"查美国目录关键词「露营灯」的全部商品，同时查加拿大商品榜第一名。用美国结果第一件商品的类目去印尼目录找同类，印尼只保留单价不超过 35 的商品。列出三个市场各自的商品 ID。", "checks":[
+      {"query":{"region":"US","keyword":"露营灯"},"ids":["us-a4","us-k9"]},
+      {"query":{"region":"CA","ranking_limit":1},"ids":["ca-h8"]},
+      {"query":{"region":"ID","category":"LT-07","max_price":35},"after_region":"US","ids":["id-w6"]}
+    ]},
+    {"id":"empty-result", "request":"分别在加拿大和英国目录用关键词「保温杯」找单价不超过 25 的全部商品 ID。没有结果的市场也要列出来。", "checks":[
+      {"query":{"region":"CA","keyword":"保温杯","max_price":25},"ids":["ca-h8"]},
+      {"query":{"region":"GB","keyword":"保温杯","max_price":25},"ids":[]}
+    ]}
+  ]
+}

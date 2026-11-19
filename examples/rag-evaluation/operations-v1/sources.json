@@ -1,0 +1,40 @@
+{
+  "dataset": "flmh-radar-ops-v1",
+  "revision": "af8a6d97c1bb46f87e56e2f7fbac95ecd72faffb",
+  "documents": [
+    {
+      "id": "manual",
+      "path": "docs/product-radar-operation-manual.md",
+      "sha256": "4a5defc0a6388e5224c4762facae5aebb0c9b545c1479f04bf101e9c1a039dd0",
+      "sections": [
+        [9, 20],
+        [22, 49],
+        [51, 76],
+        [78, 200],
+        [202, 312],
+        [314, 363],
+        [365, 467],
+        [469, 497],
+        [499, 538],
+        [540, 566]
+      ]
+    },
+    {
+      "id": "foundation",
+      "path": "docs/product-radar-data-foundation.md",
+      "sha256": "7345f132c0ba86601d73d84ea29438d7d544b0873995941de6fefd9bf34a7236",
+      "sections": [
+        [574, 649],
+        [651, 757],
+        [761, 819],
+        [821, 831],
+        [835, 878],
+        [882, 936],
+        [1094, 1112],
+        [1116, 1155],
+        [1159, 1201],
+        [1205, 1235]
+      ]
+    }
+  ]
+}

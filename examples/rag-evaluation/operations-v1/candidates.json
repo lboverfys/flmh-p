@@ -1,0 +1,568 @@
+{
+  "dataset": "flmh-radar-ops-v1",
+  "corpus_sha256": "a6a267ff1a0ffc5c037a6a48a0a631409682507513fc677071ea3889b08092dd",
+  "reviewer": "",
+  "cases": [
+    {
+      "id": "menu-key",
+      "question": "同一 FLMH 账号升级会员后找不到雷达入口，管理员该查哪个菜单键？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":28,"quote":"`PRODUCT_RADAR`","parent":"f050e83390bdf64c6528e9b404d0b870-p1","child":"f050e83390bdf64c6528e9b404d0b870-p1-c0"}
+      ]
+    },
+    {
+      "id": "admin-queue",
+      "question": "运营要看后台集采任务进度，该从哪个入口进，账号需要什么权限？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":39,"quote":"在管理后台左侧导航点击“集采任务”","parent":"f050e83390bdf64c6528e9b404d0b870-p1","child":"f050e83390bdf64c6528e9b404d0b870-p1-c0"},
+        {"document":"manual","line":41,"quote":"集采任务相关接口需要管理员权限","parent":"f050e83390bdf64c6528e9b404d0b870-p1","child":"f050e83390bdf64c6528e9b404d0b870-p1-c0"}
+      ]
+    },
+    {
+      "id": "worker-off",
+      "question": "后端已经启动却一直没人领取 FastMoss 任务，哪个开关会禁止 Worker 自动执行？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":59,"quote":"PRODUCT_RADAR_WORKER_DISABLED=true","parent":"f050e83390bdf64c6528e9b404d0b870-p2","child":"f050e83390bdf64c6528e9b404d0b870-p2-c0"}
+      ]
+    },
+    {
+      "id": "region-default",
+      "question": "运营把印尼写成 ID，FastMoss 默认国家对应哪个配置项？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":63,"quote":"`FASTMOSS_DEFAULT_REGION`：默认国家，当前常用 `ID`","parent":"f050e83390bdf64c6528e9b404d0b870-p2","child":"f050e83390bdf64c6528e9b404d0b870-p2-c0"}
+      ]
+    },
+    {
+      "id": "page-vs-size",
+      "question": "我想少抓几页，但保留单页商品数。FastMoss 的页数和每页数量分别由哪两个配置控制？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":64,"quote":"`FASTMOSS_DEFAULT_PAGES`：默认采集页数","parent":"f050e83390bdf64c6528e9b404d0b870-p2","child":"f050e83390bdf64c6528e9b404d0b870-p2-c0"},
+        {"document":"manual","line":65,"quote":"`FASTMOSS_DEFAULT_PAGESIZE`：默认每页数量","parent":"f050e83390bdf64c6528e9b404d0b870-p2","child":"f050e83390bdf64c6528e9b404d0b870-p2-c0"}
+      ]
+    },
+    {
+      "id": "th-vn-template",
+      "question": "越南和泰国要分别建采集模板，国家字段各填哪两个缩写？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":93,"quote":"泰国 `TH`、越南 `VN`","parent":"f050e83390bdf64c6528e9b404d0b870-p3","child":"f050e83390bdf64c6528e9b404d0b870-p3-c0"}
+      ]
+    },
+    {
+      "id": "new-only",
+      "question": "“印尼新品榜集采”取消“只采新品”后，采集范围会怎样变？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":98,"quote":"关闭后采集全部商品范围","parent":"f050e83390bdf64c6528e9b404d0b870-p3","child":"f050e83390bdf64c6528e9b404d0b870-p3-c0"}
+      ]
+    },
+    {
+      "id": "template-sort",
+      "question": "模板里没有改排序，默认会把哪个排序参数送给采集源？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":97,"quote":"默认 `2,2`","parent":"f050e83390bdf64c6528e9b404d0b870-p3","child":"f050e83390bdf64c6528e9b404d0b870-p3-c0"}
+      ]
+    },
+    {
+      "id": "old-snapshot",
+      "question": "改小了模板页数，昨天生成的运行快照也会跟着被改写吗？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":118,"quote":"保存模板只影响后续运行","parent":"f050e83390bdf64c6528e9b404d0b870-p3","child":"f050e83390bdf64c6528e9b404d0b870-p3-c0"},
+        {"document":"manual","line":119,"quote":"已经生成的运行快照不会被回写修改","parent":"f050e83390bdf64c6528e9b404d0b870-p3","child":"f050e83390bdf64c6528e9b404d0b870-p3-c0"}
+      ]
+    },
+    {
+      "id": "rerun-existing",
+      "question": "同一模板已经有一条冷却中的任务，再点击运行，手册说会优先处理哪条任务？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":133,"quote":"再次运行会优先恢复已有任务","parent":"f050e83390bdf64c6528e9b404d0b870-p3","child":"f050e83390bdf64c6528e9b404d0b870-p3-c1"}
+      ]
+    },
+    {
+      "id": "snapshot-pages",
+      "question": "我想知道一单集采下次从哪页接着抓，运行快照的哪个字段能看到成功和失败页数？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":145,"quote":"当前页、总页数、下次页码、成功页数、失败页数","parent":"f050e83390bdf64c6528e9b404d0b870-p3","child":"f050e83390bdf64c6528e9b404d0b870-p3-c1"}
+      ]
+    },
+    {
+      "id": "resume-cooling",
+      "question": "还没到下一次可执行时间就点“恢复”，任务会立刻开始抓取吗？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":179,"quote":"恢复后仍会保持冷却中","parent":"f050e83390bdf64c6528e9b404d0b870-p3","child":"f050e83390bdf64c6528e9b404d0b870-p3-c1"}
+      ]
+    },
+    {
+      "id": "cancel-finish",
+      "question": "配错国家后在运行快照取消任务，这次记录会写进哪个时间，能再恢复吗？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":196,"quote":"任务状态变为已取消，并写入完成时间","parent":"f050e83390bdf64c6528e9b404d0b870-p3","child":"f050e83390bdf64c6528e9b404d0b870-p3-c2"},
+        {"document":"manual","line":180,"quote":"已取消任务不能恢复","parent":"f050e83390bdf64c6528e9b404d0b870-p3","child":"f050e83390bdf64c6528e9b404d0b870-p3-c1"}
+      ]
+    },
+    {
+      "id": "refresh-scope",
+      "question": "刚采完货，前台点刷新会沿用我选好的地区、类目和排序吗？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":216,"quote":"重新请求当前地区、类目、排序和筛选条件下的数据","parent":"f050e83390bdf64c6528e9b404d0b870-p4","child":"f050e83390bdf64c6528e9b404d0b870-p4-c0"}
+      ]
+    },
+    {
+      "id": "region-reset",
+      "question": "从印尼切到泰国之后，原先选的三级类目为什么消失了？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":237,"quote":"重新加载该地区下有雷达数据的类目树，并重置类目选择","parent":"f050e83390bdf64c6528e9b404d0b870-p4","child":"f050e83390bdf64c6528e9b404d0b870-p4-c0"}
+      ]
+    },
+    {
+      "id": "content-order",
+      "question": "我们靠短视频和直播找货，手册建议先切哪种热度排序？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":247,"quote":"优先看视频、直播等内容热度","parent":"f050e83390bdf64c6528e9b404d0b870-p4","child":"f050e83390bdf64c6528e9b404d0b870-p4-c0"},
+        {"document":"manual","line":254,"quote":"找内容驱动型商品","parent":"f050e83390bdf64c6528e9b404d0b870-p4","child":"f050e83390bdf64c6528e9b404d0b870-p4-c0"}
+      ]
+    },
+    {
+      "id": "low-risk",
+      "question": "想稳健跟进时，选低风险排序后还要复核哪两项？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":255,"quote":"再结合销量和利润复核","parent":"f050e83390bdf64c6528e9b404d0b870-p4","child":"f050e83390bdf64c6528e9b404d0b870-p4-c0"}
+      ]
+    },
+    {
+      "id": "cascade",
+      "question": "想挑当前地区某个三级类目，前两级要怎么选？什么类目才会出现在列表？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":268,"quote":"先选二级类目，才会出现对应三级类目","parent":"f050e83390bdf64c6528e9b404d0b870-p4","child":"f050e83390bdf64c6528e9b404d0b870-p4-c0"},
+        {"document":"manual","line":270,"quote":"只展示已有雷达数据的 FLMH 类目","parent":"f050e83390bdf64c6528e9b404d0b870-p4","child":"f050e83390bdf64c6528e9b404d0b870-p4-c0"}
+      ]
+    },
+    {
+      "id": "newly-listed",
+      "question": "“新收录商品”的时间从进入系统算还是从商品上架算，窗口多长？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":285,"quote":"近 30 天首次进入系统的商品","parent":"f050e83390bdf64c6528e9b404d0b870-p4","child":"f050e83390bdf64c6528e9b404d0b870-p4-c1"}
+      ]
+    },
+    {
+      "id": "hit-goods",
+      "question": "雷达筛选把机会分多少起算作“爆款商品”？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":287,"quote":"机会分不低于 60 的商品","parent":"f050e83390bdf64c6528e9b404d0b870-p4","child":"f050e83390bdf64c6528e9b404d0b870-p4-c1"}
+      ]
+    },
+    {
+      "id": "free-shipping",
+      "question": "FLMH 列表里的“包邮商品”按哪个来源的标记判定？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":286,"quote":"采集源标记为包邮的商品","parent":"f050e83390bdf64c6528e9b404d0b870-p4","child":"f050e83390bdf64c6528e9b404d0b870-p4-c1"}
+      ]
+    },
+    {
+      "id": "commission-brackets",
+      "question": "想按带货达人出单率划档筛选，这个字段和佣金比例使用哪些百分比区间？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":283,"quote":"佣金比例：5% 以下、5%-15%、15%-30%、30%-50%、50% 以上","parent":"f050e83390bdf64c6528e9b404d0b870-p4","child":"f050e83390bdf64c6528e9b404d0b870-p4-c1"},
+        {"document":"manual","line":284,"quote":"达人出单率：5% 以下、5%-15%、15%-30%、30%-50%、50% 以上","parent":"f050e83390bdf64c6528e9b404d0b870-p4","child":"f050e83390bdf64c6528e9b404d0b870-p4-c1"}
+      ]
+    },
+    {
+      "id": "page-search",
+      "question": "当前页用店铺名找不到货时，怎样查到当前页之外的商品？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":298,"quote":"店铺名称","parent":"f050e83390bdf64c6528e9b404d0b870-p4","child":"f050e83390bdf64c6528e9b404d0b870-p4-c1"},
+        {"document":"manual","line":301,"quote":"如果需要跨全库问数据，请使用选品元小秘","parent":"f050e83390bdf64c6528e9b404d0b870-p4","child":"f050e83390bdf64c6528e9b404d0b870-p4-c1"},
+        {"document":"manual","line":525,"quote":"翻页后再搜索","parent":"f050e83390bdf64c6528e9b404d0b870-p8","child":"f050e83390bdf64c6528e9b404d0b870-p8-c0"}
+      ]
+    },
+    {
+      "id": "page-length",
+      "question": "机会榜翻页之前，默认一页展示多少件商品？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":312,"quote":"每页默认展示 24 个商品","parent":"f050e83390bdf64c6528e9b404d0b870-p4","child":"f050e83390bdf64c6528e9b404d0b870-p4-c1"}
+      ]
+    },
+    {
+      "id": "detail-drawer",
+      "question": "核实商品最佳排名和雷达评分维度时，要打开哪个界面？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":337,"quote":"右侧详情抽屉打开","parent":"f050e83390bdf64c6528e9b404d0b870-p5","child":"f050e83390bdf64c6528e9b404d0b870-p5-c0"},
+        {"document":"manual","line":349,"quote":"最佳排名","parent":"f050e83390bdf64c6528e9b404d0b870-p5","child":"f050e83390bdf64c6528e9b404d0b870-p5-c0"},
+        {"document":"manual","line":350,"quote":"雷达评分：增长、GMV、达人、内容、价格、风险","parent":"f050e83390bdf64c6528e9b404d0b870-p5","child":"f050e83390bdf64c6528e9b404d0b870-p5-c0"}
+      ]
+    },
+    {
+      "id": "source-link",
+      "question": "开发前复查源站，除在售状态外，佣金、物流和品牌风险要怎么看？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":362,"quote":"价格、规格、佣金和物流条件是否仍可接受","parent":"f050e83390bdf64c6528e9b404d0b870-p5","child":"f050e83390bdf64c6528e9b404d0b870-p5-c0"},
+        {"document":"manual","line":363,"quote":"品牌、合规、侵权或平台限制风险","parent":"f050e83390bdf64c6528e9b404d0b870-p5","child":"f050e83390bdf64c6528e9b404d0b870-p5-c0"}
+      ]
+    },
+    {
+      "id": "context-list",
+      "question": "打开选品元小秘时没点任何商品，助手会带入哪一层上下文？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":374,"quote":"如果未打开商品详情，Agent 使用“当前筛选列表上下文”","parent":"f050e83390bdf64c6528e9b404d0b870-p6","child":"f050e83390bdf64c6528e9b404d0b870-p6-c0"}
+      ]
+    },
+    {
+      "id": "tool-error",
+      "question": "元小秘的查询没跑通，聊天消息的什么位置会提示执行失败和错误摘要？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":423,"quote":"消息上方会显示执行状态","parent":"f050e83390bdf64c6528e9b404d0b870-p6","child":"f050e83390bdf64c6528e9b404d0b870-p6-c0"},
+        {"document":"manual","line":427,"quote":"工具调用失败，并显示错误摘要","parent":"f050e83390bdf64c6528e9b404d0b870-p6","child":"f050e83390bdf64c6528e9b404d0b870-p6-c0"}
+      ]
+    },
+    {
+      "id": "image-intent",
+      "question": "我只想要 TikTok 广告的素材角度，该怎样提问以免直接生图？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":412,"quote":"给我 5 个 TikTok 广告素材角度，不要生成图片","parent":"f050e83390bdf64c6528e9b404d0b870-p6","child":"f050e83390bdf64c6528e9b404d0b870-p6-c0"},
+        {"document":"manual","line":449,"quote":"只输出建议，不会直接生图","parent":"f050e83390bdf64c6528e9b404d0b870-p6","child":"f050e83390bdf64c6528e9b404d0b870-p6-c1"}
+      ]
+    },
+    {
+      "id": "ratio-and-image",
+      "question": "商品有参考图时生成广告主图会用什么输入？不给比例时用多大画幅？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":447,"quote":"优先把商品图作为参考输入","parent":"f050e83390bdf64c6528e9b404d0b870-p6","child":"f050e83390bdf64c6528e9b404d0b870-p6-c1"},
+        {"document":"manual","line":448,"quote":"默认图片比例为 `1:1`","parent":"f050e83390bdf64c6528e9b404d0b870-p6","child":"f050e83390bdf64c6528e9b404d0b870-p6-c1"}
+      ]
+    },
+    {
+      "id": "history-link",
+      "question": "下次打开同一商品要接着聊，页面会记住什么？误删会话后还能从界面找回吗？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":466,"quote":"最近一次与该商品或该筛选列表关联的会话","parent":"f050e83390bdf64c6528e9b404d0b870-p6","child":"f050e83390bdf64c6528e9b404d0b870-p6-c1"},
+        {"document":"manual","line":467,"quote":"删除会话后不可在界面恢复","parent":"f050e83390bdf64c6528e9b404d0b870-p6","child":"f050e83390bdf64c6528e9b404d0b870-p6-c1"}
+      ]
+    },
+    {
+      "id": "daily-handoff",
+      "question": "每日 SOP 中，候选商品完成初筛和测试主图后交给哪些团队继续验证？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":480,"quote":"交给供应链、投放或内容团队继续验证","parent":"f050e83390bdf64c6528e9b404d0b870-p7","child":"f050e83390bdf64c6528e9b404d0b870-p7-c0"}
+      ]
+    },
+    {
+      "id": "new-market",
+      "question": "一个新国家刚开雷达，怎么从试采逐步放量，前台应当用哪两种分数各选一轮？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":484,"quote":"为新国家创建小页数采集模板","parent":"f050e83390bdf64c6528e9b404d0b870-p7","child":"f050e83390bdf64c6528e9b404d0b870-p7-c0"},
+        {"document":"manual","line":486,"quote":"成功后逐步增加页数","parent":"f050e83390bdf64c6528e9b404d0b870-p7","child":"f050e83390bdf64c6528e9b404d0b870-p7-c0"},
+        {"document":"manual","line":488,"quote":"按机会分和增长分各跑一轮候选清单","parent":"f050e83390bdf64c6528e9b404d0b870-p7","child":"f050e83390bdf64c6528e9b404d0b870-p7-c0"}
+      ]
+    },
+    {
+      "id": "bad-preview",
+      "question": "发现一批商品质量异常，手册要求怎么调整受限预览开关和采集规模再验证？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":497,"quote":"关闭“允许受限预览数据入库”，重新跑小范围模板验证","parent":"f050e83390bdf64c6528e9b404d0b870-p7","child":"f050e83390bdf64c6528e9b404d0b870-p7-c0"}
+      ]
+    },
+    {
+      "id": "empty-ranking",
+      "question": "某地区已经导入过商品却没有榜单，除了筛选太窄，数据加工上还可能缺了什么？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":509,"quote":"商品还未生成雷达指标","parent":"f050e83390bdf64c6528e9b404d0b870-p8","child":"f050e83390bdf64c6528e9b404d0b870-p8-c0"}
+      ]
+    },
+    {
+      "id": "decision-risk",
+      "question": "机会分靠前准备进货，人工复核时应检查哪些供应链、毛利和价格战风险？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":533,"quote":"供应链可得性","parent":"f050e83390bdf64c6528e9b404d0b870-p8","child":"f050e83390bdf64c6528e9b404d0b870-p8-c0"},
+        {"document":"manual","line":534,"quote":"毛利空间","parent":"f050e83390bdf64c6528e9b404d0b870-p8","child":"f050e83390bdf64c6528e9b404d0b870-p8-c0"},
+        {"document":"manual","line":538,"quote":"竞品密度和价格战风险","parent":"f050e83390bdf64c6528e9b404d0b870-p8","child":"f050e83390bdf64c6528e9b404d0b870-p8-c0"}
+      ]
+    },
+    {
+      "id": "insufficient-facts",
+      "question": "问元小秘某市场的 GMV 趋势，库里的数据不够支撑结论时应该怎样回答？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":544,"quote":"明确说明数据缺口","parent":"f050e83390bdf64c6528e9b404d0b870-p9","child":"f050e83390bdf64c6528e9b404d0b870-p9-c0"}
+      ]
+    },
+    {
+      "id": "asset-module",
+      "question": "选品元小秘生成的图，去作品库按什么模块标识找？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":548,"quote":"`product-radar-agent`","parent":"f050e83390bdf64c6528e9b404d0b870-p9","child":"f050e83390bdf64c6528e9b404d0b870-p9-c0"}
+      ]
+    },
+    {
+      "id": "repeat-cooldown",
+      "question": "FastMoss 任务到点恢复后又反复冷却，手册建议怎样调整页数、核查数据源？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":556,"quote":"减少采集页数或检查 FastMoss 凭据、扩展代理和安全限制","parent":"f050e83390bdf64c6528e9b404d0b870-p9","child":"f050e83390bdf64c6528e9b404d0b870-p9-c0"}
+      ]
+    },
+    {
+      "id": "category-owner",
+      "question": "基座方案里，前台和 AI 用 FastMoss 类目还是 TKi8 自有类目，原始类目保留来做什么？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":585,"quote":"供前台、指标和 AI 使用","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p0","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p0-c0"},
+        {"document":"foundation","line":588,"quote":"只用于数据追溯、映射和采集上下文","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p0","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p0-c0"}
+      ]
+    },
+    {
+      "id": "external-id",
+      "question": "FastMoss 的 ID 市场示例里，外部类目 14 对应哪个一级类目？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":600,"quote":"region = ID","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p0","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p0-c0"},
+        {"document":"foundation","line":601,"quote":"externalCategoryId = 14","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p0","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p0-c0"},
+        {"document":"foundation","line":602,"quote":"name = 美妆个护","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p0","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p0-c0"}
+      ]
+    },
+    {
+      "id": "narrow-mapping",
+      "question": "供应商的细分类目只能挂到我们的上级类目，方案里应选哪种英文映射类型？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":623,"quote":"narrow      细分类目映射到上级类目","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p0","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p0-c0"}
+      ]
+    },
+    {
+      "id": "pending-mapping",
+      "question": "一条映射是待审核还是人工已确认，应该看哪两个状态值？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":631,"quote":"manual_mapped    人工确认","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p0","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p0-c1"},
+        {"document":"foundation","line":632,"quote":"pending_review   待审核","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p0","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p0-c1"}
+      ]
+    },
+    {
+      "id": "mapping-direction",
+      "question": "两个来源的类目想共用一个 TKi8 类目，第一阶段的映射方向允许吗？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":640,"quote":"多个 Source Category -> 一个 Canonical Category","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p0","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p0-c1"}
+      ]
+    },
+    {
+      "id": "local-kitchen",
+      "question": "运营给厨房小电和厨房用品打标，它们在基座建议的 L2 类目里分别属于哪个 L1？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":693,"quote":"家居生活","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p1","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p1-c0"},
+        {"document":"foundation","line":694,"quote":"厨房用品","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p1","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p1-c0"},
+        {"document":"foundation","line":714,"quote":"数码小电","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p1","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p1-c0"},
+        {"document":"foundation","line":718,"quote":"厨房小电","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p1","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p1-c0"}
+      ]
+    },
+    {
+      "id": "coverage",
+      "question": "类目运营想区分忽略量、待审核量和映射覆盖率，看板有哪些对应的英文指标？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":754,"quote":"pendingReviewCount","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p1","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p1-c0"},
+        {"document":"foundation","line":755,"quote":"ignoredCategoryCount","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p1","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p1-c0"},
+        {"document":"foundation","line":756,"quote":"mappingCoverageRate","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p1","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p1-c1"}
+      ]
+    },
+    {
+      "id": "track-frequency",
+      "question": "已入池的高潜商品与高机会商品详情，在首期方案中的采集频率、范围有什么不同？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":789,"quote":"只抓 Top N","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p2","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p2-c0"},
+        {"document":"foundation","line":790,"quote":"每 6 小时 1 次","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p2","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p2-c0"}
+      ]
+    },
+    {
+      "id": "retry-cadence",
+      "question": "数据基座对失败页建议哪几个延迟重试时间点？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":791,"quote":"30 分钟、2 小时、次日","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p2","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p2-c0"}
+      ]
+    },
+    {
+      "id": "filter-sync",
+      "question": "按采集生命周期设计，先用哪个动作拿到 Source Category，再生成商品列表采集队列？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":809,"quote":"拉取 filterInfo，同步 Source Category","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p2","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p2-c0"},
+        {"document":"foundation","line":811,"quote":"生成商品列表采集队列","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p2","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p2-c1"}
+      ]
+    },
+    {
+      "id": "limited-score",
+      "question": "FastMoss 返回权限不足却还有预览记录，按基座方案怎么打标，是否默认参加核心评分？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":828,"quote":"`authLimited = true`","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p3","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p3-c0"},
+        {"document":"foundation","line":829,"quote":"不默认参与核心评分","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p3","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p3-c0"}
+      ]
+    },
+    {
+      "id": "limited-status",
+      "question": "FastMoss 只给受限预览时，基座方案把集采状态记成哪些值？前台能当完整数据展示吗？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":830,"quote":"前端不展示为可信完整数据","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p3","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p3-c0"},
+        {"document":"foundation","line":831,"quote":"`partial_success` 或 `failed`","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p3","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p3-c0"}
+      ]
+    },
+    {
+      "id": "product-key",
+      "question": "印尼和泰国的外部商品 ID 有可能相同，商品稳定信息按哪些字段组合区分？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":846,"quote":"source + region + externalProductId","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p4","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p4-c0"}
+      ]
+    },
+    {
+      "id": "crawl-context",
+      "question": "要分析某商品在哪组筛选条件下曝光、榜位怎么变，应该查哪类采集上下文记录？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":855,"quote":"MarketCrawlItem","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p4","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p4-c0"},
+        {"document":"foundation","line":863,"quote":"追踪榜单位置变化","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p4","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p4-c0"},
+        {"document":"foundation","line":864,"quote":"分析商品在哪些筛选条件下出现","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p4","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p4-c0"}
+      ]
+    },
+    {
+      "id": "daily-review",
+      "question": "做逐日复盘和趋势计算时，基座方案为商品准备了哪一层日聚合记录？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":867,"quote":"### 8.4 MarketProductDailyStat","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p4","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p4-c0"},
+        {"document":"foundation","line":876,"quote":"支持趋势计算","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p4","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p4-c0"},
+        {"document":"foundation","line":877,"quote":"支持按日复盘","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p4","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p4-c0"}
+      ]
+    },
+    {
+      "id": "score-missing",
+      "question": "为雷达打分时能不能把缺失字段当作已采到的事实？指标应支持哪些维度聚合？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":891,"quote":"按类目、国家、日期聚合","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p5","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p5-c0"},
+        {"document":"foundation","line":892,"quote":"不把缺失字段伪造成真实字段","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p5","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p5-c0"}
+      ]
+    },
+    {
+      "id": "opportunity-weights",
+      "question": "方案里第一版机会分示例给达人参与和内容热度各多少权重？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":916,"quote":"creatorScore * 0.15","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p5","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p5-c0"},
+        {"document":"foundation","line":917,"quote":"contentScore * 0.15","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p5","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p5-c0"}
+      ]
+    },
+    {
+      "id": "score-explain",
+      "question": "复核价格波动大导致的风险提示时，MarketRadarMetric 设计把评分解释存在哪个字段？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":928,"quote":"`explainJson` 用于保存分数解释","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p5","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p5-c0"},
+        {"document":"foundation","line":934,"quote":"价格波动较大，需人工复核","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p5","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p5-c0"}
+      ]
+    },
+    {
+      "id": "api-category",
+      "question": "前台 API 的类目契约里，业务逻辑依赖谁的类目，追溯时又能附带什么？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":1096,"quote":"前台 API 返回 TKi8 类目","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p6","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p6-c0"},
+        {"document":"foundation","line":1098,"quote":"可以附带 source 类目用于展示和追溯","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p6","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p6-c0"}
+      ]
+    },
+    {
+      "id": "insight-store",
+      "question": "AI 给出短视频角度和卖点建议后，基座设计把这些分析结果写入哪个实体？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":1127,"quote":"短视频内容角度","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p7","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p7-c0"},
+        {"document":"foundation","line":1152,"quote":"MarketAiInsight","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p7","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p7-c0"}
+      ]
+    },
+    {
+      "id": "quality-board",
+      "question": "运营想找异常 GMV、缺价格、缺销量和重复商品，该看的是哪组监控？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":1184,"quote":"重复商品数量","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p8","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p8-c0"},
+        {"document":"foundation","line":1185,"quote":"缺失价格商品数量","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p8","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p8-c0"},
+        {"document":"foundation","line":1187,"quote":"异常 GMV 商品数量","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p8","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p8-c0"}
+      ]
+    },
+    {
+      "id": "stale-categories",
+      "question": "TKi8 运营想找长期没货或一直未映射的类目，类目监控关注哪些信号？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":1199,"quote":"长期无商品类目","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p8","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p8-c0"},
+        {"document":"foundation","line":1200,"quote":"长期未映射类目","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p8","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p8-c0"}
+      ]
+    },
+    {
+      "id": "raw-access",
+      "question": "按数据基座的建议权限，谁能管理自有类目并查看原始响应，运营人员负责什么？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":1218,"quote":"管理类目映射","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p9","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p9-c0"},
+        {"document":"foundation","line":1225,"quote":"管理 Canonical Category","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p9","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p9-c0"},
+        {"document":"foundation","line":1226,"quote":"查看原始响应","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p9","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p9-c0"}
+      ]
+    },
+    {
+      "id": "preview-policy",
+      "question": "拿到带敏感字段的原始响应，展示和混用预览数据时分别有哪些合规要求？",
+      "status": "pending",
+      "evidence": [
+        {"document":"foundation","line":1232,"quote":"需要在展示层脱敏","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p9","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p9-c0"},
+        {"document":"foundation","line":1235,"quote":"不把预览数据和完整可信数据混用","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p9","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p9-c0"}
+      ]
+    },
+    {
+      "id": "accept-preview",
+      "question": "管理员准备让受限预览入库，手册的默认操作建议和基座对预览商品评分的原则分别是什么？",
+      "status": "pending",
+      "evidence": [
+        {"document":"manual","line":562,"quote":"不要把“允许受限预览数据入库”作为默认配置","parent":"f050e83390bdf64c6528e9b404d0b870-p9","child":"f050e83390bdf64c6528e9b404d0b870-p9-c0"},
+        {"document":"foundation","line":829,"quote":"不默认参与核心评分","parent":"cb60d54d78b2e0b65a6a55b23ff3139b-p3","child":"cb60d54d78b2e0b65a6a55b23ff3139b-p3-c0"}
+      ]
+    }
+  ]
+}

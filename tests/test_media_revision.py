@@ -135,6 +135,9 @@ class MediaRevisionTests(IdentityTestCase):
         self.assertEqual(revised["quote"]["reusedNodes"], ["image"])
         self.assertIn("10秒", revised["confirmationRequest"]["message"])
         self.assertIn("media_request", revised["invalidated"])
+        self.assertNotIn("selected_product", revised["invalidated"])
+        self.assertNotIn("product_results", revised["invalidated"])
+        self.assertEqual([call[0] for call in self.tools.calls].count("search"), 1)
         self.assertEqual(len(self.tools.runs), 1)
         with self.assertRaisesRegex(RunConflictError, "stale"):
             await self.application.confirm("agent", {"quote_id": "q-1", "confirmed": True})
@@ -286,12 +289,13 @@ class MediaRevisionTests(IdentityTestCase):
         self.assertEqual(len(self.tools.quotes), 1)
 
     async def test_missing_budget_can_be_supplied_with_media_specification(self):
-        initial = await self.application.start("missing", {"user_request": "美国杯子制作视频"})
+        initial = await self.application.start("missing", {"user_request": "美国杯子制作视频；比例1:1"})
         self.assertEqual(initial["status"], "needs_input")
         result = await self.application.revise("missing", {"expected_revision": 0,
             "slot_updates": {"budget_max": 10}, "media_updates": {"duration_seconds": 8, "video_prompt": "近景展示"}})
         self.assertEqual(result["status"], "awaiting_confirmation")
         self.assertEqual(result["mediaRequest"]["duration_seconds"], 8)
+        self.assertEqual(result["mediaRequest"]["aspect_ratio"], "1:1")
         self.assertIn("近景展示", result["mediaRequest"]["video_prompt"])
         self.assertEqual(result["mediaOriginRun"], {})
         self.assertNotIn("origin_run_id", result["mediaRequest"])
@@ -299,11 +303,45 @@ class MediaRevisionTests(IdentityTestCase):
     async def test_prompt_content_is_not_reinterpreted_as_slots_or_media_fields(self):
         origin = await self.failed()
         result = await self.application.revise("agent", {"expected_revision": 0,
-            "user_request": "视频提示词：商品改为背包的字幕和预算50字样仅作为画面内容"})
+            "user_request": "视频提示词：商品改为背包的字幕和预算50、商品限价10字样仅作为画面内容"})
         self.assertEqual(result["mediaRequest"]["product_id"], origin["input"]["productId"])
         self.assertEqual(result["mediaRequest"]["budget_max"], 10)
+        self.assertIsNone(result["slotValues"]["product_max_price"])
         self.assertEqual(result["mediaRequest"]["duration_seconds"], 6)
         self.assertEqual(result["quote"]["reusedNodes"], ["image"])
+
+    async def test_model_media_revision_keeps_query_local_filters_and_rebinds_only_explicit_price(self):
+        raw = {"summary": "两个地区各自筛选", "queries": [{"region": "US", "keyword": "杯子", "max_price": 12},
+               {"region": "GB", "keyword": "背包", "max_price": 20}], "create_content": True,
+               "content_type": "product_media", "budget_max": 10}
+        gateway = SimpleNamespace(complete=AsyncMock(return_value={"content": json.dumps(raw)}))
+        self.application.planner = ModelGatewayPlanner(gateway)
+        search = self.tools.search_products
+
+        async def available(query):
+            result = await search(query)
+            if query["region"] == "US" and query["max_price"] < 12:
+                result["products"] = []
+            return result
+
+        self.tools.search_products = available
+        first = await self.application.start("two", {"user_request": "美国杯子限价12，英国背包限价20，制作视频，预算10美元"})
+        revised = await self.application.revise("two", {"expected_revision": 0, "slot_updates": {"budget_max": 15}})
+        self.assertIsNone(first["slotValues"]["product_max_price"])
+        self.assertEqual(first["plan"]["queries"], revised["plan"]["queries"])
+        self.assertEqual(revised["mediaRequest"]["budget_max"], 15)
+        self.assertEqual(revised["reusedQueries"], ["query-1", "query-2"])
+        self.assertNotIn("selected_product", revised["invalidated"])
+        changed = await self.application.revise("two", {"expected_revision": 1, "user_request": "商品限价改为12元"})
+        self.assertEqual(changed["reusedQueries"], ["query-1"])
+        self.assertEqual(changed["mediaRequest"]["budget_max"], 15)
+        self.assertEqual(changed["plan"]["budget_currency"], "USD")
+        self.assertEqual([(q["region"], q["keyword"], q["max_price"]) for name, q in self.tools.calls if name == "search"],
+                         [("US", "杯子", 12), ("GB", "背包", 20), ("GB", "背包", 12)])
+        tighter = await self.application.revise("two", {"expected_revision": 2, "slot_updates": {"product_max_price": 8}})
+        self.assertEqual(tighter["mediaRequest"]["product_id"], "bag-1")
+        self.assertIn("目标地区：GB", tighter["mediaRequest"]["image_prompt"])
+        gateway.complete.assert_awaited_once()
 
     async def test_origin_is_rechecked_for_each_pending_revision(self):
         origin = await self.failed()

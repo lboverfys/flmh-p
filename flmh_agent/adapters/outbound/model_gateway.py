@@ -121,7 +121,10 @@ class ModelGatewayPlanner:
                         "默认一张图片再生成6秒9:16视频；media_options 只填用户明确提供的 image_prompt、video_prompt、"
                         "aspect_ratio（1:1/3:4/4:3/9:16/16:9）、duration_seconds（2至15的整数）。未提供字段省略，"
                         "不得把整句话无条件当成视频提示词，不得生成 origin_run_id 或决定复用节点。规格与报价会在执行前展示并请求确认。不得推断未给出的预算。"
-                        "生产请求的 budget_max 是内容生产预算，不得自动作为商品查询 max_price；商品价格限制须用户另行明确。"
+                        "budget_max 是创作预算。slots.product_max_price 是商品单价上限，对应目录查询的 max_price。"
+                        "同时给出两种金额时分别填写。商品价格或币种不能充当创作预算或预算币种。"
+                        "仅选品时，口语的‘预算50’或‘不超过50’表示商品限价。各地区可有各自的 max_price，"
+                        "未明确全局限价时保留每条查询的筛选条件，榜单不带 max_price。"
                         "budget_currency 为用户明确预算币种的 ISO 三字码（人民币/元=CNY，美元=USD）；未指定时为 null。不得换汇或猜币种。"
                         "用户要求检索知识库时 knowledge_query 为检索问题；可独立检索或为商品内容补充事实，未要求时为 null。"
                         "指定明确商品 ID（如 camping-lamp-001）的历史/趋势请求只填 product_history_id，queries=[]，"
@@ -138,7 +141,8 @@ class ModelGatewayPlanner:
         )
         raw = _json_content(response["content"])
         plan = PlanResponse.model_validate(raw)
-        plan = plan.model_copy(update={"budget_currency": find_budget_currency(user_request, content_budget=plan.create_content)})
+        currency = find_budget_currency(user_request, create_content=plan.create_content)
+        plan = plan.model_copy(update={"budget_currency": currency})
         if plan.create_content != (plan.content_type in {"product_script", "product_media"}):
             raise ValueError("model plan has inconsistent content_type")
         if plan.product_history_id is not None and plan.product_history_id != find_history_product_id(user_request, slots):

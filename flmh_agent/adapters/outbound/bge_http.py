@@ -121,6 +121,8 @@ class BgeRerankerHttpAdapter:
 
 
 class ElasticsearchHybridStore:
+    reuse_existing_indices = True
+
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None, *, pit_id: str = "") -> None:
         self.settings = settings
         self._client = client
@@ -147,19 +149,22 @@ class ElasticsearchHybridStore:
     def _published_aliases(self) -> str:
         return f"{self.settings.elasticsearch_index}-active-*"
 
+    def snapshot(self):
+        return self._open_snapshot(self._published_aliases, keep_alive="1m", allow_missing=True)
+
     @asynccontextmanager
-    async def snapshot(self):
+    async def _open_snapshot(self, target: str, *, keep_alive: str, allow_missing: bool):
         try:
-            opened = await self._request("POST", f"/{self._published_aliases}/_pit?keep_alive=1m&allow_partial_search_results=false")
+            opened = await self._request("POST", f"/{target}/_pit?keep_alive={keep_alive}&allow_partial_search_results=false")
         except httpx.HTTPStatusError as failure:
-            if failure.response.status_code != 404 or failure.response.json().get("error", {}).get("type") != "index_not_found_exception":
+            if not allow_missing or failure.response.status_code != 404 or failure.response.json().get("error", {}).get("type") != "index_not_found_exception":
                 raise
             yield ElasticsearchHybridStore(self.settings, self._client, pit_id="NO_PUBLISHED_INDEX")
             return
         pit_id = opened.get("id")
         if not isinstance(pit_id, str) or not pit_id:
             raise ValueError("Elasticsearch did not return a point-in-time ID")
-        snapshot = ElasticsearchHybridStore(self.settings, self._client, pit_id=pit_id)
+        snapshot = type(self)(self.settings, self._client, pit_id=pit_id)
         original = None
         try:
             yield snapshot
@@ -182,7 +187,10 @@ class ElasticsearchHybridStore:
     async def search_dense(self, vector: Sequence[float], limit: int) -> list[Chunk]:
         if self._pit_id == "NO_PUBLISHED_INDEX":
             return []
-        body = {
+        return await self._search(self._dense_query(vector, limit))
+
+    def _dense_query(self, vector: Sequence[float], limit: int) -> dict:
+        return {
             "size": limit,
             "knn": {
                 "field": self.settings.elasticsearch_dense_field,
@@ -193,12 +201,14 @@ class ElasticsearchHybridStore:
             },
             "_source": ["parent_id", "text", "source_ref", "document_id", "version"],
         }
-        return await self._search(body)
 
     async def search_sparse(self, vector: Mapping[str, float], limit: int) -> list[Chunk]:
         if self._pit_id == "NO_PUBLISHED_INDEX":
             return []
-        body = {
+        return await self._search(self._sparse_query(vector, limit))
+
+    def _sparse_query(self, vector: Mapping[str, float], limit: int) -> dict:
+        return {
             "size": limit,
             "query": {"bool": {"filter": [{"term": {"kind": "child"}}], "must": {
                 "sparse_vector": {
@@ -208,7 +218,6 @@ class ElasticsearchHybridStore:
             }}},
             "_source": ["parent_id", "text", "source_ref", "document_id", "version"],
         }
-        return await self._search(body)
 
     async def get_parents(self, parent_ids: Sequence[str]) -> list[Chunk]:
         if not parent_ids or self._pit_id == "NO_PUBLISHED_INDEX":
@@ -225,15 +234,21 @@ class ElasticsearchHybridStore:
         if self._pit_id:
             body["pit"] = {"id": self._pit_id, "keep_alive": "1m"}
             result = await self._request("POST", "/_search?allow_partial_search_results=false", json=body)
-            returned_id = result.get("pit_id")
-            if isinstance(returned_id, str) and returned_id:
-                self._pit_ids.add(returned_id)
         else:
             result = await self._request("POST", f"/{self._published_aliases}/_search?allow_partial_search_results=false", json=body)
+        return self._search_hits(result)
+
+    def _search_hits(self, result: dict) -> list[Chunk]:
+        returned_id = result.get("pit_id")
+        if isinstance(returned_id, str) and returned_id:
+            self._pit_id = returned_id
+            self._pit_ids.add(returned_id)
         if result.get("timed_out") or result.get("_shards", {}).get("failed", 0):
             raise RuntimeError("Elasticsearch did not complete every published-version search shard")
-        hits = result.get("hits", {}).get("hits", [])
-        return [self._chunk(hit) for hit in hits if isinstance(hit, dict)]
+        hits = result.get("hits", {}).get("hits")
+        if not isinstance(hits, list):
+            raise ValueError("Elasticsearch search response is missing hits")
+        return [self._chunk(hit) for hit in hits]
 
     def _chunk(self, hit: Mapping[str, Any]) -> Chunk:
         source = hit.get("_source", {})
@@ -265,7 +280,8 @@ class ElasticsearchHybridStore:
             try:
                 await self._request("PUT", f"/{index}", json=definition)
             except httpx.HTTPStatusError as failure:
-                if failure.response.status_code != 400 or failure.response.json().get("error", {}).get("type") != "resource_already_exists_exception":
+                if (not self.reuse_existing_indices or failure.response.status_code != 400
+                        or failure.response.json().get("error", {}).get("type") != "resource_already_exists_exception"):
                     raise
 
     async def upsert_chunks(self, chunks: Sequence[Chunk], vectors: Sequence[tuple[Sequence[float], Mapping[str, float]]] | None = None) -> None:

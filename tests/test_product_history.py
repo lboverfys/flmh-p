@@ -216,6 +216,28 @@ class ProductHistoryTests(IdentityTestCase):
         self.assertEqual(changed["productHistory"], {})
         self.assertEqual(history.await_count, 2)
 
+    async def test_money_revisions_keep_independent_history_until_the_read_operation_changes(self):
+        history = AsyncMock(side_effect=history_response)
+        observations = AsyncMock(return_value={**history_response("p-1"), "scope": "PRODUCT_RELATED_AUTHOR_COUNTS"})
+        application = self.application(history)
+
+        @asynccontextmanager
+        async def tools():
+            yield SimpleNamespace(get_product_history=history, get_creator_observations=observations)
+
+        application.tool_session_factory = tools
+        first = await application.start("money-history", {"user_request": "查询 p-1 的历史"})
+        for revision, patch in enumerate(({"budget_max": 10}, {"product_max_price": 20})):
+            current = await application.revise("money-history", {"expected_revision": revision, "slot_updates": patch})
+            self.assertEqual(first["productHistory"], current["productHistory"])
+            self.assertEqual(first["conclusionDependencies"]["product_history"], current["conclusionDependencies"]["product_history"])
+            self.assertNotIn("product_history", current["invalidated"])
+        history.assert_awaited_once_with("p-1", limit=30, before_version=None)
+        switched = await application.revise("money-history", {"expected_revision": 2, "user_request": "查询 p-1 的关联达人数"})
+        self.assertIn("product_history", switched["invalidated"])
+        self.assertEqual(switched["productHistory"]["scope"], "PRODUCT_RELATED_AUTHOR_COUNTS")
+        observations.assert_awaited_once_with("p-1")
+
     async def test_history_accepts_full_product_identifier_length_without_relaxing_keyword_limit(self):
         identifier = "p-" + "1" * 94
         history = AsyncMock(side_effect=history_response)

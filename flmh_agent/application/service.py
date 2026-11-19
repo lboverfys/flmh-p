@@ -12,11 +12,11 @@ from typing import Any, Callable
 from langgraph.types import Command
 from langgraph.graph import START
 
-from flmh_agent.application.workflow import build_workflow
+from flmh_agent.application.workflow import build_workflow, selected_query_region, upgrade_slot_checkpoint
 from flmh_agent.config import Settings
 from flmh_agent.domain.models import AgentInput, AgentState, ConfirmationInput, RevisionInput
 from flmh_agent.domain.media_production import MEDIA_TERMINAL_STATUSES, MediaProductionRequest, explicit_media_options, media_status
-from flmh_agent.domain.planning import explicit_revision_slots, find_budget_currency
+from flmh_agent.domain.planning import explicit_revision_slots, find_budget_currency, money_revision_slots
 from flmh_agent.domain.slots import normalize_slots
 from flmh_agent.domain.identity import UserIdentity, bind_identity, current_identity, run_resource_key
 from flmh_agent.domain.sessions import SessionCursor, SessionNotFoundError, SessionRecord, session_title
@@ -69,6 +69,7 @@ class AgentApplication:
 
     async def _start_locked(self, run_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
         payload = AgentInput.model_validate(request)
+        normalize_slots(payload.slot_updates)
         await self.session_directory.reserve(current_identity().user_id, run_id,
                                              " ".join(payload.user_request.split())[:80])
         state: AgentState = {
@@ -117,7 +118,7 @@ class AgentApplication:
             graph = self._graph(tools)
             result = await graph.ainvoke(
                 Command(resume={"confirmed": decision.confirmed}),
-                config=graph_config,
+                config=graph_config, **self._production_checkpoint_options(),
             )
         return _response(run_id, result)
 
@@ -136,10 +137,23 @@ class AgentApplication:
                 return await self._refresh_task(run_id, previous)
             async with self._tool_session() as tools:
                 graph = self._graph(tools)
-                if failed_queries:
+                write_options = self._production_checkpoint_options()
+                if write_options and "plan_request" in previous.next:
+                    # Planning failed or was interrupted. Its replacement plan may be read-only.
+                    result = await graph.ainvoke(None, config=graph_config, interrupt_before=["create_quote"])
+                    if not result["plan"]["create_content"]:
+                        return _response(run_id, result)
+                    previous = await graph.aget_state(graph_config)
+                    if "create_quote" not in previous.next:
+                        return _snapshot_response(run_id, previous)
+                elif failed_queries:
                     resume_from = "retrieve_knowledge" if previous.values["plan"].get("knowledge_query") else "plan_request"
                     await graph.aupdate_state(graph_config, {"query_failures": {}, "error": ""}, as_node=resume_from)
-                result = await graph.ainvoke(None, config=graph_config)
+                read_only_tail = {"read_task_status", "read_media_status", "summarize"}
+                can_write = previous.values.get("plan", {}).get("create_content") and (
+                    failed_queries or any(step not in read_only_tail for step in previous.next))
+                options = write_options if can_write else {}
+                result = await graph.ainvoke(None, config=graph_config, **options)
             return _response(run_id, result)
 
     async def get(self, run_id: str, *, identity: UserIdentity | None = None) -> dict[str, Any] | None:
@@ -224,28 +238,43 @@ class AgentApplication:
                 raise RunNotFoundError("run_id does not exist")
             if previous.values.get("revision", 0) != revision.expected_revision:
                 raise RunConflictError("revision changed; reload the current run before editing")
-            values = previous.values
+            values = upgrade_slot_checkpoint(previous.values)
             media = values.get("media_run")
             if values.get("content_task") or values.get("confirmed_quote") and not media:
                 raise RunConflictError("confirmed production cannot be rewritten; create a new run")
             media_updates = revision.media_updates.model_dump(exclude_none=True)
             if media_updates and values.get("plan", {}).get("content_type") != "product_media":
                 raise ValueError("media_updates require an existing product_media plan")
-            user_request = revision.user_request or values["user_request"]
+            text = revision.user_request or ""
+            plan = values.get("plan", {})
+            money = money_revision_slots(text, plan["create_content"]) if text and plan else {}
+            user_request = values["user_request"] if money else text or values["user_request"]
             contextual_media_edit = bool(values.get("plan", {}).get("content_type") == "product_media" and (
-                media or values.get("media_origin_run") or media_updates or revision.slot_updates
+                media or values.get("media_origin_run") or media_updates or revision.slot_updates or money
                 or revision.user_request and re.search(r"改为|改成|修改为|修改成|调整为|调整成|提示词|时长|比例", revision.user_request)
             ))
-            overrides = {**values.get("slot_overrides", {}), **revision.slot_updates}
-            if not contextual_media_edit and user_request == values["user_request"] and overrides == values.get("slot_overrides", {}):
+            updates = {**money, **revision.slot_updates}
+            overrides = {**values.get("slot_overrides", {}), **updates}
+            currency = values.get("budget_currency_override") if user_request == values["user_request"] else None
+            if "budget_max" in money:
+                currency = find_budget_currency(text, create_content=plan["create_content"]) or currency
+            if (not contextual_media_edit and user_request == values["user_request"]
+                    and overrides == values.get("slot_overrides", {}) and currency == values.get("budget_currency_override")):
                 return _snapshot_response(run_id, previous)
-            state = {"user_request": user_request, "slot_updates": revision.slot_updates,
-                     "revision": revision.expected_revision + 1,
-                     "request_fingerprint": _request_fingerprint({"user_request": user_request, "slot_updates": overrides})}
+            state = {"user_request": user_request, "slot_updates": updates, "budget_currency_override": currency,
+                     "revision": revision.expected_revision + 1}
+            fingerprint_input = {"user_request": user_request, "slot_updates": overrides}
+            if currency:
+                fingerprint_input["budget_currency"] = currency
             async with self._tool_session() as tools:
                 if contextual_media_edit:
                     origin = media or values.get("media_origin_run")
-                    base_request = dict(values.get("media_request", {}))
+                    prior_context = values.get("media_revision_context", {})
+                    quoted_request = values.get("media_request")
+                    base_request = dict(quoted_request or prior_context.get("request", {}))
+                    base_slots = prior_context.get("slots", values.get("slot_values", {}))
+                    if quoted_request:
+                        base_slots = {**values["slot_values"], "region": selected_query_region(values)}
                     base_request.pop("origin_run_id", None)
                     if origin:
                         origin = media_status(await tools.get_media_run(origin["runId"]), origin["runId"])
@@ -260,31 +289,30 @@ class AgentApplication:
                             base_request = MediaProductionRequest(
                                 product_id=source["productId"], image_prompt=source["imagePrompt"],
                                 video_prompt=source["videoPrompt"], aspect_ratio=source["aspectRatio"],
-                                duration_seconds=source["durationSeconds"], budget_max=base_request["budget_max"],
+                                duration_seconds=source["durationSeconds"], budget_max=plan["budget_max"],
                             ).model_dump(mode="json")
-                    text = revision.user_request or ""
                     explicit_slots = explicit_revision_slots(text)
                     explicit_media = explicit_media_options(text).model_dump(exclude_none=True)
                     if text and not (explicit_slots or explicit_media or revision.slot_updates or media_updates
                                      or re.fullmatch(r"(?:请)?(?:重跑|重试)(?:失败的?)?(?:图片|视频|媒体|任务|节点|子图|流程)?[。！!]?", text)):
-                        raise ValueError("media revision requires explicit product, region, budget or media fields; arbitrary text is not a video prompt")
+                        raise ValueError("media revision requires explicit product, region, price, budget or media fields; arbitrary text is not a video prompt")
                     updates = {**explicit_slots, **revision.slot_updates}
                     media_updates = {**explicit_media, **media_updates}
-                    overrides = {**values.get("slot_values", {}), **updates}
-                    normalize_slots(overrides)
+                    if not quoted_request:
+                        media_updates = {**plan.get("media_options", {}), **media_updates}
+                    overrides = {**values.get("slot_overrides", {}), **updates}
                     state.update({
-                        "slot_overrides": dict(values.get("slot_values", {})), "slot_updates": updates,
+                        "slot_updates": updates,
                         "media_origin_run": origin or {},
                         "media_revision_context": {
-                            "request": base_request, "slots": values.get("slot_values", {}),
-                            "plan": values["plan"], "updates": media_updates,
-                            "budget_currency": find_budget_currency(text, content_budget=True) or values["plan"].get("budget_currency"),
+                            "request": base_request, "slots": base_slots, "plan": plan, "updates": media_updates,
+                            "budget_currency": find_budget_currency(text) or plan.get("budget_currency"),
                         },
-                        "request_fingerprint": _request_fingerprint({"user_request": user_request, "slot_updates": overrides,
-                                                                     "media_updates": media_updates}),
                     })
+                    fingerprint_input.update(slot_updates=overrides, media_updates=media_updates)
                 else:
                     state.update({"media_revision_context": {}, "media_origin_run": {}})
+                state["request_fingerprint"] = _request_fingerprint(fingerprint_input)
                 graph = self._graph(tools)
                 await graph.aupdate_state(graph_config, state, as_node=START)
                 result = await graph.ainvoke(None, config=graph_config)
@@ -351,6 +379,9 @@ class AgentApplication:
 
     def _tool_session(self) -> _LazyToolSession:
         return _LazyToolSession(self.tool_session_factory)
+
+    def _production_checkpoint_options(self) -> dict[str, Any]:
+        return {"durability": "sync"} if self.settings.checkpointer_backend == "postgres" else {}
 
     @asynccontextmanager
     async def _run_scope(self, run_id: str, identity: UserIdentity | None, *, synchronize: bool = True,
@@ -533,7 +564,7 @@ def _response(run_id: str, result: Mapping[str, Any]) -> dict[str, Any]:
     if interrupts:
         first = interrupts[0]
         action = getattr(first, "value", first)
-    values = {key: value for key, value in result.items() if key != "__interrupt__"}
+    values = upgrade_slot_checkpoint({key: value for key, value in result.items() if key != "__interrupt__"})
     pending_confirmation = bool(action or values.get("confirmation_request") and not values.get("confirmation"))
     plan = values.get("plan") or {}
     product_results = values.get("product_results") or []

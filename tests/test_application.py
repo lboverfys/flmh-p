@@ -2,6 +2,7 @@ import unittest
 from identity_support import IdentityTestCase
 import asyncio
 from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, patch
 
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -124,6 +125,107 @@ class ApplicationTests(IdentityTestCase):
         self.assertEqual(result["reusedQueries"], [])
         self.assertEqual(result["plan"]["budget_max"], 50)
 
+    async def test_budget_edit_keeps_products_selection_and_brief_then_price_edit_reselects(self):
+        self.tools.search_products = AsyncMock(side_effect=lambda q: {"products": [
+            {"id": "basic" if q["max_price"] == 8 else "premium", "title": "灯"}]})
+        self.tools.create_quote = AsyncMock(side_effect=[{"quoteId": f"q-{i}", "amount": 5, "currency": "USD"}
+                                                       for i in range(3)])
+        first = await self.application.start("limits", {"user_request": "查美国灯写口播，商品单价100元，创作预算10美元"})
+        revised = await self.application.revise("limits", {"expected_revision": 0, "user_request": "预算改为20美元"})
+        self.assertEqual(revised["products"], first["products"])
+        self.assertEqual(revised["confirmationRequest"]["product"], first["confirmationRequest"]["product"])
+        self.assertEqual(revised["contentBrief"], first["contentBrief"])
+        for key in ("product_results", "selected_product", "content_brief"):
+            self.assertNotIn(key, revised["invalidated"])
+            deps = revised["conclusionDependencies"][key]
+            self.assertEqual(deps, first["conclusionDependencies"][key])
+            self.assertIn("product_max_price", deps)
+            self.assertNotIn("budget_max", deps)
+        self.assertIn("quote", revised["invalidated"])
+        self.assertEqual(revised["slotVersions"], {**first["slotVersions"], "budget_max": first["slotVersions"]["budget_max"] + 1})
+        self.assertEqual(revised["reusedQueries"], ["query-1"])
+        self.tools.search_products.assert_awaited_once()
+        cheaper = await self.application.revise("limits", {"expected_revision": 1,
+            "user_request": "商品价格上限改为9元，创作预算改为30美元", "slot_updates": {"product_max_price": 8}})
+        self.assertEqual(cheaper["slotValues"], {"product": "灯", "region": "US", "product_max_price": 8, "budget_max": 30})
+        self.assertTrue({"product_results", "selected_product", "quote", "confirmation"} <= set(cheaper["invalidated"]))
+        self.assertEqual(cheaper["slotVersions"]["product_max_price"], first["slotVersions"]["product_max_price"] + 1)
+        self.assertEqual([call.args[0]["max_price"] for call in self.tools.search_products.await_args_list], [100, 8])
+        self.assertEqual([(c.args[0]["product_id"], c.args[0]["budget_max"]) for c in self.tools.create_quote.await_args_list],
+                         [("premium", 10), ("premium", 20), ("basic", 30)])
+        with self.assertRaisesRegex(RunConflictError, "stale"):
+            await self.application.confirm("limits", {"quote_id": revised["quote"]["quoteId"], "confirmed": True})
+
+    async def test_selection_only_and_explicit_null_remain_independent(self):
+        first = await self.application.start("purchase", {"user_request": "查露营灯，预算50元"})
+        self.assertIsNone(first["slotValues"]["budget_max"])
+        revised = await self.application.revise("purchase", {"expected_revision": 0, "slot_updates": {"budget_max": 7}})
+        self.assertEqual(revised["slotValues"]["product_max_price"], 50)
+        self.assertNotIn("selected_product", revised["invalidated"])
+        cleared = await self.application.revise("purchase", {"expected_revision": 1, "slot_updates": {"product_max_price": None}})
+        self.assertIsNone(cleared["plan"]["queries"][0]["max_price"])
+        self.assertEqual(cleared["slotValues"]["budget_max"], 7)
+        self.assertEqual(self.tools.calls, ["search", "search"])
+
+    async def test_replanning_a_lookup_does_not_turn_a_later_budget_into_a_price(self):
+        await self.application.start("new-lookup", {"user_request": "查美国露营灯"})
+        await self.application.revise("new-lookup", {"expected_revision": 0, "slot_updates": {"budget_max": 12}})
+        revised = await self.application.revise("new-lookup", {"expected_revision": 1, "user_request": "查印尼背包"})
+        self.assertIsNone(revised["plan"]["queries"][0]["max_price"])
+        self.assertEqual(revised["slotValues"]["budget_max"], 12)
+
+        form = {"product": "Fixture", "region": "US", "budget_max": 50}
+        first = await self.application.start("priced-form", {"user_request": "选品，商品单价30元", "slot_updates": form})
+        changed = await self.application.revise("priced-form", {"expected_revision": 0,
+            "slot_updates": {**form, "region": "CA", "budget_max": 7}})
+        self.assertEqual([r["plan"]["queries"][0]["max_price"] for r in (first, changed)], [30, 30])
+        self.assertEqual(changed["slotValues"]["budget_max"], 7)
+
+    async def test_three_slot_checkpoint_replays_revises_and_resumes_old_confirmation(self):
+        payload = {"user_request": "查美国灯写口播，商品单价30，预算10"}
+        for action in ("confirm", "revise"):
+            with self.subTest(action=action):
+                first = await self.application.start(action, payload)
+                graph = self.application._graph(self.tools)
+                config = self.application._config(action)
+                old_slots = {k: v for k, v in first["slotValues"].items() if k != "product_max_price"}
+                old_versions = {k: v for k, v in first["slotVersions"].items() if k != "product_max_price"}
+                old_dependencies = {"product_results": old_versions, "selected_product": old_versions, "quote": old_versions}
+                await graph.aupdate_state(config, {"slot_values": old_slots, "slot_versions": old_versions,
+                    "conclusion_dependencies": old_dependencies, "product_results_snapshot": ""}, as_node="create_quote")
+                await graph.ainvoke(None, config)
+                replay = await self.application.start(action, payload)
+                self.assertEqual(replay["slotValues"]["product_max_price"], 30)
+                self.assertEqual(replay["slotVersions"]["product_max_price"], 0)
+                self.assertNotIn("budget_max", replay["conclusionDependencies"]["selected_product"])
+                if action == "confirm":
+                    done = await self.application.confirm(action, {"quote_id": first["quote"]["quoteId"], "confirmed": True})
+                    self.assertEqual(done["conclusionDependencies"]["content_task"]["product_max_price"], 0)
+                else:
+                    edit = await self.application.revise(action, {"expected_revision": 0, "slot_updates": {"budget_max": 12}})
+                    self.assertEqual(edit["reusedQueries"], ["query-1"])
+                    self.assertEqual(edit["slotVersions"]["product_max_price"], 0)
+                    self.assertNotIn("selected_product", edit["invalidated"])
+
+    async def test_old_checkpoint_without_slot_values_can_retry_submission_with_the_saved_key(self):
+        run = "old-submission"
+        first = await self.application.start(run, {"user_request": "查美国灯写口播，商品单价30，预算10"})
+        quote = first["quote"]["quoteId"]
+        submit = AsyncMock(side_effect=[TimeoutError("lost receipt"), {"taskId": "t-1"}])
+        with patch.object(self.tools, "submit_task", submit):
+            with self.assertRaisesRegex(TimeoutError, "lost receipt"):
+                await self.application.confirm(run, {"quote_id": quote, "confirmed": True})
+            graph = self.application._graph(self.tools)
+            await graph.aupdate_state(self.application._config(run), {"slot_values": {},
+                "slot_versions": {k: v for k, v in first["slotVersions"].items() if k != "product_max_price"},
+                "conclusion_dependencies": {}}, as_node="confirm_quote")
+            retried = await self.application.retry(run)
+        self.assertEqual(retried["slotValues"], first["slotValues"])
+        self.assertEqual(retried["conclusionDependencies"]["content_task"]["product_max_price"], 0)
+        self.assertEqual(submit.await_args_list[0], submit.await_args_list[1])
+        self.assertEqual(submit.await_args.args[1], quote)
+        self.assertEqual(self.tools.calls.count("confirm"), 1)
+
     async def test_retry_queries_retains_successful_independent_results(self):
         attempts = {"US": 0, "ID": 0}
         async def search(query):
@@ -237,3 +339,46 @@ class ApplicationTests(IdentityTestCase):
         result = await self.application.retry("retry-1")
         self.assertEqual(result["taskStatus"]["status"], "SUCCEEDED")
         self.assertEqual(self.tools.calls.count("submit"), 1)
+
+    async def test_confirm_and_retry_choose_durability_at_the_side_effect_boundary(self):
+        # Record the actual ainvoke arguments with a local saver; no database needed for this policy test.
+        graph_type = type(self.application._graph(self.tools))
+        invoke = graph_type.ainvoke
+        modes = []
+
+        async def record(graph, *args, **kwargs):
+            modes.append(kwargs.get("durability"))
+            return await invoke(graph, *args, **kwargs)
+
+        with patch.object(graph_type, "ainvoke", record):
+            for backend in ("postgres", "memory"):
+                with self.subTest(backend=backend):
+                    self.application.settings = Settings(checkpointer_backend=backend, postgres_checkpointer_uri="postgresql://localhost/test")
+                    self.tools.submit_task = AsyncMock(side_effect=[TimeoutError("submit receipt"), {"taskId": "t-1"}])
+                    self.tools.get_task = AsyncMock(side_effect=[RuntimeError("read status"), {"status": "SUCCEEDED"}])
+                    modes.clear()
+                    await self.application.start(backend, {"user_request": "查灯写口播，预算10"})
+                    with self.assertRaisesRegex(TimeoutError, "submit receipt"):
+                        await self.application.confirm(backend, {"quote_id": "q-1", "confirmed": True})
+                    with self.assertRaisesRegex(RuntimeError, "read status"):
+                        await self.application.retry(backend)
+                    await self.application.retry(backend)
+                    sync = "sync" if backend == "postgres" else None
+                    self.assertEqual(modes, [None, sync, sync, None])
+                    modes.clear()
+                    with patch.object(self.tools, "search_products", AsyncMock(side_effect=[TimeoutError(), {"products": []}])):
+                        lookup = backend + "-lookup"
+                        await self.application.start(lookup, {"user_request": "查露营灯"})
+                        await self.application.retry(lookup)
+                    self.assertEqual(modes, [None, None])
+
+            self.application.settings = Settings(checkpointer_backend="postgres", postgres_checkpointer_uri="postgresql://localhost/test")
+            for run, text, expected in (("plan-lookup", "查灯", [None, None]),
+                                        ("plan-production", "查灯写口播，预算10", [None, None, "sync"])):
+                modes.clear()
+                with patch.object(self.application.planner, "plan", AsyncMock(side_effect=TimeoutError("planner"))):
+                    with self.assertRaisesRegex(TimeoutError, "planner"):
+                        await self.application.start(run, {"user_request": text})
+                result = await self.application.retry(run)
+                self.assertEqual(modes, expected)
+                self.assertEqual(result["status"], "awaiting_confirmation" if run == "plan-production" else "completed")
