@@ -30,6 +30,25 @@ class AgentEvaluationTests(unittest.IsolatedAsyncioTestCase):
         cases, self.catalog, _ = load_cases(DATA_DIR, "all", set())
         self.samples = {case.id: case for items in cases.values() for case in items}
 
+    def test_memory_fixture_has_long_dialogues_and_scored_coverage(self):
+        cases, _, _ = load_cases(DATA_DIR, "memory", set())
+        dialogues = cases["memory"]
+        self.assertEqual(len(dialogues), 12)
+        self.assertTrue(all(10 <= len(dialogue.turns) <= 18 for dialogue in dialogues))
+        labeled_fields = sum(len(turn.check.model_fields_set) for dialogue in dialogues
+                             for turn in dialogue.turns if turn.check is not None)
+        self.assertGreaterEqual(labeled_fields, 150)
+        max_dropped_messages = max_dropped_chars = 0
+        for dialogue in dialogues:
+            history = []
+            for turn in dialogue.turns:
+                _, info = history_window(history, "message", HISTORY_CHARS)
+                max_dropped_messages = max(max_dropped_messages, info["dropped_messages"])
+                max_dropped_chars = max(max_dropped_chars, info["dropped_chars"])
+                history.extend(("用户：" + turn.user, "助手：" + turn.assistant))
+        self.assertGreater(max_dropped_messages, 0)
+        self.assertGreater(max_dropped_chars, 0)
+
     async def play(self, case, arm, replies):
         requests = []
 
@@ -139,7 +158,7 @@ class AgentEvaluationTests(unittest.IsolatedAsyncioTestCase):
         long_history = ["x" * 1800, "y" * 1800]
         text, info = history_window(long_history, "message", HISTORY_CHARS)
         self.assertEqual(text, ("\n".join(long_history))[-HISTORY_CHARS:])
-        self.assertEqual(info, {"dropped_messages": 0, "dropped_chars": 601})
+        self.assertEqual(info, {"dropped_messages": 0, "dropped_chars": 1201})
         self.assertGreater(len(self.samples["window-eviction"].turns), 13)
 
     async def test_slots_only_store_model_updates_and_missing_is_not_an_explicit_clear(self):
@@ -174,7 +193,8 @@ class AgentEvaluationTests(unittest.IsolatedAsyncioTestCase):
         first = case.turns[0].check.model_dump(exclude_unset=True)
         row, _ = await self.play(case, "slots", [reply({"updates": first, "constraints": first}), httpx.Response(503)])
         self.assertEqual(row["status"], "failed")
-        self.assertEqual([t["status"] for t in row["turns"]], ["completed", "failed"] + ["skipped_after_error"] * 3)
+        self.assertEqual([t["status"] for t in row["turns"]],
+                         ["completed", "failed"] + ["skipped_after_error"] * (len(case.turns) - 2))
         counts = row["constraints"]
         self.assertEqual(counts["matched"], len(first))
         self.assertEqual(counts["expected"], sum(len(t.check.model_fields_set) for t in case.turns))

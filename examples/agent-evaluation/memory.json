@@ -5,7 +5,12 @@
       {"user":"拍摄的钱收紧到 120，只改内容制作预算。", "assistant":"收到这次预算调整。", "check":{"product_max_price":40,"budget_max":120}},
       {"user":"单件商品可以放宽到 55，其他照旧。", "assistant":"我会沿用其余条件。", "check":{"product":"露营灯","region":"US","product_max_price":55,"budget_max":120}},
       {"user":"市场改去英国，选品关键词换成「保温杯」。", "assistant":"市场和关键词的修改收到。", "check":{"product":"保温杯","region":"GB","product_max_price":55,"budget_max":120}},
-      {"user":"商品这边取消价格上限，拍摄经费维持刚才那版。", "assistant":"记下了。", "check":{"product_max_price":null,"budget_max":120}}
+      {"user":"商品这边取消价格上限，拍摄经费维持刚才那版。", "assistant":"记下了。", "check":{"product":"保温杯","region":"GB","product_max_price":null,"budget_max":120}},
+      {"user":"再补一页英国站保温杯的内容方向，预算还是120。", "assistant":"我会继续使用英国市场和保温杯关键词，不恢复已经取消的商品价格限制。", "check":{"product":"保温杯","region":"GB","product_max_price":null,"budget_max":120}},
+      {"user":"脚本先突出通勤携带，暂时不改选品范围。", "assistant":"脚本会聚焦通勤使用，不会把商品预算和内容制作预算混为一项。", "check":{"product":"保温杯","region":"GB","product_max_price":null,"budget_max":120}},
+      {"user":"制作预算改到100，其他要求沿用。", "assistant":"已把内容制作预算更新为100。", "check":{"product":"保温杯","region":"GB","product_max_price":null,"budget_max":100}},
+      {"user":"采购现在希望单件不高于50，制作预算不变。", "assistant":"我会恢复商品单价上限50，并保留100的制作预算。", "check":{"product":"保温杯","region":"GB","product_max_price":50,"budget_max":100}},
+      {"user":"最后把市场改成加拿大，保温杯关键词和两个预算条件都继续。", "assistant":"市场已调整为加拿大，其余选品和制作条件保持不变。", "check":{"product":"保温杯","region":"CA","product_max_price":50,"budget_max":100}}
     ]},
     {"id":"window-eviction", "turns":[
       {"user":"这单给美国市场做，关键词是「便携风扇」，商品单价不超过 28，制作预算 130。", "assistant":"已收到最初的选品需求。", "check":{"product":"便携风扇","region":"US","product_max_price":28,"budget_max":130}},
@@ -28,7 +33,127 @@
       {"user":"英国市场，关键词用「收纳盒」。商品单价最多 34，内容制作预算最多 180。", "assistant":"收到。", "check":{"region":"GB","product":"收纳盒","product_max_price":34,"budget_max":180}},
       {"user":"给剪辑组留一段英文的交接便条，重点说镜头怎么接。上面的选品需求不变。", "assistant":"Editing handoff for the studio team. Open on a clean desk with a notebook still visible at the edge of the frame. Keep the camera position fixed while the presenter moves the sample into view. Use the same angle for the before and after shots so viewers can tell what changed. Cut on the movement of a hand instead of inserting a transition. Leave a beat after each action for subtitles. Record room tone before moving any equipment. If a close-up is soft, use the spare take from the side camera. End on the finished desk, hold the frame for a moment, and leave the lower third clear for the editor who adds captions."},
       {"user":"那段便条不用改。只把商品单件上限调低到 26，按当前条件给采购交接。", "assistant":"收到商品限价。", "check":{"region":"GB","product":"收纳盒","product_max_price":26,"budget_max":180}},
-      {"user":"内容制作预算也取消上限，市场和商品继续沿用。", "assistant":"明白。", "check":{"region":"GB","product":"收纳盒","product_max_price":26,"budget_max":null}}
+      {"user":"内容制作预算也取消上限，市场和商品继续沿用。", "assistant":"明白。", "check":{"region":"GB","product":"收纳盒","product_max_price":26,"budget_max":null}},
+      {"user":"把拍摄稿调整成适合小户型收纳展示的版本。", "assistant":"我会以英国站收纳盒为选品对象，商品限价仍是26，制作预算保持不设上限。", "check":{"region":"GB","product":"收纳盒","product_max_price":26,"budget_max":null}},
+      {"user":"采购找到一个更合适的款，单件上限提高到31。", "assistant":"商品限价已调整为31，不会因此恢复已取消的制作预算上限。", "check":{"region":"GB","product":"收纳盒","product_max_price":31,"budget_max":null}},
+      {"user":"市场改成美国，关键词改为桌面收纳盒，其他照旧。", "assistant":"已切换到美国市场和桌面收纳盒，商品限价31、制作预算不限。", "check":{"region":"US","product":"桌面收纳盒","product_max_price":31,"budget_max":null}},
+      {"user":"再把制作预算定为140，采购条件不变。", "assistant":"制作预算现为140，商品仍按31以内筛选。", "check":{"region":"US","product":"桌面收纳盒","product_max_price":31,"budget_max":140}},
+      {"user":"给团队交接时再强调一次，商品单价与制作预算是两项不同限制。", "assistant":"交接会分别列出商品单价上限31和内容制作预算140。", "check":{"region":"US","product":"桌面收纳盒","product_max_price":31,"budget_max":140}},
+      {"user":"最终市场改成加拿大，选品关键词不变，商品和内容的两项上限沿用。", "assistant":"最终条件已更新为加拿大桌面收纳盒，商品限价31、制作预算140。", "check":{"region":"CA","product":"桌面收纳盒","product_max_price":31,"budget_max":140}}
+    ]},
+    {"id":"lamp-budget-revision", "turns":[
+      {"user":"美国站做露营灯选品简报，商品单价不超过45，内容制作预算220。", "assistant":"已记录市场、关键词和两项独立上限。", "check":{"product":"露营灯","region":"US","product_max_price":45,"budget_max":220}},
+      {"user":"拍摄费用收紧到160，只改内容预算。", "assistant":"内容制作预算改为160，商品单价上限仍为45。", "check":{"product":"露营灯","region":"US","product_max_price":45,"budget_max":160}},
+      {"user":"商品最高价也降到38，其他条件不变。", "assistant":"选品上限改为38，制作预算仍为160。", "check":{"product":"露营灯","region":"US","product_max_price":38,"budget_max":160}},
+      {"user":"简报先给采购看，镜头脚本后补。", "assistant":"交付顺序调整为先选品简报、后拍摄脚本，市场与两个金额限制不变。", "check":{"product":"露营灯","region":"US","product_max_price":38,"budget_max":160}},
+      {"user":"市场改到加拿大，商品关键词换成保温杯。", "assistant":"现按加拿大保温杯继续筛选，两个金额上限沿用。", "check":{"product":"保温杯","region":"CA","product_max_price":38,"budget_max":160}},
+      {"user":"加拿大这批内容预算可以回到190。", "assistant":"内容制作预算更新为190，商品限价仍为38。", "check":{"product":"保温杯","region":"CA","product_max_price":38,"budget_max":190}},
+      {"user":"采购说单件最多放到52，预算不要再动。", "assistant":"商品价格上限调整为52，制作预算仍为190。", "check":{"product":"保温杯","region":"CA","product_max_price":52,"budget_max":190}},
+      {"user":"先写一版通勤场景的短视频提纲。", "assistant":"提纲围绕加拿大通勤人群和保温杯展开，价格与制作预算按当前值执行。", "check":{"product":"保温杯","region":"CA","product_max_price":52,"budget_max":190}},
+      {"user":"商品限价取消，制作预算保留。", "assistant":"已取消商品单价上限，内容预算仍是190。", "check":{"product":"保温杯","region":"CA","product_max_price":null,"budget_max":190}},
+      {"user":"最后给加拿大内容组交接，别重新加商品限价。", "assistant":"交接保留加拿大保温杯选品、无商品限价和190的内容预算。", "check":{"product":"保温杯","region":"CA","product_max_price":null,"budget_max":190}}
+    ]},
+    {"id":"thermos-price-reselection", "turns":[
+      {"user":"英国市场重新选保温杯，商品最多35，内容制作预算170。", "assistant":"已按英国保温杯记录选品和创作条件。", "check":{"product":"保温杯","region":"GB","product_max_price":35,"budget_max":170}},
+      {"user":"单件上限改成28，制作预算不变。", "assistant":"商品限价已调整为28，制作预算仍是170。", "check":{"product":"保温杯","region":"GB","product_max_price":28,"budget_max":170}},
+      {"user":"再查一遍符合条件的货，不要把内容预算当成商品价格。", "assistant":"重新筛选仍使用英国保温杯、单价28以内；内容预算单独保持170。", "check":{"product":"保温杯","region":"GB","product_max_price":28,"budget_max":170}},
+      {"user":"我需要一段给采购看的对比说明。", "assistant":"说明会比较符合单价条件的款式，不改变创作预算。", "check":{"product":"保温杯","region":"GB","product_max_price":28,"budget_max":170}},
+      {"user":"可以把采购上限提高到42，其他不动。", "assistant":"商品限价升到42，制作预算仍为170。", "check":{"product":"保温杯","region":"GB","product_max_price":42,"budget_max":170}},
+      {"user":"换成美国市场，关键词改为随行杯。", "assistant":"已改为美国随行杯，沿用商品限价42和制作预算170。", "check":{"product":"随行杯","region":"US","product_max_price":42,"budget_max":170}},
+      {"user":"内容组把本次拍摄控制在130以内。", "assistant":"内容制作预算更新为130，不影响采购限价42。", "check":{"product":"随行杯","region":"US","product_max_price":42,"budget_max":130}},
+      {"user":"预算先不动，脚本增加办公室饮水场景。", "assistant":"会增加办公室饮水场景，选品与两项金额条件维持当前设置。", "check":{"product":"随行杯","region":"US","product_max_price":42,"budget_max":130}},
+      {"user":"采购范围放宽，不再设商品价格上限。", "assistant":"已取消商品单价限制，内容预算仍为130。", "check":{"product":"随行杯","region":"US","product_max_price":null,"budget_max":130}},
+      {"user":"请把目前条件整理给美国采购和内容同事。", "assistant":"交接会注明美国随行杯、商品不限价、内容制作预算130。", "check":{"product":"随行杯","region":"US","product_max_price":null,"budget_max":130}}
+    ]},
+    {"id":"multi-market-handoff", "turns":[
+      {"user":"先做美国便携风扇，商品单价最多30，短视频预算200。", "assistant":"先按美国便携风扇建立选品和制作条件。", "check":{"product":"便携风扇","region":"US","product_max_price":30,"budget_max":200}},
+      {"user":"预算压到150，商品限价保持。", "assistant":"内容预算更新为150，采购仍限制在30以内。", "check":{"product":"便携风扇","region":"US","product_max_price":30,"budget_max":150}},
+      {"user":"这批改去英国，关键词仍是便携风扇。", "assistant":"市场改为英国，商品关键词和两个金额条件沿用。", "check":{"product":"便携风扇","region":"GB","product_max_price":30,"budget_max":150}},
+      {"user":"英国站商品最多放到36，拍摄预算不变。", "assistant":"英国选品上限调整为36，内容预算仍为150。", "check":{"product":"便携风扇","region":"GB","product_max_price":36,"budget_max":150}},
+      {"user":"把内容交付改成三段式脚本，先问题再演示最后收尾。", "assistant":"脚本结构调整为问题、演示、收尾三段，选品条件不变。", "check":{"product":"便携风扇","region":"GB","product_max_price":36,"budget_max":150}},
+      {"user":"第三段加入用户分享使用体验的邀请。", "assistant":"收尾增加体验分享邀请，不改变市场、商品和预算条件。", "check":{"product":"便携风扇","region":"GB","product_max_price":36,"budget_max":150}},
+      {"user":"下一批市场改成加拿大，商品仍做便携风扇。", "assistant":"切换到加拿大市场，沿用当前价格和内容预算上限。", "check":{"product":"便携风扇","region":"CA","product_max_price":36,"budget_max":150}},
+      {"user":"加拿大内容预算提高到180，采购限价保持。", "assistant":"内容制作预算提高到180，商品单价仍不超过36。", "check":{"product":"便携风扇","region":"CA","product_max_price":36,"budget_max":180}},
+      {"user":"商品采购现在不限价，但预算180保留。", "assistant":"已取消商品价格上限，保留180的制作预算。", "check":{"product":"便携风扇","region":"CA","product_max_price":null,"budget_max":180}},
+      {"user":"把加拿大版本交接给内容团队，保持刚才的采购条件。", "assistant":"交接注明加拿大便携风扇、商品不限价、制作预算180。", "check":{"product":"便携风扇","region":"CA","product_max_price":null,"budget_max":180}}
+    ]},
+    {"id":"explicit-limit-cancellation", "turns":[
+      {"user":"泰国站做防晒面罩，商品最多25，制作预算120。", "assistant":"已记录泰国防晒面罩和两项上限。", "check":{"product":"防晒面罩","region":"TH","product_max_price":25,"budget_max":120}},
+      {"user":"制作预算加到145，商品限价不变。", "assistant":"内容预算更新为145，采购条件仍为25以内。", "check":{"product":"防晒面罩","region":"TH","product_max_price":25,"budget_max":145}},
+      {"user":"采购取消商品限价，制作预算继续。", "assistant":"商品单价上限已取消，内容预算仍是145。", "check":{"product":"防晒面罩","region":"TH","product_max_price":null,"budget_max":145}},
+      {"user":"先给我选品方向，不要擅自恢复价格限制。", "assistant":"选品方向不设置单价上限，制作预算仍为145。", "check":{"product":"防晒面罩","region":"TH","product_max_price":null,"budget_max":145}},
+      {"user":"关键词换成轻薄防晒面罩，市场不变。", "assistant":"关键词更新为轻薄防晒面罩，仍面向泰国市场。", "check":{"product":"轻薄防晒面罩","region":"TH","product_max_price":null,"budget_max":145}},
+      {"user":"脚本预算再降到110。", "assistant":"制作预算改为110，商品仍不设价格上限。", "check":{"product":"轻薄防晒面罩","region":"TH","product_max_price":null,"budget_max":110}},
+      {"user":"现在改去越南市场，内容预算保持。", "assistant":"市场改为越南，关键词和预算继续沿用。", "check":{"product":"轻薄防晒面罩","region":"VN","product_max_price":null,"budget_max":110}},
+      {"user":"采购需要重新加一个单件上限，定为32。", "assistant":"商品单价上限恢复为32，制作预算仍是110。", "check":{"product":"轻薄防晒面罩","region":"VN","product_max_price":32,"budget_max":110}},
+      {"user":"这批内容改成开箱加佩戴演示。", "assistant":"内容形式调整为开箱和佩戴演示，不改其他条件。", "check":{"product":"轻薄防晒面罩","region":"VN","product_max_price":32,"budget_max":110}},
+      {"user":"最后取消制作预算上限，商品限价保留。", "assistant":"已取消制作预算，商品单价仍限制在32以内。", "check":{"product":"轻薄防晒面罩","region":"VN","product_max_price":32,"budget_max":null}}
+    ]},
+    {"id":"indonesia-beauty-brief", "turns":[
+      {"user":"印尼市场找便携护肤收纳包，商品不超过18，创作预算95。", "assistant":"已确定印尼市场、收纳包关键词和预算边界。", "check":{"product":"便携护肤收纳包","region":"ID","product_max_price":18,"budget_max":95}},
+      {"user":"制作预算提高到125，商品限价还是18。", "assistant":"创作预算改为125，商品价格上限保持18。", "check":{"product":"便携护肤收纳包","region":"ID","product_max_price":18,"budget_max":125}},
+      {"user":"关键词简化为护肤收纳包。", "assistant":"选品关键词已简化，市场和金额条件不变。", "check":{"product":"护肤收纳包","region":"ID","product_max_price":18,"budget_max":125}},
+      {"user":"单件商品可以放到22。", "assistant":"商品限价提高为22，制作预算仍是125。", "check":{"product":"护肤收纳包","region":"ID","product_max_price":22,"budget_max":125}},
+      {"user":"写成面向首次购买者的开箱脚本。", "assistant":"脚本面向首次购买者，当前选品和预算条件继续有效。", "check":{"product":"护肤收纳包","region":"ID","product_max_price":22,"budget_max":125}},
+      {"user":"转到泰国站，商品关键词不变。", "assistant":"市场切换为泰国，关键词和两项上限照旧。", "check":{"product":"护肤收纳包","region":"TH","product_max_price":22,"budget_max":125}},
+      {"user":"拍摄预算降到100，采购不变。", "assistant":"制作预算调整到100，商品仍最多22。", "check":{"product":"护肤收纳包","region":"TH","product_max_price":22,"budget_max":100}},
+      {"user":"采购撤掉商品限价，其他条件沿用。", "assistant":"商品价格限制已取消，内容预算保留100。", "check":{"product":"护肤收纳包","region":"TH","product_max_price":null,"budget_max":100}},
+      {"user":"再补充浴室收纳的使用场景。", "assistant":"内容增加浴室收纳场景，不恢复商品限价。", "check":{"product":"护肤收纳包","region":"TH","product_max_price":null,"budget_max":100}},
+      {"user":"交接泰国版本，制作预算保持100。", "assistant":"交接注明泰国护肤收纳包、商品不限价、制作预算100。", "check":{"product":"护肤收纳包","region":"TH","product_max_price":null,"budget_max":100}}
+    ]},
+    {"id":"long-script-edit", "turns":[
+      {"user":"美国市场做桌面收纳盒，商品最多32，制作预算210。", "assistant":"已记录美国桌面收纳盒的初始选品和创作条件。", "check":{"product":"桌面收纳盒","region":"US","product_max_price":32,"budget_max":210}},
+      {"user":"预算先降到175，其他照旧。", "assistant":"当前选品摘要：美国市场的桌面收纳盒仍按单件32以内筛选，内容制作预算调整为175。初筛时请把可堆叠结构、抽屉开合顺畅度和桌面占用面积分别记录，不要把套装总价误当成单件价格。短视频先说明桌面杂物堆积的问题，再展示收纳前后的差异；没有实测承重数据时必须标注待验证，不得把供应商宣传语直接写成测试结论。", "check":{"product":"桌面收纳盒","region":"US","product_max_price":32,"budget_max":175}},
+      {"user":"采购最高价改为36，预算不变。", "assistant":"商品上限改为36，制作预算继续保持175。", "check":{"product":"桌面收纳盒","region":"US","product_max_price":36,"budget_max":175}},
+      {"user":"脚本改成先展示混乱桌面，再演示分类收纳，最后回到整理后的全景；字幕要短，镜头间不要用夸张转场。", "assistant":"脚本修改意见：开场用固定机位呈现真实桌面，不增加未经验证的容量或承重数字；中段按文具、线材和小配件逐类放入不同区域，并给每个动作留出字幕阅读时间；结尾回到同一角度做前后对照。剪辑使用动作衔接，不添加闪白、旋转或快速推拉。字幕用短句说明操作，不暗示所有桌面都能达到相同效果。", "check":{"product":"桌面收纳盒","region":"US","product_max_price":36,"budget_max":175}},
+      {"user":"关键词换成可叠放桌面收纳盒，市场不动。", "assistant":"关键词更新为可叠放桌面收纳盒，市场和金额条件保持。", "check":{"product":"可叠放桌面收纳盒","region":"US","product_max_price":36,"budget_max":175}},
+      {"user":"拍摄预算允许提高到230，商品价格不变。", "assistant":"内容制作预算调整为230，采购仍按36以内筛选。", "check":{"product":"可叠放桌面收纳盒","region":"US","product_max_price":36,"budget_max":230}},
+      {"user":"再给编辑一段素材标注要求：主镜头、细节镜头和补拍镜头分开命名，保留原始比例；缺失的尺寸数据不要从画面估算，产品颜色也以实物为准。", "assistant":"素材交接建议：按主镜头、细节镜头和补拍镜头建立独立目录，文件名包含拍摄顺序与场景，不覆盖相机原文件。剪辑代理文件可以另存，但导出前回看原始片段确认画面比例和焦点。尺寸、承重和清洁效果只有收到实测记录后再写入字幕；屏幕色温会影响外观，颜色名称应对照实物标签，不凭预览画面推断。", "check":{"product":"可叠放桌面收纳盒","region":"US","product_max_price":36,"budget_max":230}},
+      {"user":"市场改为加拿大，关键词保留，采购上限放宽到40。", "assistant":"市场改为加拿大，商品限价调整为40，制作预算仍为230。", "check":{"product":"可叠放桌面收纳盒","region":"CA","product_max_price":40,"budget_max":230}},
+      {"user":"制作预算先回到190，脚本方向不要变。采购和内容费用仍分开统计，市场继续是加拿大；请把报价口径、版本日期和待核实项写进交接，现阶段不要改商品关键词或采购上限。另请保留采购来源链接、报价日期、币种和复核人，避免后续把样品费用当成单件商品价格。", "assistant":"本轮只调整内容制作预算，现为190；采购仍按加拿大市场的可叠放桌面收纳盒筛选，单件价格上限40没有变化。后续报表应把商品采购金额、样品运费和拍摄制作费用分栏，不能把任一栏合并后再与另一项限制比较。脚本仍按固定机位、分类展示和同角度前后对照执行，素材里没有测量依据的数据继续标为待验证。采购交接应记录本轮版本日期，并保留单件价、套装价和运费来源，避免不同部门用各自的口径覆盖同一条件。报价表还需列出供应商来源、币种、日期和复核人；活动价应记录适用数量和有效期，不能自动替代常规采购报价。采购人员还需记录供应商来源、报价日期、币种、计价单位和复核人；活动价注明数量门槛与截止日期。缺少原始凭证时只标待核实，不用套装换算或历史汇率补出成交价。采购与创作的审核人分别签核自己的字段，修改需保留原值、新值和日期，不能从旧表自动回填上限。", "check":{"product":"可叠放桌面收纳盒","region":"CA","product_max_price":40,"budget_max":190}},
+      {"user":"给采购的摘要要区分单件价和套装价，缺信息写待核实。请保留加拿大、可叠放桌面收纳盒和当前两个上限，不要把供应商促销价直接当成交价；另外把币种、运输条件、报价有效期和样品费用分开列出，便于运营复核。请把原始来源和折扣适用条件一起归档，套装换算不要覆盖单件报价。", "assistant":"采购摘要将列出商品名称、单件报价、套装数量、币种、运费和报价有效期，并单独记录促销条件。供应商没有说明币种、套装内容或是否含运费时，相关字段标记待核实，不用页面折扣价推算最终成交价。当前商品单件上限仍为40，内容制作预算为190，两者分别核对。交接表保留加拿大市场和可叠放桌面收纳盒关键词，脚本不把未核实卖点写成确定事实。样品费与量产采购价也应分栏，不能用一次性赠品或限时折扣替代常规报价作为筛选依据。审核时还要核对来源日期与折扣条件，币种转换须保留原始金额和计算口径，避免套装单价被误当成供应商直接报价。复核时按统一计价单位比对候选，核对折扣条件、适用数量和生效日期；页面促销与正式报价分开归档，样品和量产批次不得混算。报价缺少币种或运输口径时停止比较并标记待核实，不以历史订单补齐。供应商更换时重新取得来源，不沿用旧报价，并保存原页面或正式附件供采购负责人复核。", "check":{"product":"可叠放桌面收纳盒","region":"CA","product_max_price":40,"budget_max":190}},
+      {"user":"商品限价取消，预算仍是190。请在采购备注里明确这是取消上限，不是把上限改成零；加拿大市场和收纳盒选品不要变化，也不要把之前的40重新加回来。交接仍需保留币种、套装和运费待核实状态。若之后收到报价，只补充来源和日期，不要自动恢复历史筛选阈值。", "assistant":"已取消商品单价上限，状态应记录为未设置，而不是价格为零或仅允许免费商品。内容制作预算继续为190，市场仍为加拿大，关键词仍是可叠放桌面收纳盒。采购表可以照常收集价格、币种和套装信息，但不再用原40的门槛排除候选。对缺失报价仍标记待核实；创作脚本继续沿用已确认的分类演示方向。交接时不要把空值转换成0，也不要从历史表格自动恢复旧阈值；采购与内容费用分别保留其字段和审核责任人。后续补录报价时只增加可追溯证据，不改变取消上限的状态。新报价只作为证据补录，不得覆盖取消上限的业务状态。表格空值应保留为空，不能转成零；采购负责人确认前不自动筛除候选，制作预算也不参与采购价格判断。变更记录需保留提出人和生效日期，便于回查。", "check":{"product":"可叠放桌面收纳盒","region":"CA","product_max_price":null,"budget_max":190}},
+      {"user":"再改到英国市场，其他要求保持。交接给英国同事时沿用可叠放桌面收纳盒，不设商品单价上限，内容制作预算还是190；脚本结构和待核实规则也不需要改。请注明英国本地币种需由采购确认，不要沿用加拿大报价。税费、运输和本地报价来源也分别记录。", "assistant":"市场现已切换为英国，选品关键词仍是可叠放桌面收纳盒。商品价格限制保持取消状态，不能把之前加拿大阶段的40重新带入；内容制作预算继续为190，也不能与商品采购价混用。英国团队收到的资料应保留币种和运费字段，尚未由供应商确认的参数统一标记待核实。脚本沿用分类收纳、真实展示和同角度对照，不承诺未经测量的容量或承重数据。英国报价须重新核对本地币种、税费和运输条件，不能将加拿大阶段的数字直接换算后视为有效供应商报价。新的市场来源应由当地采购人员确认，保留原币种报价与换算记录，避免把加拿大促销信息带入英国筛选表。英国供应商资料需重新核对当地币种、税费、配送区域和报价期限，保留原币种金额及换算来源。加拿大旧报价只作历史背景，不进入新市场筛选；所有未确认项保持待核实，不凭市场经验代填。", "check":{"product":"可叠放桌面收纳盒","region":"GB","product_max_price":null,"budget_max":190}},
+      {"user":"预算最终定为160，输出采购与脚本两份交接。商品继续不限价，英国市场不变，两个文件都标注版本日期和待核实项，避免采购同事把脚本预算误读为商品价格限制；脚本还要沿用固定机位和分类展示，不增加未实测的承重数字。请在交付前让采购和内容分别核对自己负责的字段。", "assistant":"最终内容制作预算更新为160，英国市场和可叠放桌面收纳盒关键词保持不变，商品单价上限仍未设置。采购交接单独列供应商报价、币种、套装规格和运费；脚本交接说明分镜、字幕与尚待确认的产品数据。两个文件使用相同的需求版本日期，缺少来源的参数不能补成估算值。脚本预算仅属于制作费用，采购人员不应据此过滤商品，也不应因商品不限价而误解制作预算。英国采购报价应由当地供应商重新确认，脚本素材则按固定机位和分类展示审核，避免不同版本的要求混在一起。最终由采购负责人复核报价来源、由内容负责人复核脚本事实，两侧只更新各自确认的内容。采购交接由采购负责人核实报价与币种，脚本交接由内容负责人核实分镜及事实来源；双方使用同一版本日期，但分别签字。导出后保留只读副本，修改需说明原值、新值和原因，避免口头反馈覆盖已复核内容。", "check":{"product":"可叠放桌面收纳盒","region":"GB","product_max_price":null,"budget_max":160}},
+      {"user":"确认最终是英国、可叠放桌面收纳盒，不设商品限价，内容预算160。请按刚才的双文件结构交接，并把币种、套装内容、运输费用和未实测的承重信息分别标注清楚；任何缺少来源的参数都留待核实，不要为了填表自行估算。采购与内容请使用同一版本日期，但保留各自的复核人。另请分别标出审核日期和未完成项，后续只改明确提出的字段。", "assistant":"最终条件确认：英国市场、可叠放桌面收纳盒、商品不限价、内容制作预算160。采购文件保留单件报价、币种、套装内容与运输费用字段，供应商未确认的信息标待核实；脚本文件沿用分类收纳和固定机位对照，并将未实测的承重信息排除在确定性宣传之外。两份文件分别说明采购与制作口径，按同一版本日期归档，便于后续审核时追溯调整。若后续拿到实测报告，只更新对应证据和脚本表述，不擅自改变市场、关键词或预算条件。采购与内容负责人分别签核各自字段，后续修订保留旧版本和变更原因，确保信息来源清楚。审阅时逐项对照用户确认的市场、关键词和金额字段，任何未明确提出的值都沿用现状。来源链接失效时保留待核实标记，不把推测写成结论；后续实测证据到位后只更新相关证据与脚本文字，保持条件记录可追溯。", "check":{"product":"可叠放桌面收纳盒","region":"GB","product_max_price":null,"budget_max":160}},
+      {"user":"最后检查一次交接：市场仍是英国，选品关键词仍是可叠放桌面收纳盒，商品单价没有上限，制作预算160。任何后续改动都只更新明确提到的那一项。", "assistant":"复核完成，当前保留英国市场、可叠放桌面收纳盒、未设置商品单价上限和160的内容制作预算。之后若采购侧调整报价范围，只更新商品限制；若内容侧调整拍摄费用，只更新制作预算。市场和关键词只有在你明确提出切换时才修改。当前交接继续区分采购文件与脚本文件，缺少供应商或实测依据的项目仍写待核实，不从旧版本推断新条件。", "check":{"product":"可叠放桌面收纳盒","region":"GB","product_max_price":null,"budget_max":160}},
+      {"user":"内容组复核后补充最后一项要求：交付仍为英国市场的可叠放桌面收纳盒，商品价格不设上限，内容制作预算160。请在脚本里把每项事实关联到原始资料或实测记录；尺寸、承重、耐用性和清洁效果没有证据的继续标待核实。采购表保留单件价、套装规格、币种、税费、运费、报价日期和供应商来源。两个文件使用同一需求版本，但分别由采购和内容负责人审核。缺失字段保持为空，不要用0或历史加拿大报价补齐；这次只补充审核交接要求，不改变市场、关键词和预算。", "assistant":"审核要求已补入最终交接，当前条件仍为英国市场、可叠放桌面收纳盒、商品不限价、内容制作预算160。脚本中的事实需能回到原始资料或实测记录；没有证据支持的尺寸、承重、耐用性和清洁效果继续标待核实，不以画面观感代替测量。采购文件分别保留单件报价、套装规格、币种、税费、运费、报价日期和供应商来源，缺失内容保持空值。两个文件共用同一需求版本日期，由采购负责人和内容负责人各自复核。不得用零值或加拿大旧报价填补英国数据。本轮只增加审核和交接要求，不改动已确认的选品条件。", "check":{"product":"可叠放桌面收纳盒","region":"GB","product_max_price":null,"budget_max":160}}
+    ]},
+    {"id":"market-bundle-shift", "turns":[
+      {"user":"越南站选户外餐盒，单件不超过26，内容预算140。", "assistant":"已建立越南户外餐盒方案。", "check":{"product":"户外餐盒","region":"VN","product_max_price":26,"budget_max":140}},
+      {"user":"预算改为115，采购限价不动。", "assistant":"制作预算调整为115，商品上限仍为26。", "check":{"product":"户外餐盒","region":"VN","product_max_price":26,"budget_max":115}},
+      {"user":"商品上限提高到30，预算照旧。", "assistant":"商品单价上限改为30，预算仍是115。", "check":{"product":"户外餐盒","region":"VN","product_max_price":30,"budget_max":115}},
+      {"user":"改去印尼市场，继续找户外餐盒。", "assistant":"市场改为印尼，关键词和金额条件不变。", "check":{"product":"户外餐盒","region":"ID","product_max_price":30,"budget_max":115}},
+      {"user":"补一版野餐场景脚本。", "assistant":"脚本加入野餐场景，选品和预算仍按当前设置。", "check":{"product":"户外餐盒","region":"ID","product_max_price":30,"budget_max":115}},
+      {"user":"内容预算提高到150。", "assistant":"制作预算更新为150，采购上限仍为30。", "check":{"product":"户外餐盒","region":"ID","product_max_price":30,"budget_max":150}},
+      {"user":"关键词改成分隔式餐盒。", "assistant":"选品关键词改为分隔式餐盒，其余条件沿用。", "check":{"product":"分隔式餐盒","region":"ID","product_max_price":30,"budget_max":150}},
+      {"user":"商品采购不限价，创作预算保持150。", "assistant":"商品限价已取消，制作预算保留150。", "check":{"product":"分隔式餐盒","region":"ID","product_max_price":null,"budget_max":150}},
+      {"user":"市场再切到泰国。", "assistant":"市场切换为泰国，关键词和预算设置保持。", "check":{"product":"分隔式餐盒","region":"TH","product_max_price":null,"budget_max":150}},
+      {"user":"完成泰国版本交接，别恢复商品限价。", "assistant":"交接保持泰国分隔式餐盒、商品不限价、内容预算150。", "check":{"product":"分隔式餐盒","region":"TH","product_max_price":null,"budget_max":150}}
+    ]},
+    {"id":"seasonal-organizer", "turns":[
+      {"user":"英国市场做季节性衣柜收纳袋，单价不超过20，拍摄预算100。", "assistant":"已记录英国收纳袋项目的四项条件。", "check":{"product":"衣柜收纳袋","region":"GB","product_max_price":20,"budget_max":100}},
+      {"user":"预算提高到135，商品限价保持。", "assistant":"制作预算更新为135，商品仍不超过20。", "check":{"product":"衣柜收纳袋","region":"GB","product_max_price":20,"budget_max":135}},
+      {"user":"商品关键词改成真空收纳袋。", "assistant":"关键词已改为真空收纳袋，市场与金额条件沿用。", "check":{"product":"真空收纳袋","region":"GB","product_max_price":20,"budget_max":135}},
+      {"user":"商品单价上限加到24。", "assistant":"商品限价提高到24，制作预算仍为135。", "check":{"product":"真空收纳袋","region":"GB","product_max_price":24,"budget_max":135}},
+      {"user":"拍摄内容先讲换季整理，不要承诺压缩体积比例。", "assistant":"脚本聚焦换季整理流程，不出现未经实测的压缩比例。", "check":{"product":"真空收纳袋","region":"GB","product_max_price":24,"budget_max":135}},
+      {"user":"市场换成加拿大，关键词不变。", "assistant":"市场改为加拿大，选品关键词和价格预算维持当前值。", "check":{"product":"真空收纳袋","region":"CA","product_max_price":24,"budget_max":135}},
+      {"user":"预算收紧到105。", "assistant":"内容制作预算改为105，商品限价仍为24。", "check":{"product":"真空收纳袋","region":"CA","product_max_price":24,"budget_max":105}},
+      {"user":"商品限价取消，其他不改。", "assistant":"商品价格上限已取消，制作预算仍是105。", "check":{"product":"真空收纳袋","region":"CA","product_max_price":null,"budget_max":105}},
+      {"user":"内容预算恢复到125，但商品依然不限价。", "assistant":"制作预算调整为125，商品仍没有单价上限。", "check":{"product":"真空收纳袋","region":"CA","product_max_price":null,"budget_max":125}},
+      {"user":"输出加拿大市场的季节性选品交接。", "assistant":"交接注明加拿大真空收纳袋、商品不限价、内容预算125。", "check":{"product":"真空收纳袋","region":"CA","product_max_price":null,"budget_max":125}}
+    ]},
+    {"id":"fan-campaign-budget", "turns":[
+      {"user":"美国市场找迷你桌面风扇，商品最多34，内容制作预算185。", "assistant":"已记录美国迷你桌面风扇的选品和创作要求。", "check":{"product":"迷你桌面风扇","region":"US","product_max_price":34,"budget_max":185}},
+      {"user":"预算下调到150，采购条件不动。", "assistant":"内容预算改为150，商品限价保持34。", "check":{"product":"迷你桌面风扇","region":"US","product_max_price":34,"budget_max":150}},
+      {"user":"商品单价可以提高到39。", "assistant":"商品上限调整为39，制作预算仍为150。", "check":{"product":"迷你桌面风扇","region":"US","product_max_price":39,"budget_max":150}},
+      {"user":"换到加拿大市场，关键词保留。", "assistant":"市场切换为加拿大，关键词和金额条件继续沿用。", "check":{"product":"迷你桌面风扇","region":"CA","product_max_price":39,"budget_max":150}},
+      {"user":"脚本加入办公桌午后使用场景。", "assistant":"脚本补充午后办公桌场景，不改变选品限制。", "check":{"product":"迷你桌面风扇","region":"CA","product_max_price":39,"budget_max":150}},
+      {"user":"制作预算提高到175。", "assistant":"内容预算更新为175，采购上限仍为39。", "check":{"product":"迷你桌面风扇","region":"CA","product_max_price":39,"budget_max":175}},
+      {"user":"关键词换成静音桌面风扇。", "assistant":"关键词改为静音桌面风扇，市场和价格预算保持。", "check":{"product":"静音桌面风扇","region":"CA","product_max_price":39,"budget_max":175}},
+      {"user":"不再限制商品单价，内容预算保留。", "assistant":"已取消商品价格上限，内容预算仍为175。", "check":{"product":"静音桌面风扇","region":"CA","product_max_price":null,"budget_max":175}},
+      {"user":"最后切回美国市场，其他要求不动。", "assistant":"市场切回美国，关键词、商品不限价和预算继续沿用。", "check":{"product":"静音桌面风扇","region":"US","product_max_price":null,"budget_max":175}},
+      {"user":"给美国内容组交接一版短视频方案。", "assistant":"交接注明美国静音桌面风扇、无商品限价、内容预算175。", "check":{"product":"静音桌面风扇","region":"US","product_max_price":null,"budget_max":175}}
     ]}
   ]
 }

@@ -28,7 +28,7 @@ PURPOSE = "agent_plan"
 MAX_TOKENS = 2048
 TOOL_LIMIT = 4  # AgentPlan 的查询上限，两种策略共用。
 HISTORY_SIZE = 12
-HISTORY_CHARS = 3000
+HISTORY_CHARS = 2400
 ARMS = {"planning": ("planner", "react"), "memory": ("slots", "history12")}
 TOOL_PROTOCOL = (
     "可用只读查询为 product_search 和 product_ranking。均用商品查询 JSON 表示。"
