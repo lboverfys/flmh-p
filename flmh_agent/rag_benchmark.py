@@ -21,6 +21,7 @@ from flmh_agent.adapters.outbound.rag_benchmark_store import BenchmarkStore
 from flmh_agent.application.ingestion import KnowledgeIngestion
 from flmh_agent.application.rag import hybrid_child_ranking, ranked_parent_ids
 from flmh_agent.config import Settings
+from flmh_agent.domain.rag import Chunk
 from flmh_agent.evaluate import Judgments, Rankings, Record, Recording
 from flmh_agent.ports.rag import HybridEmbeddingPort, RerankerPort
 from flmh_agent.rag_corpus import Corpus, Review, freeze_review, load_corpus, read_small, review_cases
@@ -74,6 +75,12 @@ async def index_corpus(corpus: Corpus, store: BenchmarkStore, embedder: HybridEm
             "index_prefix": store.settings.elasticsearch_index, "documents": receipts}
 
 
+async def _rerank_arms(question: str, dense: list[Chunk], sparse: list[Chunk], reranker: RerankerPort, depth: int):
+    dense_reranked = await reranker.rerank(question, dense, depth)
+    fused, hybrid_reranked = await hybrid_child_ranking(question, dense, sparse, reranker, depth)
+    return dense_reranked, fused, hybrid_reranked
+
+
 async def record_pair(corpus: Corpus, gold: Judgments, store: BenchmarkStore, embedder: HybridEmbeddingPort,
                       reranker: RerankerPort, trace: TextIO, *, k: int, multiplier: int, batch_size: int) -> list[Rankings]:
     if (gold.dataset != corpus.dataset or gold.corpus_sha256 != corpus.version or gold.granularity != "parent"
@@ -85,6 +92,7 @@ async def record_pair(corpus: Corpus, gold: Judgments, store: BenchmarkStore, em
     if not 1 <= batch_size <= 8 or not 1 <= multiplier <= 10 or not 1 <= k <= depth <= 100:
         raise ValueError("require batch size 1..8, multiplier 1..10 and 1 <= k <= k*multiplier <= 100")
     dense_rows: dict[str, list[str]] = {}
+    dense_rerank_rows: dict[str, list[str]] = {}
     hybrid_rows: dict[str, list[str]] = {}
     async with store.corpus_snapshot(corpus) as (published, indices, pit_hash):
         for batch in itertools.batched(gold.cases, batch_size):
@@ -98,21 +106,22 @@ async def record_pair(corpus: Corpus, gold: Judgments, store: BenchmarkStore, em
                         raise ValueError(f"retrieved child differs from pinned corpus: {hit.chunk_id}")
             async with asyncio.TaskGroup() as group:
                 for case, (_, dense, sparse) in zip(batch, recalls, strict=True):
-                    tasks.append(group.create_task(hybrid_child_ranking(case.question, dense, sparse, reranker, depth)))
+                    tasks.append(group.create_task(_rerank_arms(case.question, dense, sparse, reranker, depth)))
             needed: set[str] = set()
             for case, (baseline, dense, sparse), task in zip(batch, recalls, tasks, strict=True):
-                fused, reranked = task.result()
+                dense_reranked, fused, reranked = task.result()
+                if len(dense_reranked) != min(depth, len(dense)):
+                    raise ValueError(f"incomplete dense-rerank response for {case.id}")
                 if len(reranked) != min(depth, len(fused)):
-                    raise ValueError(f"incomplete reranker response for {case.id}")
-                dense_rows[case.id] = ranked_parent_ids(baseline, k)
-                hybrid_rows[case.id] = ranked_parent_ids(reranked, k)
-                needed.update(dense_rows[case.id])
-                needed.update(hybrid_rows[case.id])
-                stages = {"dense_only": baseline, "hybrid_dense": dense, "hybrid_sparse": sparse,
+                    raise ValueError(f"incomplete hybrid reranker response for {case.id}")
+                for rows, hits in ((dense_rows, baseline), (dense_rerank_rows, dense_reranked), (hybrid_rows, reranked)):
+                    rows[case.id] = ranked_parent_ids(hits, k)
+                    needed.update(rows[case.id])
+                stages = {"dense_only": baseline, "hybrid_dense": dense, "dense_reranked": dense_reranked, "hybrid_sparse": sparse,
                           "rrf": fused, "reranked": reranked}
                 print(json.dumps({"id": case.id, **{name: [c.chunk_id for c in hits] for name, hits in stages.items()}}),
                       file=trace)
-            # Both arms hydrate the union from the same sealed physical indices in one mget.
+            # Hydrate the union once per batch from the same sealed physical indices.
             parents = await published.get_parents(sorted(needed))
             if ({chunk.chunk_id for chunk in parents} != needed
                     or any(replace(chunk, score=0.0) != corpus.parents[chunk.chunk_id] for chunk in parents)):
@@ -122,8 +131,9 @@ async def record_pair(corpus: Corpus, gold: Judgments, store: BenchmarkStore, em
                      recorded_at_utc=datetime.now(UTC).isoformat(), indices=indices, embedding_model=settings.bge_m3_model,
                      embedding_dimension=settings.embedding_dimension, reranker_model=settings.bge_reranker_model,
                      ranking_depth=k, candidate_multiplier=multiplier)
+    arms = (("dense-only", dense_rows), ("dense-rerank", dense_rerank_rows), ("hybrid", hybrid_rows))
     return [Rankings(name=name, dataset=gold.dataset, source="RECORDED_RETRIEVAL", granularity="parent",
-                     recording=meta, rankings=rows) for name, rows in (("dense-only", dense_rows), ("hybrid", hybrid_rows))]
+                     recording=meta, rankings=rows) for name, rows in arms]
 
 
 async def use_services(args: argparse.Namespace, corpus: Corpus) -> None:
@@ -141,9 +151,11 @@ async def use_services(args: argparse.Namespace, corpus: Corpus) -> None:
         gold = Judgments.model_validate_json(read_small(args.judgments))
         with new_bundle(args.out_dir) as stage:
             with (stage / "trace.jsonl").open("x", encoding="utf-8") as trace:
-                dense, hybrid = await record_pair(corpus, gold, store, embedder, BgeRerankerHttpAdapter(settings, client),
-                                                  trace, k=args.k, multiplier=args.candidate_multiplier, batch_size=args.batch_size)
+                dense, dense_rerank, hybrid = await record_pair(
+                    corpus, gold, store, embedder, BgeRerankerHttpAdapter(settings, client), trace,
+                    k=args.k, multiplier=args.candidate_multiplier, batch_size=args.batch_size)
             write_model(stage / "dense.json", dense)
+            write_model(stage / "dense-rerank.json", dense_rerank)
             write_model(stage / "hybrid.json", hybrid)
 
 
@@ -162,7 +174,7 @@ def main() -> None:
     online = argparse.ArgumentParser(parents=[local], add_help=False)
     online.add_argument("--index-prefix", required=True, help="dedicated rag-eval-... prefix, new for index")
     sub.add_parser("index", parents=[online], help="publish source documents via configured BGE and Elasticsearch")
-    record = sub.add_parser("record", parents=[online], help="record paired retrieval from published immutable indices")
+    record = sub.add_parser("record", parents=[online], help="record three retrieval arms from the same published snapshot")
     record.add_argument("--judgments", required=True, type=Path)
     record.add_argument("--out-dir", required=True, type=Path)
     record.add_argument("--k", type=int, default=5)

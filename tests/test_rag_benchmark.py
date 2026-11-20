@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from contextlib import asynccontextmanager
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import httpx
 
@@ -86,11 +86,22 @@ class BenchmarkTests(unittest.IsolatedAsyncioTestCase):
         store = Mock(settings=Settings(bge_m3_model="unit-encoder", embedding_dimension=1, bge_reranker_model="unit-reranker"))
         store.corpus_snapshot.side_effect = snapshot
         trace = io.StringIO()
-        dense, hybrid = await record_pair(self.corpus, gold, store, embedder, reranker, trace, k=1, multiplier=2, batch_size=8)
+        dense, dense_rerank, hybrid = await record_pair(
+            self.corpus, gold, store, embedder, reranker, trace, k=1, multiplier=2, batch_size=8)
         store.corpus_snapshot.assert_called_once_with(self.corpus)
         self.assertEqual([len(call.args[0]) for call in embedder.encode_many.await_args_list], [8] * 6 + [2])
         self.assertEqual((published.search_comparison_batch.await_count, published.get_parents.await_count), (7, 7))
-        self.assertEqual(json.loads(trace.getvalue().splitlines()[0])["hybrid_sparse"], [a.chunk_id])
+        self.assertEqual([run.name for run in (dense, dense_rerank, hybrid)], ["dense-only", "dense-rerank", "hybrid"])
+        self.assertEqual(dense.recording, dense_rerank.recording)
+        self.assertEqual(dense_rerank.recording, hybrid.recording)
+        self.assertEqual(dense_rerank.rankings["2"], [b.parent_id])
+        self.assertEqual(reranker.rerank.await_count, 2 * len(gold.cases))
+        calls = [call.args for call in reranker.rerank.await_args_list if call.args[0] == "unit 0"]
+        self.assertEqual(calls[0], ("unit 0", [b], 2))
+        first = json.loads(trace.getvalue().splitlines()[0])
+        self.assertEqual(first["hybrid_sparse"], [a.chunk_id])
+        self.assertEqual(first["dense_reranked"], [b.chunk_id])
+        self.assertEqual(first["reranked"][0], a.chunk_id)
         report = paired_report(gold, [hybrid, dense], 1)
         self.assertEqual([row["id"] for row in report["recovered"]], ["0"])
         self.assertEqual([row["id"] for row in report["regressed"]], ["2"])
@@ -98,6 +109,17 @@ class BenchmarkTests(unittest.IsolatedAsyncioTestCase):
         hybrid.recording = hybrid.recording.model_copy(update={"pit_sha256": "2" * 64})
         with self.assertRaisesRegex(ValueError, "same recording"):
             paired_report(gold, [dense, hybrid], 1)
+
+    async def test_incomplete_dense_rerank_aborts_before_parent_hydration(self):
+        self.review.cases = self.review.cases[:1]
+        gold = freeze_review(self.corpus, self.review)
+        store, published, embedder, reranker = MagicMock(), AsyncMock(), AsyncMock(), AsyncMock()
+        store.corpus_snapshot.return_value.__aenter__.return_value = (published, ["index"], "a" * 64)
+        published.search_comparison_batch.return_value = [([self.child_b], [self.child_b, self.child_a], [])]
+        reranker.rerank.side_effect = [[self.child_b], [self.child_b, self.child_a]]
+        with self.assertRaisesRegex(ValueError, "incomplete dense-rerank response for 0"):
+            await record_pair(self.corpus, gold, store, embedder, reranker, io.StringIO(), k=1, multiplier=2, batch_size=1)
+        published.get_parents.assert_not_awaited()
 
     def test_distributed_questions_are_pending_and_pinned_to_the_shipped_manifest(self):
         data = Path(__file__).resolve().parents[1] / "examples/rag-evaluation/operations-v1"
