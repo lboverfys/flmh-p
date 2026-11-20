@@ -96,22 +96,37 @@ def score(gold: Judgments, run: Rankings, k: int = 5) -> dict:
 
 def paired_report(gold: Judgments, runs: list[Rankings], k: int) -> dict:
     by_name = {run.name: run for run in runs}
-    if len(runs) != 2 or set(by_name) != {"dense-only", "hybrid"}:
-        raise ValueError("case comparison requires one dense-only and one hybrid recording")
+    reranked = by_name.get("dense-rerank")
+    names = ("dense-only", "dense-rerank", "hybrid") if reranked else ("dense-only", "hybrid")
+    if len(runs) != len(names) or set(by_name) != set(names):
+        raise ValueError("case comparison requires one dense-only, one hybrid and optionally one dense-rerank recording")
     dense, hybrid = by_name["dense-only"], by_name["hybrid"]
-    if gold.granularity != "parent" or dense.recording is None or dense.recording != hybrid.recording:
-        raise ValueError("case comparison requires two parent rankings from the same recording and PIT")
-    scores = [score(gold, run, k) for run in (dense, hybrid)]
+    if (gold.granularity != "parent" or dense.recording is None
+            or any(run.recording != dense.recording for run in runs)):
+        raise ValueError("case comparison requires parent rankings from the same recording and PIT")
+    scores = [score(gold, by_name[name], k) for name in names]
     groups: dict[str, list[dict]] = {"recovered": [], "still_missed": [], "regressed": []}
+    if reranked:
+        groups["sparse_recovered"] = []
     for case in gold.cases:
         baseline, combined = dense.rankings[case.id][:k], hybrid.rankings[case.id][:k]
         relevant = set(case.relevant)
-        before, after = bool(relevant.intersection(baseline)), bool(relevant.intersection(combined))
-        if before and after:
-            continue
-        group = "recovered" if after else "regressed" if before else "still_missed"
-        groups[group].append({"id": case.id, "question": case.question, "relevant": case.relevant,
-                              "dense_top_k": baseline, "hybrid_top_k": combined})
+        dense_hit, hybrid_hit = not relevant.isdisjoint(baseline), not relevant.isdisjoint(combined)
+        row = {"id": case.id, "question": case.question, "relevant": case.relevant,
+               "dense_top_k": baseline, "hybrid_top_k": combined}
+        rerank_hit = False
+        if reranked:
+            control = reranked.rankings[case.id][:k]
+            row["dense_rerank_top_k"] = control
+            rerank_hit = not relevant.isdisjoint(control)
+            if hybrid_hit and not rerank_hit:
+                groups["sparse_recovered"].append(row)
+        if hybrid_hit and not dense_hit:
+            groups["recovered"].append(row)
+        elif dense_hit and not hybrid_hit:
+            groups["regressed"].append(row)
+        elif not (dense_hit or hybrid_hit or rerank_hit):
+            groups["still_missed"].append(row)
     return {"k": k, "granularity": "parent", "recording": dense.recording.model_dump(),
             "scores": scores, **groups}
 
@@ -121,7 +136,7 @@ def main() -> None:
     parser.add_argument("--judgments", required=True, type=Path)
     parser.add_argument("--run", required=True, type=Path, action="append", help="rankings from one retriever; repeat for a baseline")
     parser.add_argument("--k", type=int, default=5)
-    parser.add_argument("--compare-cases", action="store_true", help="extract recovered, still-missed and regressed questions")
+    parser.add_argument("--compare-cases", action="store_true", help="compare dense-only and hybrid, optionally with a dense-rerank control")
     parser.add_argument("--output", type=Path, help="save to a new JSON file instead of stdout")
     args = parser.parse_args()
     try:

@@ -56,9 +56,11 @@ $prefix = "rag-eval-ops-$runId"
 ## 计分与查看具体题目
 
 ```powershell
-& $py -B -m flmh_agent.evaluate --judgments "$work/judgments.json" --run "$work/rankings/dense.json" --run "$work/rankings/hybrid.json" --k 5 --compare-cases --output "$work/report.json"
+& $py -B -m flmh_agent.evaluate --judgments "$work/judgments.json" --run "$work/rankings/dense.json" --run "$work/rankings/dense-rerank.json" --run "$work/rankings/hybrid.json" --k 5 --compare-cases --output "$work/report.json"
 ```
 
 Recall@k 对每题计算“前 k 名中的相关父块数 / 该题标注的相关父块数”，再对题目等权平均。MRR 取完整已记录排名中首个相关父块名次的倒数，再按题平均。空列表两项均计零。`--k` 可以调低到记录深度以内，MRR 仍按完整记录计算。
 
-在 `report.json` 中，`recovered` 表示前 k 名由零命中变为命中，`still_missed` 表示两路均为零命中，`regressed` 表示仅基线命中。每项附问题、相关父块及两路父块顺序。查看实际存在的一道找回题和一道双路失败题，用题号关联 `trace.jsonl` 与复核表，核对相关子块在哪一步出现或消失。数组为空时照实保留。混合稠密路的候选比基线更深，归因时需同时检查两路候选和重排。实测数字与案例的适用范围是本次冻结题集、语料和部署快照。
+`scores` 按 dense-only、dense-rerank、hybrid 的顺序给出各组得分。`recovered` 和 `regressed` 比较浅层稠密基线与混合检索，分别列出从零命中变为命中、从命中变为零命中的题目。`sparse_recovered` 比较使用同款重排器的两路，仅收录 dense-rerank 前 k 个父块零命中、hybrid 命中的题。用题号查看 `trace.jsonl`，可以区分相关子块由稀疏检索引入，还是已有候选在融合后排进了前 k 名。
+
+`still_missed` 收录所有参评方法前 k 名均为零命中的题。每项附问题、相关父块和各路前 k 名，数组可能为空。复查旧两路记录时省去 `dense-rerank.json` 参数即可，报告沿用原有字段。案例结论和指标适用于当次冻结题集、语料和部署快照。

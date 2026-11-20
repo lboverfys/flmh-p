@@ -71,13 +71,18 @@ class BenchmarkTests(unittest.IsolatedAsyncioTestCase):
 
         def recall(vectors, k, depth):
             self.assertEqual((k, depth), (1, 2))
-            rankings = {0: ([b], [b], [a]), 2: ([a], [b, a], [b])}
+            rankings = {
+                0: ([b], [b], [a]),       # Only sparse introduces the relevant candidate.
+                2: ([a], [b, a], [b]),    # The original shallow baseline wins.
+                3: ([b], [b, a], [b]),    # Deep dense + reranking already recovers it.
+                48: ([b], [a, b], [b]),   # Only the dense-rerank arm returns the parent at k.
+            }
             return [rankings.get(vector[0], ([b], [b], [b])) for vector, _ in vectors]
 
         published.search_comparison_batch.side_effect = recall
         published.get_parents.side_effect = lambda ids: [self.corpus.parents[key] for key in reversed(ids)]
         reranker.rerank.side_effect = lambda q, chunks, limit: (sorted(chunks, key=lambda c: c.chunk_id != a.chunk_id)
-                                                                if q == "unit 0" else chunks)[:limit]
+                                                                if q in {"unit 0", "unit 3"} else chunks)[:limit]
 
         @asynccontextmanager
         async def snapshot(corpus):
@@ -102,10 +107,25 @@ class BenchmarkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first["hybrid_sparse"], [a.chunk_id])
         self.assertEqual(first["dense_reranked"], [b.chunk_id])
         self.assertEqual(first["reranked"][0], a.chunk_id)
-        report = paired_report(gold, [hybrid, dense], 1)
-        self.assertEqual([row["id"] for row in report["recovered"]], ["0"])
+        self.assertCountEqual(published.get_parents.await_args_list[-1].args[0], [a.parent_id, b.parent_id])
+        legacy = paired_report(gold, [hybrid, dense], 1)
+        self.assertNotIn("sparse_recovered", legacy)
+        self.assertNotIn("dense_rerank_top_k", legacy["recovered"][0])
+        self.assertEqual([row["id"] for row in legacy["recovered"]], ["0", "3"])
+        self.assertEqual(len(legacy["still_missed"]), 47)
+        report = paired_report(gold, [hybrid, dense, dense_rerank], 1)
+        self.assertEqual([value["run"] for value in report["scores"]], ["dense-only", "dense-rerank", "hybrid"])
+        self.assertEqual([value["recall@1"] for value in report["scores"]], [1/50, 2/50, 2/50])
+        self.assertEqual([row["id"] for row in report["recovered"]], ["0", "3"])
+        self.assertEqual([row["id"] for row in report["sparse_recovered"]], ["0"])
+        self.assertEqual(report["sparse_recovered"][0]["dense_rerank_top_k"], [b.parent_id])
         self.assertEqual([row["id"] for row in report["regressed"]], ["2"])
-        self.assertEqual(len(report["still_missed"]), 48)
+        self.assertEqual({row["id"] for row in report["still_missed"]}, {str(i) for i in range(50) if i not in {0, 2, 3, 48}})
+        with self.assertRaisesRegex(ValueError, "one dense-only"):
+            paired_report(gold, [dense, dense, hybrid], 1)
+        dense_rerank.recording = dense_rerank.recording.model_copy(update={"pit_sha256": "3" * 64})
+        with self.assertRaisesRegex(ValueError, "same recording"):
+            paired_report(gold, [dense_rerank, hybrid, dense], 1)
         hybrid.recording = hybrid.recording.model_copy(update={"pit_sha256": "2" * 64})
         with self.assertRaisesRegex(ValueError, "same recording"):
             paired_report(gold, [dense, hybrid], 1)
