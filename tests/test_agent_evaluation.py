@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -34,20 +35,44 @@ class AgentEvaluationTests(unittest.IsolatedAsyncioTestCase):
         cases, _, _ = load_cases(DATA_DIR, "memory", set())
         dialogues = cases["memory"]
         self.assertEqual(len(dialogues), 12)
-        self.assertTrue(all(10 <= len(dialogue.turns) <= 18 for dialogue in dialogues))
+        self.assertTrue(all(12 <= len(dialogue.turns) <= 16 for dialogue in dialogues))
         labeled_fields = sum(len(turn.check.model_fields_set) for dialogue in dialogues
                              for turn in dialogue.turns if turn.check is not None)
-        self.assertGreaterEqual(labeled_fields, 150)
-        max_dropped_messages = max_dropped_chars = 0
+        self.assertGreaterEqual(labeled_fields, 180)
+        self.assertTrue(all(150 <= len(t.assistant) <= 350 for d in dialogues for t in d.turns))
+        self.assertEqual(HISTORY_CHARS, 2400)
+        evicted, clipped = set(), set()
         for dialogue in dialogues:
             history = []
             for turn in dialogue.turns:
                 _, info = history_window(history, "message", HISTORY_CHARS)
-                max_dropped_messages = max(max_dropped_messages, info["dropped_messages"])
-                max_dropped_chars = max(max_dropped_chars, info["dropped_chars"])
+                if info["dropped_messages"]:
+                    evicted.add(dialogue.id)
+                if info["dropped_chars"]:
+                    clipped.add(dialogue.id)
                 history.extend(("用户：" + turn.user, "助手：" + turn.assistant))
-        self.assertGreater(max_dropped_messages, 0)
-        self.assertGreater(max_dropped_chars, 0)
+        self.assertGreaterEqual(len(evicted), 6)
+        self.assertTrue({"character-cutoff", "long-script-edit"} <= clipped)
+
+    def test_handoffs_score_hidden_constraints_and_recently_updated_controls(self):
+        dialogues = load_cases(DATA_DIR, "memory", set())[0]["memory"]
+        regions = {"US":"美国", "CA":"加拿大", "GB":"英国", "TH":"泰国", "VN":"越南", "ID":"印尼"}
+        hidden, controls = set(), set()
+        for d in dialogues:
+            prior = [line for t in d.turns[:-1] for line in ("用户：" + t.user, "助手：" + t.assistant)]
+            visible = history_window(prior, "message", HISTORY_CHARS)[0] + "\n" + d.turns[-1].user
+            values = d.turns[-1].check.model_dump(exclude_unset=True)
+            self.assertEqual(set(values), {"product", "region", "product_max_price", "budget_max"})
+            # 测字面证据是否可见，不推断模型是否能猜对。撤销(null)不当成“丢失的值”。
+            patterns = [re.escape(values["product"]), rf'{values["region"]}|{regions[values["region"]]}']
+            patterns += [rf'(?<!\d){v:g}(?!\d)' for key in ("product_max_price", "budget_max")
+                         if (v := values[key]) is not None]
+            if any(not re.search(p, visible) for p in patterns):
+                hidden.add(d.id)
+            elif all(v is not None for v in values.values()):
+                controls.add(d.id)
+        self.assertGreaterEqual(len(hidden), 8)
+        self.assertTrue({"budget-is-not-price", "multi-market-handoff"} <= controls)
 
     def test_planning_fixture_has_market_breadth_and_dependency_chains(self):
         cases, catalog, _ = load_cases(DATA_DIR, "planning", set())

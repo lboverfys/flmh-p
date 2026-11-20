@@ -1,6 +1,6 @@
 # 运营规则 RAG 对照基准
 
-`flmh-radar-ops-v1` 提供 64 道待人工复核的规则问答。每题附原文短引、行号、父块 ID 和覆盖该处的子块 ID。同目录的 `judgments.json` 和 `scripted-ranking.json` 提供原有的三问 `SCRIPTED_FIXTURE` 计分示例。本题集的实验状态为待运行，真实指标与案例由未来的配对记录产生。
+`operations-v2/` 是正式评测的待审语料：6 份固定版本的原文，141 个父块、192 个子块，108 道候选题。每题附原文短引、行号和父子块 ID；复核人留空，所有题均为 `pending`。默认命令仍兼容 64 题的 `operations-v1/`。本目录根部的三问 `SCRIPTED_FIXTURE` 仅演示计分，两版候选题都不是实测排名。
 
 ## 语料与授权
 
@@ -8,10 +8,14 @@
 | --- | --- |
 | `flmh/docs/product-radar-operation-manual.md` | FLMH 操作手册，涵盖 FastMoss 集采、印尼等市场代号、筛选口径、选品元小秘和运营 SOP |
 | `flmh/docs/product-radar-data-foundation.md` | TKi8 基座方案，涵盖类目映射、受限预览、GMV 指标、监控和权限。按方案内容标注，实施状态由业务方核实 |
+| `flmh/docs/PRODUCT.md`（v2） | 产品矩阵、会员、积分；区分已发布的 Kling/Veo 与路线图中的 Seedance |
+| `flmh/docs/frontend-refactor-plan.md`（v2） | 工作台操作、提示、文案、主题与无障碍 |
+| `flmh/docs/superpowers/specs/2026-04-19-tki8-ai-design.md`（v2） | SKU、积分预算、撤回、SSE 资产事件与上下文规则；属于设计规格 |
+| `flmh/docs/superpowers/plans/2026-04-21-tki8-ai-stage1-kickoff.md`（v2） | 品线级工具、交付物与灰度验收；只取业务章节，不索引脚手架 |
 
 `operations-v1/sources.json` 固定旧仓提交 `af8a6d97c1bb46f87e56e2f7fbac95ecd72faffb`、两份 UTF-8 原文的 SHA-256 和所选行段。运行时读取本机已有的旧仓，统一换行为 LF 后校验整份文件。只对清单内的选段建索引，使用现有切块器的 3000 字父块、800 字子块和 700 字步长，各段独立切分。已将这 **20 个父块、28 个子块** 的实际正文和行段登记在 `operations-v1/chunks.jsonl`，可直接按候选表中的 ID 阅读。`prepare` 从原仓重建相同记录。文档指纹、选段或切分版本变化会改变语料版本和块 ID。
 
-资料所有者决定这些选段及衍生问题可用于哪些实验服务、可向谁展示。编码端会收到选段和问题，重排端会收到问题和候选子块。公开或外发范围需要对应授权。索引范围限于两份规则文档，相关性标注留在本地计分。
+v2 固定同一原仓提交，重新划分行段。v1 的 64 题重定位到新父子块，新增 44 题。候选深度 20 时，单路最多覆盖 20/192（约 10.4%）的子块；这只是规模比例，不是 Recall。资料所有者决定外发权限：编码端会收到选段和问题，重排端会收到问题和候选子块。索引范围以所选清单为准，相关性标注留在本地。
 
 ## 离线准备与人工复核
 
@@ -21,10 +25,12 @@
 Set-Location 'D:\Happy\芳\flmh-p'
 $py = 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe'
 $src = 'D:\Happy\芳\flmh'
+$v2 = 'examples/rag-evaluation/operations-v2'
+$manifest = "$v2/sources.json"
 $runId = [guid]::NewGuid().ToString('N')
 $work = "D:\rubbish\zhongjian\artifacts\flmh-rag\$runId"
 [System.IO.Directory]::CreateDirectory($work) | Out-Null
-& $py -B -m flmh_agent.rag_benchmark prepare --source-root $src --out-dir "$work/review"
+& $py -B -m flmh_agent.rag_benchmark prepare --source-root $src --manifest $manifest --candidates "$v2/candidates.json" --out-dir "$work/review"
 ```
 
 `prepare` 的默认输入为 `operations-v1/sources.json` 和 `operations-v1/candidates.json`（相对示例目录）。在其他工作目录调用时，用 `--manifest` 与 `--candidates` 指定相应文件。输出的 `chunks.jsonl` 可按 ID 查到原文、所属父块、原文件行段与版本。`review.json` 是可编辑的候选表。
@@ -43,7 +49,7 @@ $work = "D:\rubbish\zhongjian\artifacts\flmh-rag\$runId"
 4. 冻结复核结果。保存这份复核表和输出标签，在同一对照实验中使用同一版本。
 
 ```powershell
-& $py -B -m flmh_agent.rag_benchmark freeze --source-root $src --review "$work/review/review.json" --out "$work/judgments.json"
+& $py -B -m flmh_agent.rag_benchmark freeze --source-root $src --manifest $manifest --review "$work/review/review.json" --out "$work/judgments.json"
 ```
 
 ## 获得实验授权后的索引与记录
@@ -52,8 +58,8 @@ $work = "D:\rubbish\zhongjian\artifacts\flmh-rag\$runId"
 
 ```powershell
 $prefix = "rag-eval-ops-$runId"
-& $py -B -m flmh_agent.rag_benchmark index --source-root $src --index-prefix $prefix
-& $py -B -m flmh_agent.rag_benchmark record --source-root $src --index-prefix $prefix --judgments "$work/judgments.json" --out-dir "$work/rankings" --k 5 --candidate-multiplier 4 --batch-size 8
+& $py -B -m flmh_agent.rag_benchmark index --source-root $src --manifest $manifest --index-prefix $prefix
+& $py -B -m flmh_agent.rag_benchmark record --source-root $src --manifest $manifest --index-prefix $prefix --judgments "$work/judgments.json" --out-dir "$work/rankings" --k 5 --candidate-multiplier 4 --batch-size 8
 ```
 
 - `index` 要求一个全新的 `rag-eval-…` 前缀，覆盖进程内的 `ELASTICSEARCH_INDEX` 选择。先检查前缀占用，建索引遇到同名冲突即停止。每个源文档经现有入库器按最多 32 块批量嵌入和写入，核对数量后封存物理索引并发布该文档的别名。命令成功时把发布回执写到标准输出。中途失败会保留该前缀的诊断现场，重新准备索引使用新前缀。清理由索引所有者按实际归属处理。
@@ -71,4 +77,4 @@ Recall@k 对每题计算“前 k 名中的相关父块数 / 该题标注的相�
 
 `scores` 按 dense-only、dense-rerank、hybrid 的顺序给出各组得分。`recovered` 和 `regressed` 比较浅层稠密基线与混合检索，分别列出从零命中变为命中、从命中变为零命中的题目。`sparse_recovered` 比较使用同款重排器的两路，仅收录 dense-rerank 前 k 个父块零命中、hybrid 命中的题。用题号查看 `trace.jsonl`，可以区分相关子块由稀疏检索引入，还是已有候选在融合后排进了前 k 名。
 
-`still_missed` 收录所有参评方法前 k 名均为零命中的题。每项附问题、相关父块和各路前 k 名，数组可能为空。复查旧两路记录时省去 `dense-rerank.json` 参数即可，报告沿用原有字段。案例结论和指标适用于当次冻结题集、语料和部署快照。
+`sparse_regressed` 是相反方向：dense-rerank 命中而 hybrid 零命中，便于检查融合后被挤出的相关段落。`still_missed` 只收录所有参评方法前 k 名均为零命中的题。复查旧两路记录时省去 `dense-rerank.json` 参数，报告沿用原有字段。案例结论和指标只适用于当次冻结题集、语料和部署快照。

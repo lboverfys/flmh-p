@@ -108,6 +108,7 @@ def paired_report(gold: Judgments, runs: list[Rankings], k: int) -> dict:
     groups: dict[str, list[dict]] = {"recovered": [], "still_missed": [], "regressed": []}
     if reranked:
         groups["sparse_recovered"] = []
+        groups["sparse_regressed"] = []
     for case in gold.cases:
         baseline, combined = dense.rankings[case.id][:k], hybrid.rankings[case.id][:k]
         relevant = set(case.relevant)
@@ -121,6 +122,8 @@ def paired_report(gold: Judgments, runs: list[Rankings], k: int) -> dict:
             rerank_hit = not relevant.isdisjoint(control)
             if hybrid_hit and not rerank_hit:
                 groups["sparse_recovered"].append(row)
+            elif rerank_hit and not hybrid_hit:
+                groups["sparse_regressed"].append(row)
         if hybrid_hit and not dense_hit:
             groups["recovered"].append(row)
         elif dense_hit and not hybrid_hit:

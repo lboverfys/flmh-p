@@ -11,6 +11,7 @@ import httpx
 
 from flmh_agent.adapters.outbound.rag_benchmark_store import BenchmarkStore
 from flmh_agent.config import Settings
+from flmh_agent.application.ingestion import CHILD_STRIDE
 from flmh_agent.evaluate import paired_report
 from flmh_agent.rag_benchmark import main, new_bundle, prepare, record_pair
 from flmh_agent.rag_corpus import LAYOUT, Candidate, Evidence, Manifest, Review, freeze_review, load_corpus, sha256
@@ -122,6 +123,7 @@ class BenchmarkTests(unittest.IsolatedAsyncioTestCase):
         self.assertCountEqual(published.get_parents.await_args_list[-1].args[0], [a.parent_id, b.parent_id])
         legacy = paired_report(gold, [hybrid, dense], 1)
         self.assertNotIn("sparse_recovered", legacy)
+        self.assertNotIn("sparse_regressed", legacy)
         self.assertNotIn("dense_rerank_top_k", legacy["recovered"][0])
         self.assertEqual([row["id"] for row in legacy["recovered"]], ["0", "3"])
         self.assertEqual(len(legacy["still_missed"]), 47)
@@ -130,6 +132,7 @@ class BenchmarkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([value["recall@1"] for value in report["scores"]], [1/50, 2/50, 2/50])
         self.assertEqual([row["id"] for row in report["recovered"]], ["0", "3"])
         self.assertEqual([row["id"] for row in report["sparse_recovered"]], ["0"])
+        self.assertEqual([row["id"] for row in report["sparse_regressed"]], ["48"])
         self.assertEqual(report["sparse_recovered"][0]["dense_rerank_top_k"], [b.parent_id])
         self.assertEqual([row["id"] for row in report["regressed"]], ["2"])
         self.assertEqual({row["id"] for row in report["still_missed"]}, {str(i) for i in range(50) if i not in {0, 2, 3, 48}})
@@ -170,6 +173,43 @@ class BenchmarkTests(unittest.IsolatedAsyncioTestCase):
                 self.assertLessEqual(child["lines"][0], evidence.line)
                 self.assertLessEqual(evidence.line, child["lines"][1])
                 self.assertIn(evidence.quote, child["text"])
+
+
+    def test_v2_review_evidence_matches_exact_lines_and_ingested_child_offsets(self):
+        data = Path(__file__).resolve().parents[1] / "examples/rag-evaluation/operations-v2"
+        manifest = Manifest.model_validate_json((data / "sources.json").read_bytes())
+        review = Review.model_validate_json((data / "candidates.json").read_bytes())
+        self.assertEqual(manifest.revision, "af8a6d97c1bb46f87e56e2f7fbac95ecd72faffb")
+        version = sha256(LAYOUT + "\n" + manifest.model_dump_json())
+        self.assertEqual((review.dataset, review.corpus_sha256, review.reviewer), (manifest.dataset, version, ""))
+        self.assertTrue(80 <= len(review.cases) <= 120)
+        self.assertEqual({c.status for c in review.cases}, {"pending"})
+        self.assertEqual(len({c.id for c in review.cases}), len(review.cases))
+        self.assertEqual(len({c.question.strip() for c in review.cases}), len(review.cases))
+        rows = [json.loads(line) for line in (data / "chunks.jsonl").read_text(encoding="utf-8").splitlines()]
+        chunks = {r["id"]: r for r in rows}
+        self.assertEqual(len(rows), len(chunks))
+        self.assertEqual({r["version"] for r in rows}, {version})
+        parents = sum(not r["parent_id"] for r in rows)
+        self.assertGreaterEqual(parents, 80)
+        self.assertGreaterEqual(len(rows) - parents, 150)
+        for case in review.cases:
+            self.assertTrue(case.evidence, case.id)
+            for e in case.evidence:
+                with self.subTest(case=case.id, line=e.line):
+                    child, parent = chunks[e.child], chunks[e.parent]
+                    self.assertEqual((parent["document"], child["document"], child["parent_id"], parent["parent_id"]),
+                                     (e.document, e.document, e.parent, ""))
+                    self.assertLessEqual(child["lines"][0], e.line)
+                    self.assertLessEqual(e.line, child["lines"][1])
+                    lines = parent["text"].splitlines(keepends=True)
+                    i = e.line - parent["lines"][0]
+                    self.assertTrue(0 <= i < len(lines))
+                    self.assertEqual(lines[i].count(e.quote), 1)
+                    start = int(e.child.removeprefix(e.parent + "-c")) * CHILD_STRIDE
+                    offset = sum(map(len, lines[:i])) + lines[i].index(e.quote) - start
+                    self.assertGreaterEqual(offset, 0)
+                    self.assertTrue(child["text"].startswith(e.quote, offset))
 
 
 class BenchmarkStoreTests(unittest.IsolatedAsyncioTestCase):

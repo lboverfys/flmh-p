@@ -59,12 +59,12 @@
       {"query":{"region":"GB","keyword":"收纳盒"},"ids":["gb-d3"]},
       {"query":{"region":"VN","keyword":"餐盒"},"ids":["vn-k1"]}
     ]},
-    {"id":"origin-two-destinations", "request":"先查美国便携风扇，再分别用美国首件商品的类目查询加拿大和英国同类风扇；加拿大限价30，英国限价35。列出三个市场结果。", "checks":[
+    {"id":"origin-two-destinations", "request":"先查美国便携风扇，再分别用美国首件商品的类目查询加拿大和英国同类商品；加拿大限价30，英国限价35。列出三个市场结果。", "checks":[
       {"query":{"region":"US","keyword":"便携风扇"},"ids":["us-f1"]},
       {"query":{"region":"CA","category":"CL-02","max_price":30},"after_region":"US","ids":["ca-f4"]},
       {"query":{"region":"GB","category":"CL-02","max_price":35},"after_region":"US","ids":["gb-f8"]}
     ]},
-    {"id":"two-level-category-chain", "request":"先查美国折叠水杯；再用美国首件商品类目查加拿大商品；最后用加拿大首件商品类目查英国商品，并将英国单价限制为19。按市场列出结果。", "checks":[
+    {"id":"two-level-category-chain", "request":"先查美国折叠水杯；再用美国首件商品类目查加拿大商品；最后用加拿大首件商品类目查英国商品，单价不超过19。按市场列出结果。", "checks":[
       {"query":{"region":"US","keyword":"折叠水杯"},"ids":["us-r3"]},
       {"query":{"region":"CA","category":"DR-12"},"after_region":"US","ids":["ca-h8","ca-n7"]},
       {"query":{"region":"GB","category":"DR-12","max_price":19},"after_region":"CA","ids":["gb-t5"]}
