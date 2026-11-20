@@ -3,14 +3,33 @@
     {"id":"us-a4", "title":"折叠露营灯", "region":"US", "category":"LT-07", "price":29},
     {"id":"us-k9", "title":"充电露营灯", "region":"US", "category":"LT-07", "price":48},
     {"id":"us-r3", "title":"折叠水杯", "region":"US", "category":"DR-12", "price":12},
+    {"id":"us-f1", "title":"便携风扇", "region":"US", "category":"CL-02", "price":24},
+    {"id":"us-m2", "title":"迷你桌面风扇", "region":"US", "category":"CL-02", "price":32},
     {"id":"ca-h8", "title":"随行保温杯", "region":"CA", "category":"DR-12", "price":24},
     {"id":"ca-s5", "title":"户外餐盒", "region":"CA", "category":"KT-06", "price":17},
     {"id":"ca-n7", "title":"钛制保温杯", "region":"CA", "category":"DR-12", "price":65},
+    {"id":"ca-f4", "title":"露营风扇", "region":"CA", "category":"CL-02", "price":27},
+    {"id":"ca-c2", "title":"折叠风扇", "region":"CA", "category":"CL-02", "price":31},
     {"id":"id-p2", "title":"竹编餐篮", "region":"ID", "category":"KT-06", "price":18},
     {"id":"id-w6", "title":"营地挂灯", "region":"ID", "category":"LT-07", "price":31},
     {"id":"id-b1", "title":"应急手提灯", "region":"ID", "category":"LT-07", "price":39},
+    {"id":"id-f9", "title":"便携风扇", "region":"ID", "category":"CL-02", "price":22},
+    {"id":"id-t1", "title":"桌面风扇", "region":"ID", "category":"CL-02", "price":29},
     {"id":"gb-d3", "title":"桌面收纳盒", "region":"GB", "category":"ST-03", "price":21},
-    {"id":"gb-f8", "title":"便携风扇", "region":"GB", "category":"CL-02", "price":32}
+    {"id":"gb-f8", "title":"便携风扇", "region":"GB", "category":"CL-02", "price":32},
+    {"id":"gb-t5", "title":"随行水杯", "region":"GB", "category":"DR-12", "price":19},
+    {"id":"gb-l1", "title":"露营灯", "region":"GB", "category":"LT-07", "price":34},
+    {"id":"gb-k2", "title":"折叠餐盒", "region":"GB", "category":"KT-06", "price":25},
+    {"id":"th-c1", "title":"编织收纳篮", "region":"TH", "category":"ST-03", "price":16},
+    {"id":"th-f2", "title":"迷你风扇", "region":"TH", "category":"CL-02", "price":20},
+    {"id":"th-l3", "title":"营地挂灯", "region":"TH", "category":"LT-07", "price":28},
+    {"id":"th-m4", "title":"保温杯", "region":"TH", "category":"DR-12", "price":22},
+    {"id":"th-k5", "title":"野餐餐盒", "region":"TH", "category":"KT-06", "price":19},
+    {"id":"vn-c6", "title":"桌面收纳箱", "region":"VN", "category":"ST-03", "price":18},
+    {"id":"vn-f7", "title":"便携风扇", "region":"VN", "category":"CL-02", "price":21},
+    {"id":"vn-l8", "title":"露营灯", "region":"VN", "category":"LT-07", "price":33},
+    {"id":"vn-m9", "title":"钛制保温杯", "region":"VN", "category":"DR-12", "price":44},
+    {"id":"vn-k1", "title":"户外餐盒", "region":"VN", "category":"KT-06", "price":24}
   ],
   "tasks": [
     {"id":"single-price", "request":"在美国目录用关键词「露营灯」查询，商品单价最多 30，给我所有符合条件的商品 ID。", "checks":[
@@ -28,6 +47,66 @@
     {"id":"empty-result", "request":"分别在加拿大和英国目录用关键词「保温杯」找单价不超过 25 的全部商品 ID。没有结果的市场也要列出来。", "checks":[
       {"query":{"region":"CA","keyword":"保温杯","max_price":25},"ids":["ca-h8"]},
       {"query":{"region":"GB","keyword":"保温杯","max_price":25},"ids":[]}
+    ]},
+    {"id":"three-market-independent", "request":"并行查询美国露营灯（单价不超过30）、加拿大榜单第一名，以及越南露营灯目录。每个市场分别列出完整商品 ID。", "checks":[
+      {"query":{"region":"US","keyword":"露营灯","max_price":30},"ids":["us-a4"]},
+      {"query":{"region":"CA","ranking_limit":1},"ids":["ca-h8"]},
+      {"query":{"region":"VN","keyword":"露营灯"},"ids":["vn-l8"]}
+    ]},
+    {"id":"four-market-mixed", "request":"分别查印尼榜单前两名、泰国单价不超过22的风扇、英国收纳盒和越南餐盒。四个市场相互独立，请按市场给出结果。", "checks":[
+      {"query":{"region":"ID","ranking_limit":2},"ids":["id-p2","id-w6"]},
+      {"query":{"region":"TH","keyword":"风扇","max_price":22},"ids":["th-f2"]},
+      {"query":{"region":"GB","keyword":"收纳盒"},"ids":["gb-d3"]},
+      {"query":{"region":"VN","keyword":"餐盒"},"ids":["vn-k1"]}
+    ]},
+    {"id":"origin-two-destinations", "request":"先查美国便携风扇，再分别用美国首件商品的类目查询加拿大和英国同类风扇；加拿大限价30，英国限价35。列出三个市场结果。", "checks":[
+      {"query":{"region":"US","keyword":"便携风扇"},"ids":["us-f1"]},
+      {"query":{"region":"CA","category":"CL-02","max_price":30},"after_region":"US","ids":["ca-f4"]},
+      {"query":{"region":"GB","category":"CL-02","max_price":35},"after_region":"US","ids":["gb-f8"]}
+    ]},
+    {"id":"two-level-category-chain", "request":"先查美国折叠水杯；再用美国首件商品类目查加拿大商品；最后用加拿大首件商品类目查英国商品，并将英国单价限制为19。按市场列出结果。", "checks":[
+      {"query":{"region":"US","keyword":"折叠水杯"},"ids":["us-r3"]},
+      {"query":{"region":"CA","category":"DR-12"},"after_region":"US","ids":["ca-h8","ca-n7"]},
+      {"query":{"region":"GB","category":"DR-12","max_price":19},"after_region":"CA","ids":["gb-t5"]}
+    ]},
+    {"id":"boundary-inclusive-price", "request":"加拿大保温杯限价24、越南保温杯限价44，分别查询两个市场符合价格边界的商品；价格等于上限时也应保留。", "checks":[
+      {"query":{"region":"CA","keyword":"保温杯","max_price":24},"ids":["ca-h8"]},
+      {"query":{"region":"VN","keyword":"保温杯","max_price":44},"ids":["vn-m9"]}
+    ]},
+    {"id":"mixed-ranking-search", "request":"查美国商品榜前两名、泰国单价不超过20的餐盒，以及英国风扇目录。按市场列出商品 ID。", "checks":[
+      {"query":{"region":"US","ranking_limit":2},"ids":["us-a4","us-k9"]},
+      {"query":{"region":"TH","keyword":"餐盒","max_price":20},"ids":["th-k5"]},
+      {"query":{"region":"GB","keyword":"风扇"},"ids":["gb-f8"]}
+    ]},
+    {"id":"cross-region-same-category", "request":"查美国露营灯目录，同时查加拿大榜单第一名；再按美国首件露营灯的类目筛选印尼商品，印尼单价不超过35，另查英国露营灯。", "checks":[
+      {"query":{"region":"US","keyword":"露营灯"},"ids":["us-a4","us-k9"]},
+      {"query":{"region":"CA","ranking_limit":1},"ids":["ca-h8"]},
+      {"query":{"region":"ID","category":"LT-07","max_price":35},"after_region":"US","ids":["id-w6"]},
+      {"query":{"region":"GB","keyword":"露营灯"},"ids":["gb-l1"]}
+    ]},
+    {"id":"origin-category-no-match", "request":"查美国露营灯，并根据美国首件商品的类目查询加拿大同类商品，但加拿大只保留单价不超过20的结果。即使加拿大没有符合项，也要说明空结果。", "checks":[
+      {"query":{"region":"US","keyword":"露营灯"},"ids":["us-a4","us-k9"]},
+      {"query":{"region":"CA","category":"LT-07","max_price":20},"after_region":"US","ids":[]}
+    ]},
+    {"id":"chained-boundary-empty", "request":"从美国折叠水杯开始，按其类目查加拿大不超过24的商品，再按加拿大首件商品的类目查英国不超过18的商品。保留每步依赖并列出空结果。", "checks":[
+      {"query":{"region":"US","keyword":"折叠水杯"},"ids":["us-r3"]},
+      {"query":{"region":"CA","category":"DR-12","max_price":24},"after_region":"US","ids":["ca-h8"]},
+      {"query":{"region":"GB","category":"DR-12","max_price":18},"after_region":"CA","ids":[]}
+    ]},
+    {"id":"four-market-independent", "request":"四个市场独立查询：美国商品榜前两名、加拿大不超过24的保温杯、泰国榜单前两名、越南露营灯目录。分别给出各市场完整 ID。", "checks":[
+      {"query":{"region":"US","ranking_limit":2},"ids":["us-a4","us-k9"]},
+      {"query":{"region":"CA","keyword":"保温杯","max_price":24},"ids":["ca-h8"]},
+      {"query":{"region":"TH","ranking_limit":2},"ids":["th-c1","th-f2"]},
+      {"query":{"region":"VN","keyword":"露营灯"},"ids":["vn-l8"]}
+    ]},
+    {"id":"simple-market-baseline", "request":"只查越南单价不超过22的便携风扇，给出符合条件的商品 ID。", "checks":[
+      {"query":{"region":"VN","keyword":"便携风扇","max_price":22},"ids":["vn-f7"]}
+    ]},
+    {"id":"two-level-plus-independent", "request":"先查美国折叠水杯，同时查印尼榜单前两名；再按美国首件商品的类目查加拿大，最后用加拿大首件商品类目查英国单价不超过19的商品。列出四个市场结果。", "checks":[
+      {"query":{"region":"US","keyword":"折叠水杯"},"ids":["us-r3"]},
+      {"query":{"region":"ID","ranking_limit":2},"ids":["id-p2","id-w6"]},
+      {"query":{"region":"CA","category":"DR-12"},"after_region":"US","ids":["ca-h8","ca-n7"]},
+      {"query":{"region":"GB","category":"DR-12","max_price":19},"after_region":"CA","ids":["gb-t5"]}
     ]}
   ]
 }

@@ -49,6 +49,18 @@ class AgentEvaluationTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(max_dropped_messages, 0)
         self.assertGreater(max_dropped_chars, 0)
 
+    def test_planning_fixture_has_market_breadth_and_dependency_chains(self):
+        cases, catalog, _ = load_cases(DATA_DIR, "planning", set())
+        tasks = {task.id: task for task in cases["planning"]}
+        self.assertEqual(len(tasks), 16)
+        self.assertGreaterEqual(len(catalog), 25)
+        self.assertEqual({product.region for product in catalog}, {"US", "CA", "ID", "GB", "TH", "VN"})
+        self.assertGreaterEqual(len({product.category for product in catalog}), 5)
+        self.assertTrue(all(target.after_region is None for target in tasks["four-market-independent"].checks))
+        chain = tasks["two-level-category-chain"].checks
+        self.assertEqual([target.after_region for target in chain], [None, "US", "CA"])
+        self.assertEqual([len(tasks[name].checks) for name in ("single-price", "simple-market-baseline")], [1, 1])
+
     async def play(self, case, arm, replies):
         requests = []
 
