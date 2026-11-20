@@ -3,16 +3,16 @@ import io
 import json
 import tempfile
 import unittest
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, redirect_stdout
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import httpx
 
 from flmh_agent.adapters.outbound.rag_benchmark_store import BenchmarkStore
 from flmh_agent.config import Settings
 from flmh_agent.evaluate import paired_report
-from flmh_agent.rag_benchmark import new_bundle, prepare, record_pair
+from flmh_agent.rag_benchmark import main, new_bundle, prepare, record_pair
 from flmh_agent.rag_corpus import LAYOUT, Candidate, Evidence, Manifest, Review, freeze_review, load_corpus, sha256
 
 
@@ -62,6 +62,18 @@ class BenchmarkTests(unittest.IsolatedAsyncioTestCase):
         self.source.write_text("changed", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "digest mismatch"):
             load_corpus(self.root, self.manifest)
+
+    def test_new_manifest_can_export_chunk_ids_before_its_first_candidate_exists(self):
+        destination = self.root / "new-corpus"
+        args = ["rag_benchmark", "prepare", "--manifest", str(self.manifest), "--source-root", str(self.root),
+                "--chunks-only", "--out-dir", str(destination)]
+        with patch("sys.argv", args), redirect_stdout(io.StringIO()) as output:
+            main()
+        self.assertEqual(json.loads(output.getvalue()), {"dataset": "unit", "corpus_sha256": self.corpus.version,
+                         "parent_chunks": len(self.corpus.parents), "child_chunks": len(self.corpus.children)})
+        self.assertEqual([p.name for p in destination.iterdir()], ["chunks.jsonl"])
+        ids = {json.loads(line)["id"] for line in (destination / "chunks.jsonl").read_text(encoding="utf-8").splitlines()}
+        self.assertEqual(ids, self.corpus.parents.keys() | self.corpus.children.keys())
 
     async def test_one_snapshot_shared_vectors_parent_rankings_and_paired_case_extraction(self):
         gold = freeze_review(self.corpus, self.review)

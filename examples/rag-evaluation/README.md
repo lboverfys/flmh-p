@@ -29,6 +29,14 @@ $work = "D:\rubbish\zhongjian\artifacts\flmh-rag\$runId"
 
 `prepare` 的默认输入为 `operations-v1/sources.json` 和 `operations-v1/candidates.json`（相对示例目录）。在其他工作目录调用时，用 `--manifest` 与 `--candidates` 指定相应文件。输出的 `chunks.jsonl` 可按 ID 查到原文、所属父块、原文件行段与版本。`review.json` 是可编辑的候选表。
 
+**扩充自己的语料时**，先把已授权的原文和行段写入一份新的来源清单，再用下面的命令生成新块 ID。命令打印数据集名称、语料指纹、父块数和子块数，供标注与核对规模。现有 v1 只有 28 个子块，在 `k=5`、乘数为 4 时，单路候选上限为 20/28（约 71%），适合检验流程。正式实验应同时注明子块数和候选深度。
+
+```powershell
+& $py -B -m flmh_agent.rag_benchmark prepare --source-root $src --manifest "$work/sources.json" --chunks-only --out-dir "$work/new-chunks"
+```
+
+用新指纹和块 ID 创建候选表，逐题附上原文行号、引文，并将状态填为 `pending`。准备复核表时显式传入新的 `--manifest` 和 `--candidates`。后续 `freeze`、`index`、`record` 也使用同一份 `--manifest`。
+
 1. 打开 `review.json`，按每题 `evidence` 的文档、行号和引文回看原文及 `chunks.jsonl`。核实问题是否可答、答案是否有歧义，关注品牌名、市场缩写和本地业务用语。
 2. 检查其他父块是否也足以回答，逐条增删证据。每条填写 `document`、`line`、`quote`、`parent`、`child`。引文须在指定行内唯一出现且落在所填子块。跨段题可保留多个相关父块。
 3. 在查看任一系统的排序前，逐题将 `status` 设为 `approved` 或 `rejected`，并在顶层 `reviewer` 填写复核人代号。复核表保存每一道题的裁决。清单建议正式对照纳入 50–100 道以上问题，试跑可先冻结较小的已复核题集。批准时确认的是语义相关性，脚本核对的是原文位置与块归属。

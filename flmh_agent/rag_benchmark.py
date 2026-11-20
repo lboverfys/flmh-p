@@ -47,10 +47,12 @@ def write_model(path: Path, model: Record) -> None:
         print(model.model_dump_json(indent=2), file=output)
 
 
-def prepare(corpus: Corpus, review: Review, destination: Path) -> None:
-    review_cases(corpus, review, freeze=False)
+def prepare(corpus: Corpus, review: Review | None, destination: Path) -> None:
+    if review is not None:
+        review_cases(corpus, review, freeze=False)
     with new_bundle(destination) as stage:
-        write_model(stage / "review.json", review)
+        if review is not None:
+            write_model(stage / "review.json", review)
         with (stage / "chunks.jsonl").open("x", encoding="utf-8") as output:
             for key, document in corpus.documents.items():
                 for parent, children in document.groups:
@@ -166,7 +168,9 @@ def main() -> None:
     local.add_argument("--source-root", required=True, type=Path, help="authorized local flmh checkout containing docs/")
     local.add_argument("--manifest", type=Path, default=EXAMPLE / "sources.json")
     prep = sub.add_parser("prepare", parents=[local], help="write the local review sheet and exact source chunks")
-    prep.add_argument("--candidates", type=Path, default=EXAMPLE / "candidates.json")
+    labels = prep.add_mutually_exclusive_group()
+    labels.add_argument("--candidates", type=Path, default=EXAMPLE / "candidates.json")
+    labels.add_argument("--chunks-only", action="store_true", help="prepare chunk IDs before labeling a new corpus")
     prep.add_argument("--out-dir", required=True, type=Path)
     freeze = sub.add_parser("freeze", parents=[local], help="validate human decisions and export parent qrels")
     freeze.add_argument("--review", required=True, type=Path)
@@ -184,7 +188,10 @@ def main() -> None:
     try:
         corpus = load_corpus(args.source_root, args.manifest)
         if args.command == "prepare":
-            prepare(corpus, Review.model_validate_json(read_small(args.candidates)), args.out_dir)
+            review = None if args.chunks_only else Review.model_validate_json(read_small(args.candidates))
+            prepare(corpus, review, args.out_dir)
+            print(json.dumps({"dataset": corpus.dataset, "corpus_sha256": corpus.version,
+                              "parent_chunks": len(corpus.parents), "child_chunks": len(corpus.children)}))
         elif args.command == "freeze":
             review = Review.model_validate_json(read_small(args.review))
             write_model(args.out, freeze_review(corpus, review))
