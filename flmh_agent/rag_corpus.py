@@ -7,7 +7,7 @@ from itertools import accumulate
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import Field, SerializerFunctionWrapHandler, model_serializer
 
 from flmh_agent.application.ingestion import CHILD_SIZE, CHILD_STRIDE, PARENT_SIZE, chunk_document
 from flmh_agent.domain.rag import Chunk
@@ -30,7 +30,7 @@ def sha256(text: str) -> str:
 
 class Source(Record):
     id: Identifier
-    path: Annotated[str, Field(pattern=r"^docs/[a-zA-Z0-9_./-]+\.md$")]
+    path: Annotated[str, Field(pattern=r"^(?:docs|examples/rag-evaluation/operations-v3/corpus)/[a-zA-Z0-9_./-]+\.md$")]
     sha256: Digest
     sections: list[tuple[int, int]] = Field(min_length=1, max_length=100)
 
@@ -38,7 +38,18 @@ class Source(Record):
 class Manifest(Record):
     dataset: Identifier
     revision: Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
-    documents: list[Source] = Field(min_length=1, max_length=8)
+    documents: list[Source] = Field(min_length=1, max_length=16)
+    child_size: int | None = Field(default=None, ge=100, le=3000)
+    child_stride: int | None = Field(default=None, ge=80, le=3000)
+
+    @model_serializer(mode="wrap")
+    def _serialize_compact(self, handler: SerializerFunctionWrapHandler) -> dict:
+        data = handler(self)
+        if data.get("child_size") is None:
+            data.pop("child_size", None)
+        if data.get("child_stride") is None:
+            data.pop("child_stride", None)
+        return data
 
 
 class Evidence(Record):
@@ -98,15 +109,18 @@ class Corpus:
 
 def load_corpus(root: Path, manifest_path: Path) -> Corpus:
     manifest = Manifest.model_validate_json(read_small(manifest_path))
-    version = sha256(LAYOUT + "\n" + manifest.model_dump_json())
+    version = sha256(LAYOUT + "\n" + manifest.model_dump_json(exclude_none=True))
+    child_size = manifest.child_size or CHILD_SIZE
+    child_stride = manifest.child_stride or CHILD_STRIDE
     corpus = Corpus(manifest.dataset, version, {}, {}, {})
     root = root.resolve(strict=True)
     if len({doc.path for doc in manifest.documents}) != len(manifest.documents):
         raise ValueError("duplicate source path")
+    allowed_roots = (root / "docs", root / "examples" / "rag-evaluation" / "operations-v3" / "corpus")
     for source in manifest.documents:
         path = (root / source.path).resolve(strict=True)
-        if not path.is_relative_to(root / "docs") or source.id in corpus.documents:
-            raise ValueError(f"source must be unique and inside docs/: {source.id}")
+        if not any(path.is_relative_to(allowed) for allowed in allowed_roots) or source.id in corpus.documents:
+            raise ValueError(f"source must be unique and inside allowed corpus roots: {source.id}")
         text = read_small(path).decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
         if sha256(text) != source.sha256:
             raise ValueError(f"source digest mismatch: {source.path} at {manifest.revision}")
@@ -125,11 +139,12 @@ def load_corpus(root: Path, manifest_path: Path) -> Corpus:
             excerpt = text[start:offsets[last]]
             selected.update(excerpt.encode("utf-8"))
             for parent, children in chunk_document(doc_id, version, f"{ref}#L{first}-L{last}", excerpt,
-                                                   parent_start=len(groups)):
+                                                   parent_start=len(groups), child_size=child_size,
+                                                   child_stride=child_stride):
                 groups.append((parent, children))
                 corpus.parents[parent.chunk_id] = parent
                 for index, child in enumerate(children):
-                    corpus.children[child.chunk_id] = (child, start + index * CHILD_STRIDE)
+                    corpus.children[child.chunk_id] = (child, start + index * child_stride)
                 start += len(parent.text)
         corpus.documents[source.id] = Document(doc_id, ref, selected.hexdigest(), lines, offsets, groups)
     return corpus

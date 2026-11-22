@@ -2,6 +2,14 @@
 
 `operations-v2/` 是正式评测的待审语料：6 份固定版本的原文，140 个父块、191 个子块，108 道候选题。每题附原文短引、行号和父子块 ID；复核人留空，所有题均为 `pending`。默认命令仍兼容 64 题的 `operations-v1/`。本目录根部的三问 `SCRIPTED_FIXTURE` 仅演示计分，两版候选题都不是实测排名。
 
+`operations-v3/` 是面向跨境 TikTok 全链路运营扩展的待审语料：10 份本地专题运营手册（`examples/rag-evaluation/operations-v3/corpus/*.md`），基于 `child_size=200`、`child_stride=130` 原生切分为 **310 个父块、662 个子块**，并配套生成 **300 道 `pending` 待复核候选题**（每份手册 30 题，顶层 `reviewer` 留空，全部附带经 `rag_corpus` 校验的原文行号、唯一引文及父子块 ID）。与 v1/v2 一样，300 道 `pending` 候选题用于人工复核与后续独立实验，不作为未复核的基准成绩或实测排名。
+
+可用 `rag_benchmark prepare` 验证或导出 `operations-v3` 复核包：
+
+```powershell
+& $py -B -m flmh_agent.rag_benchmark prepare --source-root D:\Happy\芳\flmh-p --manifest examples/rag-evaluation/operations-v3/sources.json --candidates examples/rag-evaluation/operations-v3/candidates.json --out-dir "$work/review-v3"
+```
+
 ## 语料与授权
 
 | 来源 | 选段用途 |

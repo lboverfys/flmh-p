@@ -14,18 +14,21 @@ CHILD_STRIDE = 700
 
 
 def chunk_document(document_id: str, version: str, source_ref: str, text: str, *,
-                   parent_start: int = 0) -> Iterator[tuple[Chunk, list[Chunk]]]:
+                   parent_start: int = 0, child_size: int = CHILD_SIZE,
+                   child_stride: int = CHILD_STRIDE) -> Iterator[tuple[Chunk, list[Chunk]]]:
     if not document_id.strip() or not version.strip() or not source_ref.strip() or not text.strip():
         raise ValueError("document_id, version, source_ref and text are required")
+    if not 1 <= child_stride <= child_size <= PARENT_SIZE:
+        raise ValueError("invalid chunk sizing bounds")
     if len(text.encode("utf-8")) > 1024 * 1024:
         raise ValueError("one ingestion document must not exceed 1 MiB")
     prefix = hashlib.sha256(f"{document_id}\n{version}".encode()).hexdigest()[:32]
     for parent_index, offset in enumerate(range(0, len(text), PARENT_SIZE), start=parent_start):
         parent_text = text[offset:offset + PARENT_SIZE]
         parent = Chunk(f"{prefix}-p{parent_index}", "", parent_text, source_ref=source_ref, document_id=document_id, version=version)
-        children = [Chunk(f"{parent.chunk_id}-c{index}", parent.chunk_id, parent_text[start:start + CHILD_SIZE],
+        children = [Chunk(f"{parent.chunk_id}-c{index}", parent.chunk_id, parent_text[start:start + child_size],
                           source_ref=source_ref, document_id=document_id, version=version)
-                    for index, start in enumerate(range(0, len(parent_text), CHILD_STRIDE))]
+                    for index, start in enumerate(range(0, len(parent_text), child_stride))]
         yield parent, children
 
 
