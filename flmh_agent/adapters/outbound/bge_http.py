@@ -150,7 +150,7 @@ class ElasticsearchHybridStore:
         return f"{self.settings.elasticsearch_index}-active-*"
 
     def snapshot(self):
-        return self._open_snapshot(self._published_aliases, keep_alive="1m", allow_missing=True)
+        return self._open_snapshot(self._published_aliases, keep_alive=self.settings.rag_pit_keep_alive, allow_missing=True)
 
     @asynccontextmanager
     async def _open_snapshot(self, target: str, *, keep_alive: str, allow_missing: bool):
@@ -232,7 +232,7 @@ class ElasticsearchHybridStore:
 
     async def _search(self, body: dict[str, Any]) -> list[Chunk]:
         if self._pit_id:
-            body["pit"] = {"id": self._pit_id, "keep_alive": "1m"}
+            body["pit"] = {"id": self._pit_id, "keep_alive": self.settings.rag_pit_keep_alive}
             result = await self._request("POST", "/_search?allow_partial_search_results=false", json=body)
         else:
             result = await self._request("POST", f"/{self._published_aliases}/_search?allow_partial_search_results=false", json=body)

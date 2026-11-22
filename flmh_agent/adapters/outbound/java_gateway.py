@@ -27,10 +27,12 @@ class JavaGatewayClient:
         return await self._request("GET", "/api/v1/products", params=params)
 
     async def create_quote(self, request: Mapping[str, Any]) -> dict[str, Any]:
-        payload = {
+        payload: dict[str, Any] = {
             "productId": request["product_id"], "contentType": request["content_type"],
             "brief": request["brief"], "budgetMax": request.get("budget_max"),
         }
+        if request.get("target_language"):
+            payload["targetLanguage"] = request["target_language"]
         return await self._request("POST", "/api/v1/content/quotes", json=payload)
 
     async def product_ranking(self, region: str, limit: int) -> dict[str, Any]:
@@ -55,6 +57,31 @@ class JavaGatewayClient:
             params["beforeDate"] = query.before_date.isoformat()
         return await self._request("GET", f"/api/v1/products/{quote(query.product_id, safe='')}/daily-statistics", params=params)
 
+    async def get_product_trend(self, product_id: str, *, days: int = 30) -> dict[str, Any]:
+        query = ProductLookupQuery(product_id=product_id)
+        bounded_days = max(1, min(int(days), 90))
+        return await self._request("GET", f"/api/v1/products/{quote(query.product_id, safe='')}/trend", params={"days": bounded_days})
+
+    async def get_product_creators(self, product_id: str, *, limit: int = 20) -> dict[str, Any]:
+        query = ProductLookupQuery(product_id=product_id)
+        bounded_limit = max(1, min(int(limit), 50))
+        return await self._request("GET", f"/api/v1/products/{quote(query.product_id, safe='')}/creators", params={"limit": bounded_limit})
+
+    async def search_creators(
+        self,
+        region: str = "US",
+        *,
+        keyword: str | None = None,
+        category: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"region": region, "limit": max(1, min(int(limit), 50))}
+        if keyword:
+            params["keyword"] = keyword
+        if category:
+            params["category"] = category
+        return await self._request("GET", "/api/v1/creators/search", params=params)
+
     async def confirm_quote(self, quote_id: str) -> dict[str, Any]:
         response = await self._request(
             "POST", f"/api/v1/content/quotes/{quote(quote_id, safe='')}/confirm", json={"confirmed": True}
@@ -62,11 +89,13 @@ class JavaGatewayClient:
         return {**response, "confirmed": response.get("status") == "CONFIRMED"}
 
     async def submit_task(self, request: Mapping[str, Any], idempotency_key: str) -> dict[str, Any]:
-        payload = {
+        payload: dict[str, Any] = {
             "quoteId": request["quote_id"], "productId": request["product_id"],
             "contentType": request["content_type"], "brief": request["brief"],
             "idempotencyKey": idempotency_key,
         }
+        if request.get("target_language"):
+            payload["targetLanguage"] = request["target_language"]
         return await self._request(
             "POST", "/api/v1/content/tasks", json=payload,
             headers={"Idempotency-Key": idempotency_key},

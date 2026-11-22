@@ -147,7 +147,7 @@ class ApplicationTests(IdentityTestCase):
         self.tools.search_products.assert_awaited_once()
         cheaper = await self.application.revise("limits", {"expected_revision": 1,
             "user_request": "商品价格上限改为9元，创作预算改为30美元", "slot_updates": {"product_max_price": 8}})
-        self.assertEqual(cheaper["slotValues"], {"product": "灯", "region": "US", "product_max_price": 8, "budget_max": 30})
+        self.assertEqual(cheaper["slotValues"], {"product": "灯", "region": "US", "product_max_price": 8, "target_language": None, "budget_max": 30})
         self.assertTrue({"product_results", "selected_product", "quote", "confirmation"} <= set(cheaper["invalidated"]))
         self.assertEqual(cheaper["slotVersions"]["product_max_price"], first["slotVersions"]["product_max_price"] + 1)
         self.assertEqual([call.args[0]["max_price"] for call in self.tools.search_products.await_args_list], [100, 8])

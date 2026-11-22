@@ -94,14 +94,18 @@ def create_mcp_server(settings: Settings | None = None, *, identity_verifier: Id
         content_type: str,
         brief: str,
         budget_max: float | None = None,
+        target_language: str | None = None,
     ) -> dict[str, Any]:
         """Create a content quote. It does not submit a production task."""
-        return await gateway.create_quote({
+        payload: dict[str, Any] = {
             "product_id": product_id,
             "content_type": content_type,
             "brief": brief,
             "budget_max": budget_max,
-        })
+        }
+        if target_language:
+            payload["target_language"] = target_language
+        return await gateway.create_quote(payload)
 
     @server.tool(name="product_history")
     async def product_history(
@@ -141,16 +145,20 @@ def create_mcp_server(settings: Settings | None = None, *, identity_verifier: Id
         content_type: str,
         brief: str,
         idempotency_key: str,
+        target_language: str | None = None,
     ) -> dict[str, Any]:
         """Submit a confirmed production task using a stable idempotency key."""
         if not idempotency_key.strip():
             raise ValueError("idempotency_key is required")
-        return await gateway.submit_task({
+        payload: dict[str, Any] = {
             "quote_id": quote_id,
             "product_id": product_id,
             "content_type": content_type,
             "brief": brief,
-        }, idempotency_key)
+        }
+        if target_language:
+            payload["target_language"] = target_language
+        return await gateway.submit_task(payload, idempotency_key)
 
     @server.tool(name="content_task_get")
     async def content_task_get(task_id: str) -> dict[str, Any]:
@@ -240,6 +248,32 @@ def create_mcp_server(settings: Settings | None = None, *, identity_verifier: Id
     async def media_workflow_get(run_id: Annotated[str, Field(min_length=1, max_length=96)]) -> dict[str, Any]:
         """Read a media workflow run and its persisted node states."""
         return await gateway.get_media_workflow(run_id)
+
+    @server.tool(name="product_trend")
+    async def product_trend(
+        product_id: Annotated[str, Field(min_length=1, max_length=96)],
+        days: Annotated[int, Field(strict=True, ge=1, le=90)] = 30,
+    ) -> dict[str, Any]:
+        """Read sales, video, and creator time-series trend for a product."""
+        return await gateway.get_product_trend(product_id, days=days)
+
+    @server.tool(name="product_creators")
+    async def product_creators(
+        product_id: Annotated[str, Field(min_length=1, max_length=96)],
+        limit: Annotated[int, Field(strict=True, ge=1, le=50)] = 20,
+    ) -> dict[str, Any]:
+        """List associated TikTok creators and conversion metrics for a product."""
+        return await gateway.get_product_creators(product_id, limit=limit)
+
+    @server.tool(name="creator_search")
+    async def creator_search(
+        region: Annotated[str, Field(pattern=r"^[A-Z]{2}$")] = "US",
+        keyword: str | None = None,
+        category: str | None = None,
+        limit: Annotated[int, Field(strict=True, ge=1, le=50)] = 20,
+    ) -> dict[str, Any]:
+        """Search TikTok cross-border creators by region, category, and keyword."""
+        return await gateway.search_creators(region, keyword=keyword, category=category, limit=limit)
 
     @server.tool(name="media_workflow_cancel")
     async def media_workflow_cancel(run_id: Annotated[str, Field(min_length=1, max_length=96)]) -> dict[str, Any]:

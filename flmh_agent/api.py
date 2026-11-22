@@ -16,6 +16,8 @@ from starlette.routing import Route
 
 from flmh_agent.application.service import RunConflictError, RunNotFoundError
 from flmh_agent.application.rag import hybrid_retrieve
+from flmh_agent.application.text2sql import SqlValidationError, validate_readonly_sql
+from flmh_agent.adapters.outbound.sql_permissions import ConfiguredSqlPermissionPolicy
 from flmh_agent.bootstrap import open_runtime, open_session_state, runtime_loop_factory
 from flmh_agent.live_app import ManagedApp
 from flmh_agent.config import Settings
@@ -62,6 +64,7 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
             application.state.text_to_sql = runtime.text_to_sql
             application.state.sql_permissions = runtime.sql_permissions
             application.state.rag = runtime.rag
+            application.state.knowledge_service = runtime.knowledge_service
             application.state.identity_verifier = identity_verifier or runtime.identity_verifier
             application.state.identity_login = identity_login or runtime.identity_verifier
             application.state.identity_recovery = identity_recovery or runtime.identity_verifier
@@ -84,7 +87,13 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
                 "planner": current.planner_backend,
                 "contentGenerator": "java_content_service",
                 "checkpointer": current.checkpointer_backend,
-                "rag": "configured" if current.embedding_backend else "not_configured",
+                "rag": (
+                    "configured"
+                    if current.embedding_backend
+                    else "local_corpus_fallback"
+                    if current.rag_local_corpus_fallback
+                    else "not_configured"
+                ),
                 "tracing": "configured" if current.langfuse_host else "not_configured",
                 "identity": "java_user_verification",
             },
@@ -202,6 +211,56 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
             return JSONResponse({"error": "revision_failed"}, status_code=502)
         return JSONResponse(result, status_code=202 if result["status"] == "awaiting_confirmation" else 200)
 
+    async def handoff_media_run(request: Request) -> Response:
+        try:
+            body = await _json_body(request)
+            result = await request.app.state.agent.handoff_media(
+                request.path_params["run_id"], body, identity=request.state.identity,
+            )
+        except RunNotFoundError as error:
+            return JSONResponse({"error": str(error)}, status_code=404)
+        except RunConflictError as error:
+            return JSONResponse({"error": str(error)}, status_code=409)
+        except ValueError as error:
+            status = 413 if "exceeds" in str(error) else 400 if "valid JSON" in str(error) or "JSON object" in str(error) else 422
+            return JSONResponse({"error": str(error)}, status_code=status)
+        except Exception:
+            logger.exception("Media handoff failed")
+            return JSONResponse({"error": "media_handoff_failed"}, status_code=502)
+        return JSONResponse(result, status_code=202 if result["status"] == "awaiting_confirmation" else 200)
+
+    async def validate_bi_sql(request: Request) -> Response:
+        permissions = request.app.state.sql_permissions
+        if permissions is None:
+            if not config.bi_sql_role_tables_json.strip():
+                return JSONResponse({"error": "bi_sql_disabled"}, status_code=503)
+            permissions = ConfiguredSqlPermissionPolicy(config)
+        role = request.state.identity.role
+        try:
+            body = await _json_body(request)
+            sql = body.get("sql")
+            if not isinstance(sql, str) or not sql.strip():
+                raise ValueError("sql must be a non-empty string")
+            allow_cmp = bool(body.get("allow_score_version_comparison", False))
+        except ValueError as error:
+            status = 413 if "exceeds" in str(error) else 400
+            return JSONResponse({"error": str(error)}, status_code=status)
+        allowed = sorted(await permissions.allowed_tables(role))
+        if not allowed:
+            return JSONResponse({"error": "principal has no BI table permissions"}, status_code=403)
+        try:
+            normalized = validate_readonly_sql(
+                sql,
+                dialect=config.sql_dialect,
+                allowed_tables=allowed,
+                max_rows=config.sql_max_rows,
+                allow_score_version_comparison=allow_cmp,
+                default_score_version=config.sql_default_score_version,
+            )
+        except SqlValidationError as error:
+            return JSONResponse({"valid": False, "error": str(error), "dialect": config.sql_dialect, "allowedTables": allowed}, status_code=422)
+        return JSONResponse({"valid": True, "normalizedSql": normalized, "dialect": config.sql_dialect, "allowedTables": allowed})
+
     async def query_bi(request: Request) -> Response:
         permissions = request.app.state.sql_permissions
         if permissions is None:
@@ -250,29 +309,37 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
 
     async def rag_search(request: Request) -> Response:
         rag = request.app.state.rag
-        if rag is None:
+        knowledge_service = getattr(request.app.state, "knowledge_service", None)
+        if rag is None and knowledge_service is None:
             return JSONResponse({"error": "rag_not_configured"}, status_code=503)
         try:
             body = await _json_body(request)
             question = body.get("query")
-            limit = body.get("limit", 5)
+            limit = body.get("limit", config.rag_top_k)
             if not isinstance(question, str) or not question.strip():
                 raise ValueError("query must be a non-empty string")
             if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 20:
                 raise ValueError("limit must be an integer from 1 to 20")
-            chunks = await hybrid_retrieve(
-                question,
-                rag["embedder"],
-                rag["store"],
-                rag["reranker"],
-                limit=limit,
-            )
+            if rag is not None:
+                chunks = await hybrid_retrieve(
+                    question,
+                    rag["embedder"],
+                    rag["store"],
+                    rag["reranker"],
+                    limit=limit,
+                    candidate_multiplier=config.rag_candidate_multiplier,
+                    rank_constant=config.rag_rrf_k,
+                )
+                source_label = "BGE_M3_ELASTICSEARCH"
+            else:
+                chunks = knowledge_service.search_chunks(question, limit=limit)
+                source_label = "LOCAL_CORPUS_FALLBACK"
         except ValueError as error:
             return JSONResponse({"error": str(error)}, status_code=400)
-        except Exception as error:
+        except Exception:
             logger.exception("RAG query failed")
             return JSONResponse({"error": "rag_query_failed"}, status_code=502)
-        return JSONResponse({"source": "BGE_M3_ELASTICSEARCH", "chunks": [
+        return JSONResponse({"source": source_label, "chunks": [
             {"id": chunk.chunk_id, "parentId": chunk.parent_id, "text": chunk.text, "score": chunk.score,
              "sourceRef": chunk.source_ref, "documentId": chunk.document_id, "version": chunk.version}
             for chunk in chunks
@@ -288,8 +355,10 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
         Route("/v1/agent/runs/{run_id:str}/confirmation", confirm_run, methods=["POST"]),
         Route("/v1/agent/runs/{run_id:str}/retry", retry_run, methods=["POST"]),
         Route("/v1/agent/runs/{run_id:str}/revision", revise_run, methods=["POST"]),
+        Route("/v1/agent/runs/{run_id:str}/handoff-media", handoff_media_run, methods=["POST"]),
         Route("/v1/agent/runs/{run_id:str}/media/{action:str}", media_action, methods=["POST"]),
         Route("/v1/bi/queries", query_bi, methods=["POST"]),
+        Route("/v1/bi/validate", validate_bi_sql, methods=["POST"]),
         Route("/v1/rag/search", rag_search, methods=["POST"]),
     ]
     routes.extend(account_routes(_json_body))

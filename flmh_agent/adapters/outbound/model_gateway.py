@@ -45,9 +45,10 @@ class ModelGatewayClient:
     async def generate_sql(
         self, question: str, schema_context: str, *, previous_sql: str = "", error: str = ""
     ) -> dict[str, Any]:
+        dialect_label = "MySQL 8" if self.settings.sql_dialect == "mysql" else "PostgreSQL"
         instruction = (
-            "根据授权表结构为 BI 问题生成单条 PostgreSQL 只读 SELECT。仅返回 JSON 对象 {sql, reason}。"
-            "必须使用具体列名、带 LIMIT、结果不超过 50 行。市场雷达指标默认过滤 score_version='v2'。"
+            f"根据授权表结构为 BI 问题生成单条 {dialect_label} 只读 SELECT。仅返回 JSON 对象 {{sql, reason}}。"
+            f"必须使用具体列名、带 LIMIT、结果不超过 {self.settings.sql_max_rows} 行。市场雷达指标默认过滤 score_version='{self.settings.sql_default_score_version}'。"
         )
         payload = {"question": question, "schema": schema_context, "previousSql": previous_sql, "error": error}
         response = await self.complete(
@@ -100,21 +101,30 @@ class ModelGatewayPlanner:
         self.model_gateway = model_gateway
 
     async def plan(self, user_request: str, slots: Mapping[str, object]) -> AgentPlan:
+        settings = getattr(self.model_gateway, "settings", None)
+        max_queries = getattr(settings, "agent_max_queries_per_plan", 6)
+        complete_kwargs: dict[str, Any] = {}
+        if settings is not None:
+            complete_kwargs["temperature"] = settings.agent_planner_temperature
+            complete_kwargs["max_tokens"] = settings.agent_planner_max_tokens
         response = await self.model_gateway.complete(
             purpose="agent_plan",
+            **complete_kwargs,
             messages=[
                 {
                     "role": "system",
                     "content": (
                         "将用户请求转换为严格 JSON 计划，不执行工具调用。结构为 {summary, queries, create_content, "
-                        "content_type, budget_max, budget_currency, media_options, analysis_question, knowledge_query, product_history_id, product_detail_id, product_daily_id}。商品流程中 queries 为 1 至 4 条商品查询，"
+                        "content_type, target_language, budget_max, budget_currency, media_options, analysis_question, knowledge_query, product_history_id, product_detail_id, product_daily_id}。"
+                        f"商品流程中 queries 为 1 至 {max_queries} 条商品或趋势/达人查询，"
                         "analysis_question=null；BI 分析流程中 queries=[] 且 analysis_question 为原始分析问题。"
-                        "商品查询字段为 region、keyword、category、max_price，以及可选的 query_id、depends_on、category_from_query；"
+                        "商品查询字段为 region、keyword、category、max_price，以及可选的 tool_kind（product_search/product_ranking/product_trend/product_creators）、query_id、depends_on、category_from_query、product_id、product_id_from_query、trend_days、creator_limit；"
                         "查地区商品榜单时给该条查询 ranking_limit（1到50），不带目录筛选；查询某商品的关联达人数用 product_history_id，只返回计数观测，不提供达人名单。"
                         "depends_on 只可引用本计划已有 query_id，依赖必须无环；互不依赖的查询将并行执行。"
                         "跨地区同类选品可用 category_from_query 指定 depends_on 内的直接上游查询 ID，"
                         "仅将该上游第一条商品的 category 绑定为本次查询的类目，不得同时填静态 category；"
-                        "可保留 region、keyword、max_price 等静态条件。上游为空或类目无效时下游失败，不会退化为无类目搜索。"
+                        "分析商品趋势或关联达人时可用 tool_kind='product_trend' 或 'product_creators' 并通过 product_id_from_query 绑定直接上游 query_id。"
+                        "target_language 填写 BCP-47 语种标签（如 en-US、id-ID、th-TH、vi-VN、ms-MY、zh-CN）；未指明时为 null。"
                         "region 使用两位大写国家代码；显式 slots 优先于原始请求中的旧值；"
                         "content_type 仅允许 product_script、product_media 或空字符串。"
                         "文案/口播/视频脚本使用 product_script；实际图片到视频生产使用 product_media，"
@@ -126,7 +136,7 @@ class ModelGatewayPlanner:
                         "仅选品时，口语的‘预算50’或‘不超过50’表示商品限价。各地区可有各自的 max_price，"
                         "未明确全局限价时保留每条查询的筛选条件，榜单不带 max_price。"
                         "budget_currency 为用户明确预算币种的 ISO 三字码（人民币/元=CNY，美元=USD）；未指定时为 null。不得换汇或猜币种。"
-                        "用户要求检索知识库时 knowledge_query 为检索问题；可独立检索或为商品内容补充事实，未要求时为 null。"
+                        "用户要求检索知识库或询问运营规范时 knowledge_query 为检索问题；可独立检索或为商品内容补充事实，未要求时为 null。"
                         "指定明确商品 ID（如 camping-lamp-001）的历史/趋势请求只填 product_history_id，queries=[]，"
                         "create_content=false，content_type=''，analysis_question 和 knowledge_query 为 null。"
                         "明确商品 ID 的详情/detail 请求只填 product_detail_id，queries=[]，create_content=false，"

@@ -1,0 +1,51 @@
+{
+  "description": "Extended parallel DAG, trend/creators tool binding, and multilingual handoff evaluation tasks.",
+  "tasks": [
+    {
+      "id": "us-cup-trend-and-creators-parallel",
+      "request": "查美国旅行保温杯并分析近30天销量趋势和带货达人",
+      "expected_batches": [["q_catalog"], ["q_trend", "q_creators"]],
+      "expected_tool_kinds": ["product_search", "product_trend", "product_creators"]
+    },
+    {
+      "id": "id-camping-trend-creators-script",
+      "request": "查印尼便携露营灯销量趋势与带货达人，并用印尼语写一份带货口播脚本，预算25美元",
+      "expected_batches": [["q_catalog"], ["q_trend", "q_creators"]],
+      "expected_target_language": "id-ID"
+    },
+    {
+      "id": "six-market-catalog-fanout",
+      "request": "对比美国、加拿大、英国、印尼、泰国、越南六个市场的便携风扇",
+      "expected_batches": [["query-1", "query-2", "query-3", "query-4", "query-5", "query-6"]],
+      "expected_regions": ["US", "CA", "GB", "ID", "TH", "VN"]
+    },
+    {
+      "id": "th-fan-trend-only",
+      "request": "查泰国便携风扇近30天销量走势",
+      "expected_batches": [["q_catalog"], ["q_trend"]],
+      "expected_tool_kinds": ["product_search", "product_trend"]
+    },
+    {
+      "id": "vn-tumbler-creators-only",
+      "request": "查越南钛制保温杯的带货达人推荐",
+      "expected_batches": [["q_catalog"], ["q_creators"]],
+      "expected_tool_kinds": ["product_search", "product_creators"]
+    },
+    {
+      "id": "compound-catalog-and-rag-script",
+      "request": "查美国露营灯并查达人建联话术规范写英文脚本，预算20",
+      "expected_has_knowledge_query": true,
+      "expected_target_language": "en-US"
+    },
+    {
+      "id": "multi-market-category-chain-with-trend",
+      "request": "先查美国目录露营灯，再用第一件商品的类目并联查询印尼与泰国露营灯，同时拉取美国露营灯近30天走势",
+      "expected_batches": [["q_us"], ["q_id_cat", "q_th_cat", "q_us_trend"]]
+    },
+    {
+      "id": "six-node-deep-dag",
+      "request": "并发查美国和印尼目录露营灯，再用第一轮结果并联查询趋势和达人列表",
+      "expected_batches": [["q_us", "q_id"], ["q_us_trend", "q_us_creators", "q_id_trend", "q_id_creators"]]
+    }
+  ]
+}

@@ -17,6 +17,15 @@ PRODUCT_RADAR_TABLES = frozenset({
     "market_radar_metrics",
     "market_canonical_categories",
     "market_source_categories",
+    "product_master",
+    "product_metric_snapshot",
+    "product_daily_stat",
+    "product_daily_scores",
+    "product_observed_attributes",
+    "product_canonical_category",
+    "product_source_category",
+    "creator_profile",
+    "product_creator_link",
 })
 DEFAULT_SCORE_VERSION = "v2"
 MAX_SQL_ROWS = 50
@@ -29,8 +38,12 @@ FORBIDDEN_NODES = (
 FORBIDDEN_FUNCTIONS = {
     "pg_sleep", "dblink", "lo_import", "lo_export", "pg_read_file", "pg_write_file", "pg_ls_dir",
     "current_setting",
+    "sleep", "benchmark", "load_file", "into_outfile", "into_dumpfile", "sys_exec", "sys_eval",
 }
-ALLOWED_ANONYMOUS_FUNCTIONS = {"date_trunc", "date_part", "to_char"}
+ALLOWED_ANONYMOUS_FUNCTIONS = {
+    "date_trunc", "date_part", "to_char",
+    "date_format", "datediff", "ifnull", "timestampdiff", "str_to_date", "group_concat",
+}
 
 
 class SqlValidationError(ValueError):
@@ -61,6 +74,8 @@ class TextToSqlService:
         dialect: str = "postgres",
         max_rows: int = MAX_SQL_ROWS,
         timeout_ms: int = 5000,
+        max_retries: int = 3,
+        default_score_version: str = DEFAULT_SCORE_VERSION,
     ) -> None:
         self.permissions = permissions
         self.model = model
@@ -68,6 +83,8 @@ class TextToSqlService:
         self.dialect = dialect
         self.max_rows = min(max_rows, MAX_SQL_ROWS)
         self.timeout_ms = timeout_ms
+        self.max_retries = max(1, min(int(max_retries), 5))
+        self.default_score_version = default_score_version or DEFAULT_SCORE_VERSION
 
     async def query(self, question: str, principal: str) -> dict[str, Any]:
         if not question.strip() or not principal.strip():
@@ -80,7 +97,7 @@ class TextToSqlService:
         attempts: list[dict[str, str]] = []
         previous_sql = ""
         last_error = ""
-        for attempt in range(1, 4):
+        for attempt in range(1, self.max_retries + 1):
             generated = await self.model.generate_sql(
                 question, context, previous_sql=previous_sql, error=last_error
             )
@@ -92,6 +109,7 @@ class TextToSqlService:
                     allowed_tables=allowed,
                     max_rows=self.max_rows,
                     allow_score_version_comparison=allow_score_comparison,
+                    default_score_version=self.default_score_version,
                 )
                 rows = await self.runner.fetch(validated, max_rows=self.max_rows, timeout_ms=self.timeout_ms)
                 return {
@@ -100,14 +118,14 @@ class TextToSqlService:
                     "attempts": [{"attempt": item["attempt"], "status": "error", "error": item["error"]} for item in attempts]
                     + [{"attempt": str(attempt), "status": "success"}],
                     "rows": list(rows),
-                    "source": "POSTGRES_READ_ONLY",
+                    "source": "MYSQL_READ_ONLY" if self.dialect.casefold() == "mysql" else "POSTGRES_READ_ONLY",
                 }
             except Exception as error:
                 previous_sql = sql
                 last_error = " ".join(str(error).split())[:1200]
                 attempts.append({"attempt": str(attempt), "error": last_error})
-                if attempt == 3:
-                    raise RuntimeError(f"BI SQL failed after 3 attempts: {last_error}") from error
+                if attempt == self.max_retries:
+                    raise RuntimeError(f"BI SQL failed after {self.max_retries} attempts: {last_error}") from error
         raise AssertionError("unreachable SQL retry state")
 
 
@@ -118,6 +136,7 @@ def validate_readonly_sql(
     allowed_tables: Sequence[str] = (),
     max_rows: int = MAX_SQL_ROWS,
     allow_score_version_comparison: bool = False,
+    default_score_version: str = DEFAULT_SCORE_VERSION,
 ) -> str:
     if not query.strip():
         raise SqlValidationError("SQL query is required")
@@ -151,13 +170,13 @@ def validate_readonly_sql(
     tables = {table.name.casefold() for table in table_nodes}
     if not tables:
         raise SqlValidationError("SQL must reference an authorized business table")
-    if any(table.catalog or table.db not in {"", "public"} for table in table_nodes):
+    if any(table.catalog or table.db not in {"", "public", "flmh_product"} for table in table_nodes):
         raise SqlValidationError("only the configured public schema is allowed")
     unauthorized = tables - permitted
     if unauthorized:
         raise SqlValidationError(f"SQL references unauthorized tables: {', '.join(sorted(unauthorized))}")
-    if "market_radar_metrics" in tables and not allow_score_version_comparison and not _has_default_score_filter(tree):
-        raise SqlValidationError(f"market_radar_metrics queries must filter score_version = '{DEFAULT_SCORE_VERSION}'")
+    if "market_radar_metrics" in tables and not allow_score_version_comparison and not _has_default_score_filter(tree, default_score_version=default_score_version):
+        raise SqlValidationError(f"market_radar_metrics queries must filter score_version = '{default_score_version}'")
     tree = _enforce_limit(tree, min(max_rows, MAX_SQL_ROWS))
     tree = _normalize_postgres_round(tree, dialect)
     return tree.sql(dialect=dialect)
@@ -168,7 +187,7 @@ def _is_unauthorized_wildcard(star: exp.Star) -> bool:
     return not isinstance(parent, exp.Count)
 
 
-def _has_default_score_filter(tree: exp.Expression) -> bool:
+def _has_default_score_filter(tree: exp.Expression, *, default_score_version: str = DEFAULT_SCORE_VERSION) -> bool:
     scoped_queries: list[tuple[exp.Select, list[exp.Table]]] = []
     for query in tree.find_all(exp.Select):
         local_tables = [table for table in query.find_all(exp.Table) if table.find_ancestor(exp.Select) is query]
@@ -185,7 +204,7 @@ def _has_default_score_filter(tree: exp.Expression) -> bool:
         for table in metrics_tables:
             aliases = {table.alias_or_name.casefold(), table.name.casefold()}
             if not any(
-                _is_default_score_equality(term, aliases, allow_unqualified=len(metrics_tables) == 1)
+                _is_default_score_equality(term, aliases, allow_unqualified=len(metrics_tables) == 1, score_version=default_score_version)
                 for term in conjuncts
                 if isinstance(term, exp.EQ)
             ):
@@ -203,7 +222,7 @@ def _conjuncts(expression: exp.Expression):
         yield expression
 
 
-def _is_default_score_equality(node: exp.EQ, aliases: set[str], *, allow_unqualified: bool) -> bool:
+def _is_default_score_equality(node: exp.EQ, aliases: set[str], *, allow_unqualified: bool, score_version: str = DEFAULT_SCORE_VERSION) -> bool:
     for column, other in ((node.this, node.expression), (node.expression, node.this)):
         if not isinstance(column, exp.Column):
             continue
@@ -214,7 +233,7 @@ def _is_default_score_equality(node: exp.EQ, aliases: set[str], *, allow_unquali
             continue
         if not qualifier and not allow_unqualified:
             continue
-        return isinstance(other, exp.Literal) and not other.is_number and other.this == DEFAULT_SCORE_VERSION
+        return isinstance(other, exp.Literal) and not other.is_number and other.this == score_version
     return False
 
 
@@ -254,5 +273,14 @@ def _schema_context(tables: Sequence[str]) -> str:
         "market_radar_metrics": "product_id, region, stat_date, score_version, growth_score, gmv_score, creator_score, content_score, competition_score, price_score, trend_score, quality_score, risk_score, opportunity_score, risk_factors",
         "market_canonical_categories": "id, parent_id, code, name, level, status",
         "market_source_categories": "id, source, external_category_id, external_parent_id, parent_id, name, level, rank, raw_payload, first_seen_at, last_seen_at",
+        "product_master": "product_id, source, source_ref, external_category, title, image_url, detail_url, shop_name, seller_id, region, price, currency, active, projection_version, created_at, updated_at",
+        "product_metric_snapshot": "snapshot_id, product_id, captured_at, price, sales_7d, sales_amount_7d, sales_14d, sales_amount_14d, sales_28d, sales_amount_28d, global_sales_amount, original_price, trend_score, rating, commission, related_author_count, related_video_count, related_live_count, author_order_rate, shop_sold_count, score_version, metric_version, is_current, source, source_ref",
+        "product_daily_stat": "product_id, source, region, stat_date, score_version, category, currency, snapshot_cutoff, latest_snapshot_id, metric_version, price_avg, sales_7d, sales_amount_7d, trend_score, opportunity_score",
+        "product_daily_scores": "product_id, source, stat_date, score_version, input_fingerprint, growth_score, gmv_score, creator_score, content_score, competition_score, price_score, risk_score",
+        "product_observed_attributes": "product_id, metric_version, first_observed_at, sold_count, sale_amount, free_shipping, off_shelf, cross_border_shop",
+        "product_canonical_category": "code, parent_code, name, sort_order, status, provenance, revision",
+        "product_source_category": "source, external_category, parent_external_category, name, rank_value, category_level, observed_at, provenance",
+        "creator_profile": "creator_id, handle, display_name, region, primary_category, follower_count, video_count, avg_views, estimated_gmv_min, estimated_gmv_max, currency, engagement_rate, source, source_ref, updated_at",
+        "product_creator_link": "product_id, creator_id, region, video_count, live_count, estimated_sales_7d, estimated_gmv_7d, currency, commission_rate, author_order_rate, source, source_ref, observed_at",
     }
     return json.dumps({"tables": {name: columns[name] for name in tables}, "maxRows": MAX_SQL_ROWS}, ensure_ascii=False)

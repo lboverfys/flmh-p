@@ -39,7 +39,7 @@ class ApiTests(unittest.TestCase):
     def test_http_slot_patch_schema_exposes_both_amounts_and_preserves_omission(self):
         for model, required in ((AgentStartRequest, {"user_request": "查灯"}), (RevisionInput, {"expected_revision": 0})):
             schema = model.model_json_schema()["$defs"]["SlotUpdates"]
-            self.assertEqual(set(schema["properties"]), {"product", "region", "product_max_price", "budget_max"})
+            self.assertEqual(set(schema["properties"]), {"product", "region", "product_max_price", "target_language", "budget_max"})
             self.assertFalse(schema["additionalProperties"])
             for patch in ({}, {"product_max_price": None}, {"budget_max": 0, "product_max_price": 9.5}):
                 self.assertEqual(model.model_validate({**required, "slot_updates": patch}).model_dump()["slot_updates"], patch)

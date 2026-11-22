@@ -36,22 +36,38 @@ class ProductQuery(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     region: str = Field(pattern=r"^[A-Z]{2}$")
+    tool_kind: Literal["product_search", "product_ranking", "product_trend", "product_creators"] | None = None
     ranking_limit: int | None = Field(default=None, strict=True, ge=1, le=50)
     keyword: str | None = Field(default=None, min_length=1, max_length=80)
     category: str | None = Field(default=None, min_length=1, max_length=100)
     max_price: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    product_id: str | None = Field(default=None, min_length=1, max_length=96)
+    product_id_from_query: str | None = Field(default=None, pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
+    trend_days: int | None = Field(default=None, strict=True, ge=1, le=90)
+    creator_limit: int | None = Field(default=None, strict=True, ge=1, le=50)
     query_id: str | None = Field(default=None, pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
-    depends_on: list[str] = Field(default_factory=list, max_length=3)
+    depends_on: list[str] = Field(default_factory=list, max_length=5)
     category_from_query: str | None = Field(default=None, pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
 
     def model_post_init(self, __context: Any) -> None:
-        if self.ranking_limit is not None and any(x is not None for x in (self.keyword, self.category, self.max_price, self.category_from_query)):
+        if self.ranking_limit is not None and any(
+            x is not None for x in (self.keyword, self.category, self.max_price, self.category_from_query, self.product_id, self.product_id_from_query)
+        ):
             raise ValueError("the ranking index accepts region and limit, not catalog filters")
         if self.category_from_query is not None:
             if self.category_from_query not in self.depends_on:
                 raise ValueError("category_from_query must reference a direct depends_on query")
             if self.category is not None:
                 raise ValueError("category_from_query cannot be combined with a static category")
+        if self.product_id_from_query is not None:
+            if self.product_id_from_query not in self.depends_on:
+                raise ValueError("product_id_from_query must reference a direct depends_on query")
+            if self.product_id is not None:
+                raise ValueError("product_id_from_query cannot be combined with a static product_id")
+        if self.tool_kind == "product_trend" and self.ranking_limit is not None:
+            raise ValueError("product_trend cannot be combined with ranking_limit")
+        if self.tool_kind == "product_creators" and self.ranking_limit is not None:
+            raise ValueError("product_creators cannot be combined with ranking_limit")
 
     @field_validator("max_price", mode="before")
     @classmethod
@@ -65,9 +81,10 @@ class AgentPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     summary: str = Field(min_length=1, max_length=500)
-    queries: list[ProductQuery] = Field(max_length=4)
+    queries: list[ProductQuery] = Field(max_length=6)
     create_content: StrictBool
     content_type: Literal["", "product_script", "product_media"]
+    target_language: str | None = Field(default=None, pattern=r"^[a-z]{2}(?:-[A-Z]{2})?$")
     budget_max: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     budget_currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     media_options: MediaOptions = Field(default_factory=MediaOptions)
@@ -130,6 +147,7 @@ class ContentBrief(BaseModel):
     content_type: Literal["product_script", "product_media"]
     title: str = Field(min_length=1, max_length=200)
     body: str = Field(min_length=1, max_length=10000)
+    target_language: str | None = Field(default=None, pattern=r"^[a-z]{2}(?:-[A-Z]{2})?$")
     source: Literal["INPUT_REQUEST"]
     provider: str
 
@@ -142,6 +160,7 @@ class SlotUpdates(TypedDict, total=False):
     product: str | None
     region: str | None
     product_max_price: SlotAmount | None
+    target_language: str | None
     budget_max: SlotAmount | None
 
 
@@ -201,7 +220,10 @@ class AgentState(TypedDict, total=False):
     input_snapshot: str
     invalidated: list[str]
     plan: dict[str, Any]
+    execution_batches: list[list[str]]
     product_results: list[dict[str, Any]]
+    product_trends: dict[str, Any]
+    product_creators: dict[str, Any]
     product_history: dict[str, Any]
     product_detail: dict[str, Any]
     product_daily: dict[str, Any]
@@ -244,9 +266,10 @@ class PlanResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     summary: str = Field(min_length=1, max_length=500)
-    queries: list[ProductQuery] = Field(max_length=4)
+    queries: list[ProductQuery] = Field(max_length=6)
     create_content: StrictBool
     content_type: Literal["", "product_script", "product_media"]
+    target_language: str | None = Field(default=None, pattern=r"^[a-z]{2}(?:-[A-Z]{2})?$")
     budget_max: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     budget_currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     media_options: MediaOptions = Field(default_factory=MediaOptions)

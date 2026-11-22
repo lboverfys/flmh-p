@@ -16,7 +16,7 @@ from flmh_agent.application.workflow import build_workflow, selected_query_regio
 from flmh_agent.config import Settings
 from flmh_agent.domain.models import AgentInput, AgentState, ConfirmationInput, RevisionInput
 from flmh_agent.domain.media_production import MEDIA_TERMINAL_STATUSES, MediaProductionRequest, explicit_media_options, media_status
-from flmh_agent.domain.planning import explicit_revision_slots, find_budget_currency, money_revision_slots
+from flmh_agent.domain.planning import explicit_revision_slots, find_budget_currency, language_revision_slots, money_revision_slots
 from flmh_agent.domain.slots import normalize_slots
 from flmh_agent.domain.identity import UserIdentity, bind_identity, current_identity, run_resource_key
 from flmh_agent.domain.sessions import SessionCursor, SessionNotFoundError, SessionRecord, session_title
@@ -248,12 +248,13 @@ class AgentApplication:
             text = revision.user_request or ""
             plan = values.get("plan", {})
             money = money_revision_slots(text, plan["create_content"]) if text and plan else {}
-            user_request = values["user_request"] if money else text or values["user_request"]
+            lang = language_revision_slots(text) if text and plan else {}
+            user_request = values["user_request"] if (money or lang) else text or values["user_request"]
             contextual_media_edit = bool(values.get("plan", {}).get("content_type") == "product_media" and (
                 media or values.get("media_origin_run") or media_updates or revision.slot_updates or money
                 or revision.user_request and re.search(r"改为|改成|修改为|修改成|调整为|调整成|提示词|时长|比例", revision.user_request)
             ))
-            updates = {**money, **revision.slot_updates}
+            updates = {**money, **lang, **revision.slot_updates}
             overrides = {**values.get("slot_overrides", {}), **updates}
             currency = values.get("budget_currency_override") if user_request == values["user_request"] else None
             if "budget_max" in money:
@@ -367,6 +368,74 @@ class AgentApplication:
         await graph.aupdate_state(config, {"media_status": current}, as_node="read_media_status")
         return _response(run_id, await graph.ainvoke(None, config))
 
+    async def handoff_media(self, run_id: str, request: Mapping[str, Any] | None = None, *, identity: UserIdentity | None = None) -> dict[str, Any]:
+        self._validate_run_id(run_id)
+        req = dict(request or {})
+        user = identity or current_identity()
+        async with self._run_scope(run_id, user, synchronize=False):
+            snapshot = await self._graph(_DisconnectedTools()).aget_state(self._config(run_id, trace=False))
+            if not snapshot.values:
+                raise RunNotFoundError("run_id does not exist")
+            values = upgrade_slot_checkpoint(snapshot.values)
+            selected = dict(values.get("selected_product") or {})
+            product_id = str(req.get("product_id") or selected.get("id") or "").strip()
+            if not product_id:
+                raise ValueError("selected_product or product_id is required to hand off to media production")
+            plan = values.get("plan") or {}
+            region = (
+                selected_query_region(values)
+                if plan.get("queries")
+                else values.get("slot_values", {}).get("region") or self.settings.agent_default_region
+            )
+            slots = dict(values.get("slot_values") or {})
+            budget = req.get("budget_max")
+            if budget is None:
+                budget = slots.get("budget_max") or plan.get("budget_max") or 20
+            budget_num = float(budget)
+            if budget_num < 0.01:
+                raise ValueError("budget_max must be at least 0.01")
+            aspect_ratio = str(req.get("aspect_ratio") or "9:16")
+            if aspect_ratio not in {"1:1", "3:4", "4:3", "9:16", "16:9"}:
+                raise ValueError("aspect_ratio must be one of 1:1, 3:4, 4:3, 9:16, 16:9")
+            duration = int(req.get("duration_seconds") or 6)
+            if not 2 <= duration <= 15:
+                raise ValueError("duration_seconds must be between 2 and 15")
+            title = str(selected.get("title") or product_id)
+            raw_script = str(
+                values.get("content_task", {}).get("generatedContent")
+                or values.get("content_brief", {}).get("body")
+                or values.get("user_request")
+                or title
+            ).strip()
+            compact_script = re.sub(r"[，,；;。\n]+", " ", raw_script).strip()[:220]
+            clean_title = re.sub(r"[，,；;。\n]+", " ", title).strip()
+            image_prompt = re.sub(
+                r"[，,；;。\n]+",
+                " ",
+                str(req.get("image_prompt") or f"{clean_title} 商业棚拍展示图 参考要点 {compact_script}"),
+            ).strip()[:600]
+            video_prompt = re.sub(
+                r"[，,；;。\n]+",
+                " ",
+                str(req.get("video_prompt") or f"围绕 {clean_title} 拍摄短视频展示画面 卖点参考 {compact_script}"),
+            ).strip()[:600]
+            slot_updates: dict[str, Any] = {"product": product_id, "region": region, "budget_max": budget_num}
+            lang = req.get("target_language") or slots.get("target_language") or plan.get("target_language")
+            if lang:
+                slot_updates["target_language"] = lang
+            new_run_id = str(req.get("new_run_id") or uuid4())
+            media_user_request = (
+                f"为{region}商品 {product_id} 制作图片和视频，"
+                f"图片提示词：{image_prompt}，视频提示词：{video_prompt}，"
+                f"比例：{aspect_ratio}，时长：{duration}秒，创作预算{budget_num:g}"
+            )
+        created = await self.start(
+            new_run_id,
+            {"user_request": media_user_request, "slot_updates": slot_updates},
+            identity=user,
+        )
+        return {**created, "sourceRunId": run_id}
+
     def _graph(self, tools: ProductContentPort):
         return build_workflow(
             planner=self.planner,
@@ -375,6 +444,7 @@ class AgentApplication:
             bi_principal=current_identity().role,
             knowledge_query=self.knowledge_query,
             checkpointer=self.checkpointer,
+            settings=self.settings,
         )
 
     def _tool_session(self) -> _LazyToolSession:
@@ -435,6 +505,15 @@ class _DisconnectedTools:
         raise RuntimeError("state lookup does not use the product tools")
 
     async def get_product_daily(self, product_id: str, source: str, *, limit: int = 30, before_date: str | None = None) -> Mapping[str, Any]:
+        raise RuntimeError("state lookup does not use the product tools")
+
+    async def get_product_trend(self, product_id: str, *, days: int = 30) -> Mapping[str, Any]:
+        raise RuntimeError("state lookup does not use the product tools")
+
+    async def get_product_creators(self, product_id: str, *, limit: int = 20) -> Mapping[str, Any]:
+        raise RuntimeError("state lookup does not use the product tools")
+
+    async def search_creators(self, region: str = "US", *, keyword: str | None = None, category: str | None = None, limit: int = 20) -> Mapping[str, Any]:
         raise RuntimeError("state lookup does not use the product tools")
 
     async def create_quote(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -527,6 +606,15 @@ class _LazyToolSession:
     async def get_product_daily(self, product_id: str, source: str, *, limit: int = 30, before_date: str | None = None) -> Mapping[str, Any]:
         return await (await self._connected()).get_product_daily(product_id, source, limit=limit, before_date=before_date)
 
+    async def get_product_trend(self, product_id: str, *, days: int = 30) -> Mapping[str, Any]:
+        return await (await self._connected()).get_product_trend(product_id, days=days)
+
+    async def get_product_creators(self, product_id: str, *, limit: int = 20) -> Mapping[str, Any]:
+        return await (await self._connected()).get_product_creators(product_id, limit=limit)
+
+    async def search_creators(self, region: str = "US", *, keyword: str | None = None, category: str | None = None, limit: int = 20) -> Mapping[str, Any]:
+        return await (await self._connected()).search_creators(region, keyword=keyword, category=category, limit=limit)
+
     async def create_quote(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
         return await (await self._connected()).create_quote(request)
 
@@ -581,7 +669,9 @@ def _response(run_id: str, result: Mapping[str, Any]) -> dict[str, Any]:
                    else "processing" if values.get("content_task") and values.get("task_status", {}).get("status") not in {"SUCCEEDED", "FAILED", "CANCELLED"}
                    else "completed"),
         "plan": plan,
+        "executionBatches": values.get("execution_batches", []),
         "slotValues": values.get("slot_values", {}),
+        "targetLanguage": values.get("content_brief", {}).get("target_language") or values.get("slot_values", {}).get("target_language"),
         "slotVersion": values.get("slot_version", 0),
         "slotVersions": values.get("slot_versions", {}),
         "revision": values.get("revision", 0),
@@ -591,6 +681,8 @@ def _response(run_id: str, result: Mapping[str, Any]) -> dict[str, Any]:
         "slotSnapshot": values.get("slot_snapshot", ""),
         "invalidated": values.get("invalidated", []),
         "products": products,
+        "productTrends": values.get("product_trends", {}),
+        "productCreators": values.get("product_creators", {}),
         "productHistory": values.get("product_history", {}),
         "productDetail": values.get("product_detail", {}),
         "productDaily": values.get("product_daily", {}),

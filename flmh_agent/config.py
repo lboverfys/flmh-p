@@ -96,7 +96,7 @@ class Settings(BaseModel):
     rag_candidate_multiplier: int = Field(default=4, ge=1, le=10)
     rag_rrf_k: int = Field(default=60, ge=1, le=500)
     rag_pit_keep_alive: str = "1m"
-    rag_local_corpus_fallback: bool = True
+    rag_local_corpus_fallback: bool = False
     sql_dialect: Literal["postgres", "mysql"] = "postgres"
     bi_sql_role_tables_json: str = ""
     bi_database_uri: str = ""

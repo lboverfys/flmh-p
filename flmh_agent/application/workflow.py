@@ -12,12 +12,16 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 from pydantic import ValidationError
 
+from flmh_agent.config import Settings
 from flmh_agent.domain.content import build_content_request
 from flmh_agent.domain.media_production import MediaOptions, MediaProductionRequest, media_status, summarize_media
 from flmh_agent.domain.models import AgentPlan, AgentState, ContentBrief, ProductQuery
 from flmh_agent.domain.planning import CREATOR_COUNT_TERMS, request_amounts
 from flmh_agent.domain.product_trend import compare_product_snapshots
-from flmh_agent.domain.slots import INVALIDATION_ORDER, SLOT_NAMES, SLOT_DEPENDENCIES, invalidated_conclusions, normalize_slots, slot_changes
+from flmh_agent.domain.slots import (
+    INVALIDATION_ORDER, SLOT_NAMES, SLOT_DEPENDENCIES,
+    default_language_for_region, invalidated_conclusions, normalize_slots, slot_changes,
+)
 from flmh_agent.ports.workflow import BiQueryPort, KnowledgeQueryPort, PlannerPort, ProductContentPort
 
 
@@ -29,6 +33,7 @@ def build_workflow(
     bi_principal: str = "",
     knowledge_query: KnowledgeQueryPort | None = None,
     checkpointer: Any | None = None,
+    settings: Settings | None = None,
 ):
     graph = StateGraph(AgentState)
 
@@ -43,7 +48,7 @@ def build_workflow(
         normalized = normalize_slots(overrides)
         request_changed = state.get("last_user_request", state["user_request"]) != state["user_request"]
         edited = {key for key in updates if key not in prior_overrides or overrides[key] != prior_overrides[key]}
-        keep_plan = bool(previous_plan and not request_changed and edited <= {"budget_max", "product_max_price"})
+        keep_plan = bool(previous_plan and not request_changed and edited <= {"budget_max", "product_max_price", "target_language"})
         media_context = state.get("media_revision_context")
         if media_context:
             plan = AgentPlan.model_validate({
@@ -79,6 +84,7 @@ def build_workflow(
         if plan.product_daily_id is not None:
             effective.setdefault("product", plan.product_daily_id)
         effective.setdefault("budget_max", plan.budget_max)
+        effective.setdefault("target_language", plan.target_language)
         price, local_prices = _query_price_limits(bound_queries)
         effective.setdefault("product_max_price", price)
         slots, changed = slot_changes(state.get("slot_values"), effective)
@@ -137,6 +143,10 @@ def build_workflow(
         for name in ("product_results", "selected_product", "content_brief"):
             if name not in state or name in invalidated or not plan.queries or name == "content_brief" and not plan.create_content:
                 result[name] = [] if name == "product_results" else {}
+        if "product_results" in invalidated or not plan.queries:
+            result["product_trends"] = {}
+            result["product_creators"] = {}
+            result["execution_batches"] = []
         for name in ("product_history", "product_detail", "product_daily"):
             if name in invalidated or not getattr(plan, name + "_id"):
                 result[name] = {}
@@ -187,13 +197,36 @@ def build_workflow(
         queries = state["plan"]["queries"]
         snapshot = _fingerprint(queries)
         if state.get("product_results") and state.get("product_results_snapshot") == snapshot:
-            return {"reused_queries": [query.get("query_id") or f"query-{index}" for index, query in enumerate(queries, 1)]}
-        results, cache, reused, failures = await _layered_search(queries, tools, state.get("query_cache", {}))
-        return {"product_results": results, "product_results_snapshot": "" if failures else snapshot,
-                **({"selected_product": {}} if results != state.get("product_results") else {}),
+            return {
+                "reused_queries": [query.get("query_id") or f"query-{index}" for index, query in enumerate(queries, 1)],
+                "execution_batches": state.get("execution_batches") or [[query.get("query_id") or f"query-{index}" for index, query in enumerate(queries, 1)]],
+            }
+        batches: list[list[str]] = []
+        raw_results, cache, reused, failures = await _layered_search(queries, tools, state.get("query_cache", {}), batches_out=batches)
+        catalog_results: list[dict[str, Any]] = []
+        trends: dict[str, Any] = {}
+        creators: dict[str, Any] = {}
+        for item in raw_results:
+            kind = item.get("_kind")
+            if kind == "product_trend":
+                cleaned = {k: v for k, v in item.items() if k != "_kind"}
+                trends[str(cleaned.get("productId") or "default")] = cleaned
+            elif kind == "product_creators":
+                cleaned = {k: v for k, v in item.items() if k != "_kind"}
+                creators[str(cleaned.get("productId") or "default")] = cleaned
+            else:
+                catalog_results.append(item)
+        dependencies = {
+            **_dependencies(state, "product_results"),
+            "product_trends": dict(_dependencies(state, "product_trends")["product_trends"]),
+            "product_creators": dict(_dependencies(state, "product_creators")["product_creators"]),
+        }
+        return {"product_results": catalog_results, "product_results_snapshot": "" if failures else snapshot,
+                "execution_batches": batches, "product_trends": trends, "product_creators": creators,
+                **({"selected_product": {}} if catalog_results != state.get("product_results") else {}),
                 "query_cache": cache, "reused_queries": reused,
                 "query_failures": failures, "error": "部分查询失败；成功结果已保留，可重试失败查询。" if failures else "",
-                "conclusion_dependencies": _dependencies(state, "product_results")}
+                "conclusion_dependencies": dependencies}
 
     def select_product(state: AgentState) -> dict[str, Any]:
         product_slot = state.get("slot_overrides", {}).get("product")
@@ -214,13 +247,22 @@ def build_workflow(
         return result
 
     def prepare_content_request(state: AgentState) -> dict[str, Any]:
+        explicit_lang = state.get("slot_values", {}).get("target_language") or state["plan"].get("target_language")
+        effective_lang = explicit_lang
+        if not effective_lang and settings is not None:
+            effective_lang = default_language_for_region(
+                selected_query_region(state),
+                settings.agent_region_language_map_json,
+                settings.agent_default_language,
+            )
         snapshot = _fingerprint({"product": state["selected_product"], "request": state["user_request"],
-                                 "content_type": state["plan"]["content_type"], "knowledge": state.get("knowledge_result", {})})
+                                 "content_type": state["plan"]["content_type"], "target_language": effective_lang,
+                                 "knowledge": state.get("knowledge_result", {})})
         previous = state.get("content_brief")
         if previous and state.get("content_input_snapshot") == snapshot:
             return {}
         brief = build_content_request(
-            state["selected_product"], state["user_request"], state["plan"]["content_type"]
+            state["selected_product"], state["user_request"], state["plan"]["content_type"], target_language=effective_lang
         )
         if state.get("knowledge_result", {}).get("chunks"):
             evidence = "\n".join(f"[{item['id']}] {item['text']}\n来源：{item.get('sourceRef', '')}"
@@ -246,12 +288,15 @@ def build_workflow(
             if origin:
                 _validate_media_revision_quote(quote, origin, media_request)
         else:
-            quote = await tools.create_quote({
+            quote_req: dict[str, Any] = {
                 "product_id": str(product["id"]),
                 "content_type": state["plan"]["content_type"],
                 "brief": state["content_brief"]["body"],
                 "budget_max": state["plan"]["budget_max"],
-            })
+            }
+            if state["content_brief"].get("target_language"):
+                quote_req["target_language"] = state["content_brief"]["target_language"]
+            quote = await tools.create_quote(quote_req)
         amount = _quote_amount(quote)
         quote_id = _required_identifier(quote, "quoteId", "id", "quote_id")
         budget = state["plan"]["budget_max"]
@@ -301,12 +346,15 @@ def build_workflow(
 
     async def submit_content_task(state: AgentState) -> dict[str, Any]:
         quote_id = _required_identifier(state["quote"], "quoteId", "id", "quote_id")
-        response = await tools.submit_task({
+        task_req: dict[str, Any] = {
             "quote_id": quote_id,
             "product_id": str(state["selected_product"]["id"]),
             "content_type": state["plan"]["content_type"],
             "brief": state["content_brief"]["body"],
-        }, state["idempotency_key"])
+        }
+        if state["content_brief"].get("target_language"):
+            task_req["target_language"] = state["content_brief"]["target_language"]
+        response = await tools.submit_task(task_req, state["idempotency_key"])
         return {"content_task": dict(response), "conclusion_dependencies": _dependencies(state, "content_task")}
 
     async def read_task_status(state: AgentState) -> dict[str, Any]:
@@ -428,7 +476,13 @@ def build_workflow(
         for result in state.get("product_results", []):
             if "adapter" in result:
                 parts.append(f"榜单索引：{result['adapter']}。")
+        if state.get("product_trends"):
+            parts.append(f"已并行获取 {len(state['product_trends'])} 个商品的走势观测。")
+        if state.get("product_creators"):
+            parts.append(f"已并行匹配 {len(state['product_creators'])} 个商品的带货达人列表。")
         if plan["create_content"]:
+            if state.get("content_brief", {}).get("target_language"):
+                parts.append(f"目标语种：{state['content_brief']['target_language']}。")
             if not state.get("budget_ok"):
                 parts.append("报价超出预算，未请求确认且未创建任务。")
             elif state.get("media_status"):
@@ -562,9 +616,10 @@ def _validate_media_revision_quote(quote: Mapping[str, Any], origin: Mapping[str
 
 
 async def _layered_search(queries: list[dict[str, Any]], tools: ProductContentPort,
-                          previous: Mapping[str, dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], list[str], dict[str, str]]:
-    if not 1 <= len(queries) <= 4:
-        raise ValueError("the plan must contain 1 to 4 product queries")
+                          previous: Mapping[str, dict[str, Any]],
+                          *, batches_out: list[list[str]] | None = None) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], list[str], dict[str, str]]:
+    if not 1 <= len(queries) <= 6:
+        raise ValueError("the plan must contain 1 to 6 product queries")
     pending = {query.get("query_id") or f"query-{index+1}": query for index, query in enumerate(queries)}
     order = list(pending)
     completed: dict[str, dict[str, Any]] = {}
@@ -576,10 +631,52 @@ async def _layered_search(queries: list[dict[str, Any]], tools: ProductContentPo
         if not ready:
             failures.update({name: "DEPENDENCY_FAILED" for name in pending})
             break
+        if batches_out is not None:
+            batches_out.append(list(ready))
 
         async def execute(name: str) -> tuple[str, dict[str, Any], str, bool]:
             query = pending[name]
-            arguments = {key: value for key, value in query.items() if key not in {"query_id", "depends_on", "category_from_query"}}
+            tool_kind = query.get("tool_kind") or ("product_ranking" if query.get("ranking_limit") is not None else "product_search")
+            if tool_kind in {"product_trend", "product_creators"}:
+                pid = query.get("product_id")
+                src_q = query.get("product_id_from_query")
+                if src_q is not None:
+                    src = completed[src_q]
+                    prods = _extract_products(src)
+                    if not prods:
+                        raise ValueError("PRODUCT_BINDING_SOURCE_EMPTY")
+                    pid = prods[0].get("id")
+                    if not isinstance(pid, str) or not pid.strip():
+                        raise ValueError("PRODUCT_BINDING_ID_MISSING")
+                if not isinstance(pid, str) or not pid.strip():
+                    raise ValueError("PRODUCT_BINDING_ID_MISSING")
+                if tool_kind == "product_trend":
+                    days = int(query.get("trend_days") or 30)
+                    key = _fingerprint({"tool_kind": tool_kind, "product_id": pid, "days": days,
+                                        "dependencies": {dep: completed[dep] for dep in query.get("depends_on", [])}})
+                    if key in previous:
+                        return name, dict(previous[key]), key, True
+                    fn = getattr(tools, "get_product_trend", None)
+                    if fn is None:
+                        raise RuntimeError("product_trend tool is not available")
+                    resp = dict(await fn(pid, days=days))
+                    return name, {"_kind": "product_trend", "productId": pid, **resp}, key, False
+                limit = int(query.get("creator_limit") or 20)
+                key = _fingerprint({"tool_kind": tool_kind, "product_id": pid, "limit": limit,
+                                    "dependencies": {dep: completed[dep] for dep in query.get("depends_on", [])}})
+                if key in previous:
+                    return name, dict(previous[key]), key, True
+                fn = getattr(tools, "get_product_creators", None)
+                if fn is None:
+                    raise RuntimeError("product_creators tool is not available")
+                resp = dict(await fn(pid, limit=limit))
+                return name, {"_kind": "product_creators", "productId": pid, **resp}, key, False
+
+            catalog_meta_keys = {
+                "query_id", "depends_on", "category_from_query", "tool_kind",
+                "product_id", "product_id_from_query", "trend_days", "creator_limit",
+            }
+            arguments = {key: value for key, value in query.items() if key not in catalog_meta_keys}
             source_query = query.get("category_from_query")
             if source_query is not None:
                 source = completed[source_query]
@@ -596,7 +693,7 @@ async def _layered_search(queries: list[dict[str, Any]], tools: ProductContentPo
                     raise ValueError("CATEGORY_BINDING_CATEGORY_INVALID")
                 arguments["category"] = category
             try:
-                arguments = ProductQuery.model_validate(arguments).model_dump(exclude={"query_id", "depends_on", "category_from_query"})
+                arguments = ProductQuery.model_validate(arguments).model_dump(exclude=catalog_meta_keys)
                 if arguments.get("ranking_limit") is None:
                     arguments.pop("ranking_limit", None)
             except ValidationError as error:
@@ -615,6 +712,7 @@ async def _layered_search(queries: list[dict[str, Any]], tools: ProductContentPo
                     raise outcome
                 failures[name] = str(outcome) if str(outcome) in {
                     "CATEGORY_BINDING_SOURCE_EMPTY", "CATEGORY_BINDING_CATEGORY_MISSING", "CATEGORY_BINDING_CATEGORY_INVALID",
+                    "PRODUCT_BINDING_SOURCE_EMPTY", "PRODUCT_BINDING_ID_MISSING",
                 } else type(outcome).__name__
                 del pending[name]
                 continue
@@ -640,15 +738,26 @@ def _bind_plan_slots(plan: AgentPlan, explicit: dict[str, Any], *, currency: str
         ("region", "region"), ("product", "keyword"), ("product_max_price", "max_price")) if slot in explicit}
     queries = []
     for query in plan.queries:
-        overrides = fields if query.ranking_limit is None else {key: value for key, value in fields.items() if key == "region"}
+        if query.tool_kind in {"product_trend", "product_creators"}:
+            overrides = {key: value for key, value in fields.items() if key == "region"}
+        elif query.ranking_limit is None:
+            overrides = fields
+        else:
+            overrides = {key: value for key, value in fields.items() if key == "region"}
         queries.append({**query.model_dump(), **overrides})
-    return AgentPlan.model_validate({**plan.model_dump(), "queries": queries, "budget_max": explicit.get("budget_max", plan.budget_max),
-                                    "budget_currency": currency or plan.budget_currency})
+    return AgentPlan.model_validate({
+        **plan.model_dump(),
+        "queries": queries,
+        "target_language": explicit.get("target_language", plan.target_language),
+        "budget_max": explicit.get("budget_max", plan.budget_max),
+        "budget_currency": currency or plan.budget_currency,
+    })
 
 
 def _query_price_limits(queries: list[dict[str, Any]]) -> tuple[float | None, dict[str, float | None]]:
     prices = {q.get("query_id") or f"query-{i}": q.get("max_price")
-              for i, q in enumerate(queries, 1) if q.get("ranking_limit") is None}
+              for i, q in enumerate(queries, 1)
+              if q.get("ranking_limit") is None and q.get("tool_kind") not in {"product_trend", "product_creators"}}
     distinct = set(prices.values())
     if len(distinct) > 1:
         return None, prices
@@ -656,14 +765,22 @@ def _query_price_limits(queries: list[dict[str, Any]]) -> tuple[float | None, di
 
 
 def upgrade_slot_checkpoint(state: AgentState) -> AgentState:
-    """Project three-slot checkpoints on read, including resumes that skip plan_request."""
+    """Project three-slot and four-slot checkpoints on read, including resumes that skip plan_request."""
     saved = state.get("slot_values", {})
     plan = state.get("plan", {})
-    if (not saved and not plan) or ("product_max_price" in saved and "product_max_price" in state.get("slot_versions", {})):
+    versions_in_state = state.get("slot_versions", {})
+    if (not saved and not plan) or (
+        {"product_max_price", "target_language"} <= saved.keys()
+        and {"product_max_price", "target_language"} <= versions_in_state.keys()
+    ):
         return state
     queries = plan.get("queries", [])
     price, local_prices = _query_price_limits(queries)
-    inferred = {"product_max_price": price, "budget_max": plan.get("budget_max")}
+    inferred = {
+        "product_max_price": price,
+        "target_language": plan.get("target_language"),
+        "budget_max": plan.get("budget_max"),
+    }
     if queries:
         inferred.update(region=queries[0]["region"], product=queries[0].get("keyword"))
     else:

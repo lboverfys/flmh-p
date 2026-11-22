@@ -76,6 +76,22 @@ class McpProductContentAdapter:
         return await self._call("product_daily_statistics", {"product_id": product_id, "source": source,
                                  "limit": limit, "before_date": before_date})
 
+    async def get_product_trend(self, product_id: str, *, days: int = 30) -> dict[str, Any]:
+        return await self._call("product_trend", {"product_id": product_id, "days": days})
+
+    async def get_product_creators(self, product_id: str, *, limit: int = 20) -> dict[str, Any]:
+        return await self._call("product_creators", {"product_id": product_id, "limit": limit})
+
+    async def search_creators(
+        self,
+        region: str = "US",
+        *,
+        keyword: str | None = None,
+        category: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        return await self._call("creator_search", {"region": region, "keyword": keyword, "category": category, "limit": limit})
+
     async def create_quote(self, request: dict[str, Any]) -> dict[str, Any]:
         return await self._call("content_quote_create", request)
 
