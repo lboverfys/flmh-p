@@ -59,3 +59,34 @@ class SettingsTests(unittest.TestCase):
             "POSTGRES_CHECKPOINTER_URI": "postgresql://user:pass@localhost/agent",
         })
         self.assertEqual(settings.environment, "production")
+
+    def test_extracted_rag_sql_and_language_settings_are_configurable(self):
+        settings = Settings.from_env({
+            "AGENT_DEFAULT_REGION": "ID",
+            "AGENT_DEFAULT_LANGUAGE": "id-ID",
+            "AGENT_REGION_LANGUAGE_MAP_JSON": '{"US":"en-US","ID":"id-ID"}',
+            "AGENT_PLANNER_TEMPERATURE": "0.1",
+            "AGENT_PLANNER_MAX_TOKENS": "1500",
+            "AGENT_MAX_QUERIES_PER_PLAN": "6",
+            "RAG_TOP_K": "8",
+            "RAG_CANDIDATE_MULTIPLIER": "3",
+            "RAG_RRF_K": "40",
+            "RAG_PIT_KEEP_ALIVE": "2m",
+            "RAG_LOCAL_CORPUS_FALLBACK": "false",
+            "SQL_DIALECT": "mysql",
+            "SQL_TIMEOUT_MS": "3000",
+            "SQL_MAX_RETRIES": "2",
+            "SQL_DEFAULT_SCORE_VERSION": "local-v1",
+            "BI_DATABASE_URI": "mysql://reader:secret@127.0.0.1:3306/flmh_product",
+        })
+        self.assertEqual(settings.agent_default_region, "ID")
+        self.assertEqual(settings.agent_default_language, "id-ID")
+        self.assertEqual(settings.rag_top_k, 8)
+        self.assertFalse(settings.rag_local_corpus_fallback)
+        self.assertEqual(settings.sql_dialect, "mysql")
+        self.assertEqual(settings.sql_timeout_ms, 3000)
+
+        with self.assertRaises(ConfigurationError):
+            Settings.from_env({"BI_DATABASE_URI": "http://127.0.0.1/bad"})
+        with self.assertRaises(ConfigurationError):
+            Settings.from_env({"AGENT_REGION_LANGUAGE_MAP_JSON": '{"USA":"en-US"}'})

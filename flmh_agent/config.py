@@ -9,6 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 SETTING_NAMES = {
     "environment": "APP_ENV", "agent_host": "AGENT_HTTP_HOST", "agent_port": "AGENT_HTTP_PORT",
     "agent_api_key": "AGENT_API_KEY",
+    "agent_default_region": "AGENT_DEFAULT_REGION",
+    "agent_default_language": "AGENT_DEFAULT_LANGUAGE",
+    "agent_region_language_map_json": "AGENT_REGION_LANGUAGE_MAP_JSON",
+    "agent_planner_temperature": "AGENT_PLANNER_TEMPERATURE",
+    "agent_planner_max_tokens": "AGENT_PLANNER_MAX_TOKENS",
+    "agent_max_queries_per_plan": "AGENT_MAX_QUERIES_PER_PLAN",
     "planner_backend": "PLANNER_BACKEND", "model_gateway_url": "MODEL_GATEWAY_URL",
     "model_gateway_api_key": "MODEL_GATEWAY_API_KEY", "mcp_tools_url": "MCP_TOOLS_URL",
     "gateway_url": "JAVA_GATEWAY_URL", "mcp_host": "MCP_HTTP_HOST", "mcp_port": "MCP_HTTP_PORT",
@@ -25,9 +31,18 @@ SETTING_NAMES = {
     "elasticsearch_url": "ELASTICSEARCH_URL",
     "elasticsearch_api_key": "ELASTICSEARCH_API_KEY", "elasticsearch_index": "ELASTICSEARCH_INDEX",
     "elasticsearch_dense_field": "ELASTICSEARCH_DENSE_FIELD", "elasticsearch_sparse_field": "ELASTICSEARCH_SPARSE_FIELD",
+    "rag_top_k": "RAG_TOP_K",
+    "rag_candidate_multiplier": "RAG_CANDIDATE_MULTIPLIER",
+    "rag_rrf_k": "RAG_RRF_K",
+    "rag_pit_keep_alive": "RAG_PIT_KEEP_ALIVE",
+    "rag_local_corpus_fallback": "RAG_LOCAL_CORPUS_FALLBACK",
     "sql_dialect": "SQL_DIALECT",
     "bi_sql_role_tables_json": "BI_SQL_ROLE_TABLES_JSON", "bi_database_uri": "BI_DATABASE_URI",
-    "sql_max_rows": "SQL_MAX_ROWS", "request_timeout_seconds": "REQUEST_TIMEOUT_SECONDS",
+    "sql_max_rows": "SQL_MAX_ROWS",
+    "sql_timeout_ms": "SQL_TIMEOUT_MS",
+    "sql_max_retries": "SQL_MAX_RETRIES",
+    "sql_default_score_version": "SQL_DEFAULT_SCORE_VERSION",
+    "request_timeout_seconds": "REQUEST_TIMEOUT_SECONDS",
 }
 
 
@@ -42,6 +57,12 @@ class Settings(BaseModel):
     agent_host: str = "127.0.0.1"
     agent_port: int = Field(default=8090, ge=1, le=65535)
     agent_api_key: str = ""
+    agent_default_region: str = Field(default="US", pattern=r"^[A-Z]{2}$")
+    agent_default_language: str = Field(default="en-US", pattern=r"^[a-z]{2,3}(?:-[A-Z]{2})?$")
+    agent_region_language_map_json: str = ""
+    agent_planner_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    agent_planner_max_tokens: int = Field(default=2048, ge=128, le=16384)
+    agent_max_queries_per_plan: int = Field(default=6, ge=1, le=12)
     planner_backend: Literal["rules", "model_gateway"] = "rules"
     model_gateway_url: str = "http://127.0.0.1:8082"
     model_gateway_api_key: str = ""
@@ -71,10 +92,18 @@ class Settings(BaseModel):
     elasticsearch_index: str = Field(default="", pattern=r"^([a-z0-9][a-z0-9_-]{0,79})?$")
     elasticsearch_dense_field: str = "dense_vector"
     elasticsearch_sparse_field: str = "sparse_vector"
-    sql_dialect: str = "postgres"
+    rag_top_k: int = Field(default=5, ge=1, le=20)
+    rag_candidate_multiplier: int = Field(default=4, ge=1, le=10)
+    rag_rrf_k: int = Field(default=60, ge=1, le=500)
+    rag_pit_keep_alive: str = "1m"
+    rag_local_corpus_fallback: bool = True
+    sql_dialect: Literal["postgres", "mysql"] = "postgres"
     bi_sql_role_tables_json: str = ""
     bi_database_uri: str = ""
     sql_max_rows: int = Field(default=50, ge=1, le=50)
+    sql_timeout_ms: int = Field(default=5000, ge=250, le=60000)
+    sql_max_retries: int = Field(default=3, ge=1, le=5)
+    sql_default_score_version: str = "v2"
     request_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
 
     @field_validator("trusted_proxy_cidrs", mode="before")
@@ -104,6 +133,37 @@ class Settings(BaseModel):
         if isinstance(value, bool):
             raise ValueError("BGE_M3_DIMENSION must be a positive integer")
         return value
+
+    @field_validator("bi_database_uri", mode="before")
+    @classmethod
+    def check_bi_uri(cls, value: Any) -> Any:
+        if isinstance(value, str) and value.strip():
+            stripped = value.strip()
+            allowed_prefixes = ("postgres://", "postgresql://", "mysql://", "mysql+pymysql://", "mysql+aiomysql://")
+            if not stripped.startswith(allowed_prefixes):
+                raise ValueError("BI_DATABASE_URI must start with postgres://, postgresql://, or mysql://")
+            return stripped
+        return "" if isinstance(value, str) else value
+
+    @field_validator("agent_region_language_map_json", mode="before")
+    @classmethod
+    def check_region_language_map(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        text = str(value).strip()
+        if not text:
+            return ""
+        import json as _json
+        import re as _re
+        parsed = _json.loads(text)
+        if not isinstance(parsed, dict):
+            raise ValueError("AGENT_REGION_LANGUAGE_MAP_JSON must be a JSON object")
+        for region, lang in parsed.items():
+            if not isinstance(region, str) or not _re.fullmatch(r"[A-Z]{2}", region):
+                raise ValueError("region keys in AGENT_REGION_LANGUAGE_MAP_JSON must be 2-letter uppercase ISO codes")
+            if not isinstance(lang, str) or not _re.fullmatch(r"[a-z]{2,3}(?:-[A-Z]{2})?", lang):
+                raise ValueError("language values in AGENT_REGION_LANGUAGE_MAP_JSON must be valid BCP-47 tags")
+        return text
 
     @model_validator(mode="after")
     def validate_selected_adapters(self) -> Settings:
