@@ -41,7 +41,7 @@
 
 | 对照 | 固定输入 | 模型必须做什么 |
 | --- | --- | --- |
-| Planner / 串行 ReAct | `planning.json` 的 30 件合成商品、16 道题，覆盖 US/CA/ID/GB/TH/VN、多类目价格、三至四市场独立查询、两级类目依赖、价格边界和合法空结果。 | Planner 用 `ModelGatewayPlanner` 生成并校验计划，分层执行后再请求模型给答案。ReAct 每次根据已有观测给出一个查询或最终答案。两边共用生产 `_layered_search`、查询参数、结果格式、四条工具调用上限和最终评分。 |
+| Planner / 串行 ReAct | `planning.json`（保留 16 道基准题与 30 件合成商品；另有扩展示例 [planning_dag_extended.json](planning_dag_extended.json) 涵盖 `product_trend`、`product_creators`、`product_id_from_query` 及多语种并行 DAG）。覆盖 US/CA/ID/GB/TH/VN、多类目价格、多市场独立查询与依赖边界。 | Planner 用 `ModelGatewayPlanner` 生成并校验计划，分层执行后再请求模型给答案。ReAct 每次根据已有观测给出一个查询或最终答案。两边共用生产 `_layered_search`、查询参数、结果格式与最终评分。 |
 | 版本化槽位 / 最近历史加截断 | `memory.json` 有 12 段合成的运营对话，每段 12–15 轮，共 151 轮、604 个评分字段（含明确撤销的 `null`）。涉及询价、拆包、剪辑、字幕、换市场和交接。 | 两侧使用相同系统提示和本轮用户原文，分别输出 `updates` 和 `constraints`。槽位侧用生产 `update_slots` 合并模型自己提取的更新；历史侧使用固定的用户原文和助手回复。标签只用于评分。 |
 
 在默认窗口下，10 段对话最后交接时至少有一个非空约束已经没有字面证据；`budget-is-not-price`、`multi-market-handoff` 则在交接前分别改动各项条件，窗口里仍能看到全部四项。`character-cutoff` 和 `long-script-edit` 使用跨境剪辑的英文往返意见，同时覆盖消息条数与字符截断。以上是样本检查，不是实测的模型约束保留率或 Token 节省率。
