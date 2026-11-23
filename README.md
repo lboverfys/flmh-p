@@ -1,16 +1,20 @@
 # TKi8（FLMH）出海增长 Agent · Python
 
-基于 LangGraph 的跨境电商选品分析、运营知识检索、Text2SQL 问数、多语种文案与图生视频工作流编排服务，通过 FastMCP（`8001`）对接 Java 业务微服务（`8080–8085`）。未填外部模型配置时，规划与本地能力使用显式规则 `RULES` 或本地语料，不会私自调用付费外部模型。
+基于 LangGraph 的跨境电商选品分析、运营知识检索、Text2SQL 问数、多语种文案与图生视频工作流编排服务，通过 FastMCP（`8001`）对接 Java 业务微服务（`8080–8085`）。未填外部模型配置时，规划使用显式规则 `RULES`，本地语料检索由 `RAG_LOCAL_CORPUS_FALLBACK` 显式开启。
 
 [联合演示与八个亮点源码](https://github.com/lboverfys/flmh-j/blob/main/docs/interview.md) · [交付基线与边界](https://github.com/lboverfys/flmh-j/blob/main/docs/delivery.md) · [Java 工程入口](https://github.com/lboverfys/flmh-j/blob/main/README.md)
 
 ## 核心能力与近期对齐重构
 
 - **五槽位版本化上下文与多语种控制（`flmh_agent/domain/slots.py`）**：独立管理 `product`、`region`、`product_max_price`、`budget_max` 与 `target_language` 五个版本槽位；仅修改语种或预算时复用既有选品事实，精准失效旧文案与报价。
-- **跨工具分层并行 DAG（`planning.py` / `mcp_tools.py`）**：将商品筛选、榜单、`product_trend` 趋势分析、`product_creators` 关联达人查询、运营知识检索与 BI 问数统一纳入 `AgentPlan`，支持 `category_from_query` 与 `product_id_from_query` 引用绑定并输出 `execution_batches` 分层并行执行。
-- **成稿转图生视频交接（`/v1/agent/runs/{runId}/handoff-media`）**：在不改动原选品/文本运行的前提下，剥离纯话术干扰、继承商品/市场/预算启动全新 `product_media` 运行并生成确认报价。
+- **跨工具分层并行 DAG（`planning.py` / `mcp_tools.py`）**：四类商品工具（目录、榜单、趋势、达人）按依赖分层并行。RAG 是独立的前置检索节点，只读 BI 走互斥路径。 `category_from_query` 与 `product_id_from_query` 绑定直接上游产物，对外输出 `executionBatches`。
+- **成稿转图生视频交接（`/v1/agent/runs/{runId}/handoff-media`）**：使用同一任务的成功回执及非空终稿。新媒体运行保留来源运行、任务与全文 SHA-256，默认提示取正文前 220 字，每条最多 600 字。
 - **Text2SQL 只读执行与安全校验（`text2sql.py` / `mysql_sql.py`）**：支持 `SQL_DIALECT` 切换 MySQL / PostgreSQL，默认对齐新 Java `product-service` 表结构；通过 `AsyncMysqlReadOnlyRunner` 下发只读事务、超时上限与行封顶，并开放 `/v1/bi/validate` SQL AST 安全校验端点。
 - **RAG 混合检索与 310 节 / 300 题跨境语料（`rag.py` / `operations-v3`）**：支持 BGE-M3 + ES 稠密/稀疏 + RRF + BGE-Reranker + 父块回填流水线，显式启用 `RAG_LOCAL_CORPUS_FALLBACK=true` 时可自动加载本地语料检索；新增 10 份 TikTok 跨境运营手册 [operations-v3](examples/rag-evaluation/README.md)（310 父块、662 子块、300 道 `pending` 候选题）。
+
+MySQL 使用项目环境安装 `.[mysql]`。采集的商品原始快照版本为 `source-v1`，其他指标快照保留写入方版本。日表使用 `SQL_DAILY_SCORE_VERSION=radar-v2-exact-date`，旧指标表使用 `SQL_DEFAULT_SCORE_VERSION=v2`。本机独立 MySQL 9.4.0 的只读账号实际执行前端示例与两种分表查询。
+
+预算修订复用商品与知识证据。检索证据同时绑定知识查询、语料版本、商品、市场和语种。知识库可指定 `RAG_CORPUS_VERSION`，缺省时已发布 ES 文档索引的集合或本地清单提供版本。`RAG_LOCAL_CORPUS_FALLBACK` 默认关闭。
 
 ## 工作台管理员配置
 
@@ -54,4 +58,4 @@ $env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\verify-local'; $env:TMP = $env:TEMP
 & $py -B -m flmh_agent.evaluate --judgments examples/rag-evaluation/judgments.json --run examples/rag-evaluation/scripted-ranking.json
 ```
 
-最近一次全量离线单元回归结果为 **336 / 336 通过**（0 失败 / 0 错误 / 0 跳过）。[RAG 评测说明](examples/rag-evaluation/README.md) 与 [Agent 对照基准](examples/agent-evaluation/README.md) 提供了手工审核及接入真实模型/ES 后的实测方法；阶段二真实集群 benchmark 均留待接入环境后手动运行。
+最近一次全量离线单元回归结果为 **346 / 346 通过**（0 失败 / 0 错误 / 0 跳过）。[RAG 评测说明](examples/rag-evaluation/README.md) 与 [Agent 对照基准](examples/agent-evaluation/README.md) 提供了手工审核及接入真实模型/ES 后的实测方法；阶段二真实集群 benchmark 均留待接入环境后手动运行。

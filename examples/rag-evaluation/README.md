@@ -1,13 +1,17 @@
 # 运营规则 RAG 对照基准
 
-`operations-v2/` 是正式评测的待审语料：6 份固定版本的原文，140 个父块、191 个子块，108 道候选题。每题附原文短引、行号和父子块 ID；复核人留空，所有题均为 `pending`。默认命令仍兼容 64 题的 `operations-v1/`。本目录根部的三问 `SCRIPTED_FIXTURE` 仅演示计分，两版候选题都不是实测排名。
+`operations-v2/` 是上一版待审语料：6 份固定版本的原文，140 个父块、191 个子块，108 道候选题。每题附原文短引、行号和父子块 ID；复核人留空，所有题均为 `pending`。默认命令仍兼容 64 题的 `operations-v1/`。本目录根部的三问 `SCRIPTED_FIXTURE` 仅演示计分，各版本候选题用于后续审核。
 
 `operations-v3/` 是面向跨境 TikTok 全链路运营扩展的待审语料：10 份本地专题运营手册（`examples/rag-evaluation/operations-v3/corpus/*.md`），基于 `child_size=200`、`child_stride=130` 原生切分为 **310 个父块、662 个子块**，并配套生成 **300 道 `pending` 待复核候选题**（每份手册 30 题，顶层 `reviewer` 留空，全部附带经 `rag_corpus` 校验的原文行号、唯一引文及父子块 ID）。与 v1/v2 一样，300 道 `pending` 候选题用于人工复核与后续独立实验，不作为未复核的基准成绩或实测排名。
+
+v3 候选题采用卖家问法。按章节标题去编号逐题检查，标题命中为 0。两道跨段题各绑定两个必需父块。正式冻结默认要求至少 300 道获批题及逐题裁决，当前获批数为 0。
 
 可用 `rag_benchmark prepare` 验证或导出 `operations-v3` 复核包：
 
 ```powershell
 & $py -B -m flmh_agent.rag_benchmark prepare --source-root D:\Happy\芳\flmh-p --manifest examples/rag-evaluation/operations-v3/sources.json --candidates examples/rag-evaluation/operations-v3/candidates.json --out-dir "$work/review-v3"
+# 人工逐题完成复核后执行
+& $py -B -m flmh_agent.rag_benchmark freeze --source-root D:\Happy\芳\flmh-p --manifest examples/rag-evaluation/operations-v3/sources.json --review "$work/review-v3/review.json" --min-approved 300 --out "$work/judgments-v3.json"
 ```
 
 ## 语料与授权
@@ -81,8 +85,8 @@ $prefix = "rag-eval-ops-$runId"
 & $py -B -m flmh_agent.evaluate --judgments "$work/judgments.json" --run "$work/rankings/dense.json" --run "$work/rankings/dense-rerank.json" --run "$work/rankings/hybrid.json" --k 5 --compare-cases --output "$work/report.json"
 ```
 
-Recall@k 对每题计算“前 k 名中的相关父块数 / 该题标注的相关父块数”，再对题目等权平均。MRR 取完整已记录排名中首个相关父块名次的倒数，再按题平均。空列表两项均计零。`--k` 可以调低到记录深度以内，MRR 仍按完整记录计算。
+Recall@k 为前 k 名满足的必需证据组数除以总组数，再逐题等权平均。`equivalent_groups` 中任一父块命中即满足该组，其他父块各自都是必需证据。`all_required_at_k` 给出覆盖全部必需组的题目比例。`mrr` 按完整记录计算首个相关父块的倒数名次，`mrr_depth` 标明实际记录深度，`mrr_at_k` 与 `mrr_k` 给出截断结果。
 
-`scores` 按 dense-only、dense-rerank、hybrid 的顺序给出各组得分。`recovered` 和 `regressed` 比较浅层稠密基线与混合检索，分别列出从零命中变为命中、从命中变为零命中的题目。`sparse_recovered` 比较使用同款重排器的两路，仅收录 dense-rerank 前 k 个父块零命中、hybrid 命中的题。用题号查看 `trace.jsonl`，可以区分相关子块由稀疏检索引入，还是已有候选在融合后排进了前 k 名。
+`scores` 列出 dense-only、dense-rerank、hybrid 各组得分。`recovered` 与 `regressed` 比较浅层基线和混合检索在前 k 名中能否覆盖所有必需证据组。`sparse_recovered` 比较使用同一重排器的两路。逐题命中可回溯至 `trace.jsonl`。
 
-`sparse_regressed` 是相反方向：dense-rerank 命中而 hybrid 零命中，便于检查融合后被挤出的相关段落。`still_missed` 只收录所有参评方法前 k 名均为零命中的题。复查旧两路记录时省去 `dense-rerank.json` 参数，报告沿用原有字段。案例结论和指标只适用于当次冻结题集、语料和部署快照。
+`sparse_regressed` 记录 dense-rerank 满足全部证据组而 hybrid 未满足的题目。`still_missed` 记录所有参评方法都未覆盖全部必需组的题目。旧两路记录可省略 `dense-rerank.json`。

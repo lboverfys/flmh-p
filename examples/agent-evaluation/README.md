@@ -35,26 +35,28 @@
    Get-Content -LiteralPath $report -Encoding utf8 -Tail 1 | ConvertFrom-Json | ConvertTo-Json -Depth 12
    ```
 
-入口读取当前进程的环境变量。输出文件独占新建，每完成一个样本的一侧就刷新一条 JSONL。当前全集最多发出 **414 次网关请求**：规划组 16 × (2 + 5) = 112，记忆组 151 × 2 = 302。这是请求上限，不是实测次数或费用。
+入口读取当前进程的环境变量，每个对照臂写一条逐题 JSONL。原规划和记忆两套的请求上限为 414 次，扩展规划最多 72 次，独立语种记忆最多 12 次。四组合跑的理论上限为 498 次。
 
 ## 样本和评分
 
 | 对照 | 固定输入 | 模型必须做什么 |
 | --- | --- | --- |
-| Planner / 串行 ReAct | `planning.json`（保留 16 道基准题与 30 件合成商品；另有扩展示例 [planning_dag_extended.json](planning_dag_extended.json) 涵盖 `product_trend`、`product_creators`、`product_id_from_query` 及多语种并行 DAG）。覆盖 US/CA/ID/GB/TH/VN、多类目价格、多市场独立查询与依赖边界。 | Planner 用 `ModelGatewayPlanner` 生成并校验计划，分层执行后再请求模型给答案。ReAct 每次根据已有观测给出一个查询或最终答案。两边共用生产 `_layered_search`、查询参数、结果格式与最终评分。 |
+| Planner / 串行 ReAct | `planning.json`（保留 16 道基准题与 30 件合成商品；另有独立 8 题 [planning_dag_extended.json](planning_dag_extended.json) 涵盖 `product_trend`、`product_creators`、`product_id_from_query` 及多语种并行 DAG）。覆盖 US/CA/ID/GB/TH/VN、多类目价格、多市场独立查询与依赖边界。 | Planner 用 `ModelGatewayPlanner` 生成并校验计划，分层执行后再请求模型给答案。ReAct 每次根据已有观测给出一个查询或最终答案。两边共用生产 `_layered_search`、查询参数、结果格式与最终评分。 |
 | 版本化槽位 / 最近历史加截断 | `memory.json` 有 12 段合成的运营对话，每段 12–15 轮，共 151 轮、604 个评分字段（含明确撤销的 `null`）。涉及询价、拆包、剪辑、字幕、换市场和交接。 | 两侧使用相同系统提示和本轮用户原文，分别输出 `updates` 和 `constraints`。槽位侧用生产 `update_slots` 合并模型自己提取的更新；历史侧使用固定的用户原文和助手回复。标签只用于评分。 |
 
 在默认窗口下，10 段对话最后交接时至少有一个非空约束已经没有字面证据；`budget-is-not-price`、`multi-market-handoff` 则在交接前分别改动各项条件，窗口里仍能看到全部四项。`character-cutoff` 和 `long-script-edit` 使用跨境剪辑的英文往返意见，同时覆盖消息条数与字符截断。以上是样本检查，不是实测的模型约束保留率或 Token 节省率。
 
 历史窗口默认对齐旧版 `take: 12` 的计数单位。旧版先保存本轮用户消息，所以默认选最多 **11 条过去消息**。本轮完整问题单独传入。`--history-unit turn` 改为保留 **12 个完整的先前问答轮次**。两种口径都先取窗口，再保留历史末尾的 Unicode 字符，默认 `--history-chars 2400`。这是对照实验的总历史字符预算，不等同于旧版逐条截断：旧版工具输入最多 800 字符、工具输出最多 1200 字符；本实验以最近消息窗口为主，并用统一总预算限制历史长度。逐轮记录的 `dropped_messages` 和 `dropped_chars` 可定位窗口丢失信息的位置。
 
-规划题按市场核对完整 ID 列表、顺序及实际执行过的查询参数。跨区题还检查上游确实在更早的批次返回所用类目，Planner 的 `category_from_query` 必须绑定到指定查询。只猜中答案会缺少工具证据。工具结果标为 `LOCAL_EVALUATION_FIXTURE`，并发统计反映执行器分批调度，计时与线上商品库性能在本实验范围之外。
+原 16 道规划题按市场核对完整 ID 列表、顺序及实际执行过的查询参数。跨区题还检查上游确实在更早的批次返回所用类目，Planner 的 `category_from_query` 必须绑定到指定查询。只猜中答案会缺少工具证据。工具结果标为 `LOCAL_EVALUATION_FIXTURE`，并发统计反映执行器分批调度，计时与线上商品库性能在本实验范围之外。
 
-多轮题按“评分轮 × 明确标注的字段”计数。当前共标出 604 项字段，每侧分母相同。`region`、`product`、`product_max_price`、`budget_max` 各占一项。数字按数值比较，显式撤销要求模型输出对应键和 `null`。整段对话的 token 合计包括没有评分标签的过渡轮。
+原记忆对话按“评分轮 × 明确标注的字段”计数，共标出 604 项字段，每侧分母相同。`region`、`product`、`product_max_price`、`budget_max` 各占一项。数字按数值比较，显式撤销要求模型输出对应键和 `null`。整段对话的 token 合计包括没有评分标签的过渡轮。
+
+扩展集 `--suite planning_dag_extended` 按实际执行的 `(query_id, tool_kind)` 评分。每条趋势或达人查询绑定上游返回的商品，工具替身返回日期或 creatorId，评分器核验计划边与同层批次。`--suite memory_language` 单列 1 段 6 轮的语种更新、撤销和跨轮保持。
 
 ## 读结果
 
-首行 `metadata` 含数据文件 SHA-256、样本 ID、历史口径和生成设置。每个 `case` 保存实际提示、模型回复、工具批次及评分。末行 `summary` 给出配对汇总。中断后可读取已经落盘的 `case`，完整结束的文件包含 `summary`。
+首行 `metadata` 含数据文件 SHA-256、样本 ID、历史口径和生成设置。每个 `case` 保存实际提示、模型回复、工具批次及评分。末行 `summary.suites` 分别给出四组结果。每组的 `all_means` 使用全量尝试，`failed_ids` 与 `early_stop_ids` 列出失败和提前结束的样本。`paired_means` 使用共同配对子集。中断后可读取已经落盘的 `case`，完整结束的文件包含 `summary`。
 
 | 字段 | 口径 |
 | --- | --- |
