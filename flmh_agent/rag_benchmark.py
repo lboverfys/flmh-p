@@ -173,6 +173,7 @@ def main() -> None:
     labels.add_argument("--chunks-only", action="store_true", help="prepare chunk IDs before labeling a new corpus")
     prep.add_argument("--out-dir", required=True, type=Path)
     freeze = sub.add_parser("freeze", parents=[local], help="validate human decisions and export parent qrels")
+    freeze.add_argument("--min-approved", type=int, help="minimum approved questions (operations-v3 defaults to 300)")
     freeze.add_argument("--review", required=True, type=Path)
     freeze.add_argument("--out", required=True, type=Path)
     online = argparse.ArgumentParser(parents=[local], add_help=False)
@@ -194,7 +195,7 @@ def main() -> None:
                               "parent_chunks": len(corpus.parents), "child_chunks": len(corpus.children)}))
         elif args.command == "freeze":
             review = Review.model_validate_json(read_small(args.review))
-            write_model(args.out, freeze_review(corpus, review))
+            write_model(args.out, freeze_review(corpus, review, min_approved=args.min_approved))
         else:
             asyncio.run(use_services(args, corpus))
     except (OSError, ValueError, RuntimeError, httpx.HTTPError) as error:

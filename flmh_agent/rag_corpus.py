@@ -65,6 +65,7 @@ class Candidate(Record):
     question: Identifier
     status: Literal["pending", "approved", "rejected"]
     evidence: list[Evidence] = Field(max_length=32)
+    equivalent_groups: list[list[Identifier]] = Field(default_factory=list, exclude_if=lambda groups: not groups)
 
 
 class Review(Record):
@@ -150,9 +151,14 @@ def load_corpus(root: Path, manifest_path: Path) -> Corpus:
     return corpus
 
 
-def review_cases(corpus: Corpus, review: Review, *, freeze: bool) -> list[Case]:
+def review_cases(corpus: Corpus, review: Review, *, freeze: bool, min_approved: int = 1) -> list[Case]:
     if review.dataset != corpus.dataset or review.corpus_sha256 != corpus.version:
         raise ValueError("review belongs to another dataset or source snapshot")
+    if min_approved < 1:
+        raise ValueError("min_approved must be positive")
+    approved = sum(case.status == "approved" for case in review.cases)
+    if freeze and approved < min_approved:
+        raise ValueError(f"freeze requires at least {min_approved} approved cases; found {approved}; a named reviewer is required")
     if freeze and (not review.reviewer.strip() or any(case.status == "pending" for case in review.cases)):
         raise ValueError("a named reviewer and a decision for every question are required")
     if (len({c.id for c in review.cases}) != len(review.cases)
@@ -169,13 +175,13 @@ def review_cases(corpus: Corpus, review: Review, *, freeze: bool) -> list[Case]:
                 corpus.check_evidence(evidence)
             except ValueError as error:
                 raise ValueError(f"{case.id} {evidence.document}:{evidence.line}: {error}") from error
-        cases.append(Case(id=case.id, question=case.question, relevant=list(dict.fromkeys(e.parent for e in case.evidence))))
-    if freeze and not cases:
-        raise ValueError("freeze requires at least one approved case")
+        cases.append(Case(id=case.id, question=case.question, relevant=list(dict.fromkeys(e.parent for e in case.evidence)),
+                          equivalent_groups=case.equivalent_groups))
     return cases
 
 
-def freeze_review(corpus: Corpus, review: Review) -> Judgments:
-    cases = review_cases(corpus, review, freeze=True)
+def freeze_review(corpus: Corpus, review: Review, *, min_approved: int | None = None) -> Judgments:
+    minimum = (300 if corpus.dataset == "flmh-radar-ops-v3" else 1) if min_approved is None else min_approved
+    cases = review_cases(corpus, review, freeze=True, min_approved=minimum)
     return Judgments(dataset=corpus.dataset, corpus_sha256=corpus.version, granularity="parent",
                      reviewer=review.reviewer.strip(), cases=cases)

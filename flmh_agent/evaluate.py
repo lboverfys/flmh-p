@@ -23,6 +23,19 @@ class Case(Record):
     id: Identifier
     question: Identifier
     relevant: list[Identifier] = Field(min_length=1)
+    equivalent_groups: list[list[Identifier]] = Field(default_factory=list, exclude_if=lambda groups: not groups)
+
+    @model_validator(mode="after")
+    def validate_groups(self):
+        members = [doc for group in self.equivalent_groups for doc in group]
+        if (any(len(group) < 2 for group in self.equivalent_groups) or len(set(members)) != len(members)
+                or not set(members) <= set(self.relevant)):
+            raise ValueError("equivalent groups must be disjoint groups of labeled parents")
+        return self
+
+    def required_groups(self):
+        assigned = {doc for group in self.equivalent_groups for doc in group}
+        return [set(group) for group in self.equivalent_groups] + [{doc} for doc in self.relevant if doc not in assigned]
 
 
 class Judgments(Record):
@@ -78,17 +91,23 @@ def score(gold: Judgments, run: Rankings, k: int = 5) -> dict:
             raise ValueError("recording does not match frozen labels, corpus or requested depth")
         if any(len(ids) > meta.ranking_depth for ids in run.rankings.values()):
             raise ValueError("ranking exceeds recorded depth")
-    recalls, reciprocal_ranks = [], []
+    recalls, reciprocal_ranks, strict_hits = [], [], []
+    depth = run.recording.ranking_depth if run.recording else max(map(len, run.rankings.values()), default=0)
     for case in gold.cases:
         ranked = run.rankings[case.id]
         if len(set(ranked)) != len(ranked):
             raise ValueError(f"duplicate result in {case.id}")
         relevant = set(case.relevant)
-        recalls.append(len(relevant.intersection(ranked[:k])) / len(relevant))
+        groups = case.required_groups()
+        hits = sum(not group.isdisjoint(ranked[:k]) for group in groups)
+        recalls.append(hits / len(groups))
+        strict_hits.append(hits == len(groups))
         first = next((i for i, doc in enumerate(ranked, 1) if doc in relevant), None)
         reciprocal_ranks.append(1 / first if first else 0.0)
     result = {"dataset": gold.dataset, "run": run.name, "source": run.source, "queries": len(gold.cases),
               f"recall@{k}": sum(recalls) / len(recalls), "mrr": sum(reciprocal_ranks) / len(reciprocal_ranks)}
+    result.update(mrr_depth=depth, mrr_at_k=sum(rr if rr and 1 / rr <= k else 0 for rr in reciprocal_ranks) / len(gold.cases),
+                  all_required_at_k=sum(strict_hits) / len(strict_hits))
     if run.recording:
         result.update(granularity=gold.granularity, ranking_depth=run.recording.ranking_depth)
     return result

@@ -12,7 +12,6 @@ ROOT = Path(__file__).resolve().parents[1]
 V3_DIR = ROOT / "examples" / "rag-evaluation" / "operations-v3"
 CORPUS_DIR = V3_DIR / "corpus"
 
-HEADING_PREFIX_RE = re.compile(r"^\d+(?:\.\d+)*\s*")
 BACKTICK_RE = re.compile(r"`([^`]{2,40})`")
 METRIC_RE = re.compile(r"\d+(?:\.\d+)?\s*(?:%|天|日|小时|分钟|秒|个|条|次|美元|元|MiB|GB|ms|px|s|h)")
 PROHIBITION_CUES = ("禁止", "严禁", "不得", "不可", "红线", "阻断", "拒绝", "封禁", "扣分")
@@ -52,50 +51,12 @@ def _extract_quote_candidates(line_text: str) -> list[str]:
     return unique
 
 
-def _build_question(doc_title: str, sec_title: str, line_text: str, quote: str, case_index: int) -> str:
-    clean_sec = HEADING_PREFIX_RE.sub("", sec_title).strip()
-    clean_doc = doc_title.lstrip("# ").strip()
-    clean_doc_short = clean_doc.split("（")[0].strip()
-
-    sentences = [s.strip() for s in re.split(r"[。！？；;]", line_text) if s.strip() and quote not in s and s not in quote]
-    hint = ""
-    if sentences:
-        sub_hints = [
-            c.strip()
-            for c in re.split(r"[，,]", sentences[0])
-            if 5 <= len(c.strip()) <= 26 and c.strip() not in {"需要注意", "需要注意的是", "值得注意的是"}
-        ]
-        hint = sub_hints[0] if sub_hints else ""
-
-    if any(k in quote or k in clean_sec for k in PROHIBITION_CUES):
-        if hint:
-            return f"在《{clean_doc_short}》的「{clean_sec}」要求中，涉及“{hint}”时有哪些明确禁止或风控红线约束？"
-        return f"在《{clean_doc_short}》的「{clean_sec}」规范下，运营执行时需严守什么合规限制或红线要求？"
-    if any(k in quote or k in clean_sec for k in TROUBLESHOOT_CUES):
-        if hint:
-            return f"针对「{clean_sec}」场景，当出现“{hint}”等异常时系统或运营应如何处置？"
-        return f"按《{clean_doc_short}》的「{clean_sec}」规则，遇到对应阻断或异常情况时应按什么流程处理？"
-    if METRIC_RE.search(quote) or any(k in quote for k in THRESHOLD_CUES):
-        if hint:
-            return f"根据《{clean_doc_short}》的「{clean_sec}」说明，关于“{hint}”对应的量化标准或边界要求是什么？"
-        return f"在《{clean_doc_short}》的「{clean_sec}」规则中，规定的关键量化指标或时间阈值要求是什么？"
-    if "`" in quote or any(k in quote for k in CONFIG_CUES):
-        if hint:
-            return f"在「{clean_sec}」操作规范中，“{hint}”相关的系统字段、标识或配置约束如何执行？"
-        return f"按《{clean_doc_short}》的「{clean_sec}」说明，该环节需要校验或记录哪些关键字段与配置规范？"
-
-    if case_index % 2 == 0 and hint:
-        return f"围绕《{clean_doc_short}》的「{clean_sec}」实操要求，在“{hint}”环节具体应落实哪项标准做法？"
-    return f"依据《{clean_doc_short}》的「{clean_sec}」规范，该作业步骤的关键执行准则或审核要点是什么？"
-
-
 def build() -> dict[str, int]:
     md_files = sorted(CORPUS_DIR.glob("*.md"))
     if len(md_files) != 10:
         raise RuntimeError(f"Expected 10 corpus markdown files in {CORPUS_DIR}, found {len(md_files)}")
 
     sources_docs: list[dict] = []
-    doc_titles: dict[str, str] = {}
     corpus_hasher = hashlib.sha256()
 
     for md_path in md_files:
@@ -107,7 +68,6 @@ def build() -> dict[str, int]:
         rel_path = f"examples/rag-evaluation/operations-v3/corpus/{md_path.name}"
         doc_slug = md_path.stem
         lines = normalized_text.splitlines()
-        doc_titles[doc_slug] = lines[0].strip() if lines else doc_slug
 
         h3_indices = [i for i, line in enumerate(lines) if line.startswith("### ")]
         section_ranges: list[list[int]] = []
@@ -166,13 +126,13 @@ def build() -> dict[str, int]:
                     handle.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
 
     cases: list[Candidate] = []
-    seen_questions: set[str] = set()
+    questions = json.loads(Path(__file__).with_name("rag-v3-seller-questions.json").read_text(encoding="utf-8"))
 
+    required_case_ids: dict[str, list[str]] = {}
     for doc_meta in sources_docs:
         doc_slug = doc_meta["id"]
         document = corpus.documents[doc_slug]
         sections = doc_meta["sections"]
-        doc_title = doc_titles[doc_slug]
 
         groups_with_lines = list(zip(sections, document.groups))
         # Prefer sections 1..30 (30 operational topics), falling back to 0 if needed
@@ -182,8 +142,6 @@ def build() -> dict[str, int]:
         for ([sec_start, sec_end], (parent, children)) in candidate_pool:
             if doc_cases >= 30:
                 break
-            heading_line = document.lines[sec_start - 1].strip()
-            sec_title = heading_line[4:].strip() if heading_line.startswith("### ") else heading_line
 
             body_lines = [
                 (ln, document.lines[ln - 1].rstrip("\n"))
@@ -194,7 +152,6 @@ def build() -> dict[str, int]:
             ordered_children = list(reversed(children)) if doc_cases % 2 == 1 and len(children) > 1 else list(children)
 
             chosen_evidence: Evidence | None = None
-            chosen_line_text = ""
 
             for child in ordered_children:
                 for ln, raw_line in body_lines:
@@ -212,7 +169,6 @@ def build() -> dict[str, int]:
                             continue
                         if parent.text.count(quote) == 1 and child.text.count(quote) == 1:
                             chosen_evidence = ev
-                            chosen_line_text = raw_line
                             break
                     if chosen_evidence is not None:
                         break
@@ -222,15 +178,16 @@ def build() -> dict[str, int]:
             if chosen_evidence is None:
                 continue
 
-            question = _build_question(doc_title, sec_title, chosen_line_text, chosen_evidence.quote, len(cases))
-            if question in seen_questions:
-                question = f"{question}（章节 {sec_title}）"
-            seen_questions.add(question)
+            case_id = f"{doc_slug[:2]}-sec-{sec_start:03d}"
+            item = questions.pop(case_id)
+            question = item if isinstance(item, str) else item["question"]
+            if isinstance(item, dict):
+                required_case_ids[case_id] = item["also_requires"]
 
             doc_cases += 1
             cases.append(
                 Candidate(
-                    id=f"{doc_slug[:2]}-sec-{sec_start:03d}",
+                    id=case_id,
                     question=question,
                     status="pending",
                     evidence=[chosen_evidence],
@@ -240,6 +197,11 @@ def build() -> dict[str, int]:
         if doc_cases != 30:
             raise RuntimeError(f"Expected 30 cases for {doc_slug}, built {doc_cases}")
 
+    by_id = {case.id: case for case in cases}
+    for case_id, supporting in required_case_ids.items():
+        by_id[case_id].evidence.extend(by_id[other].evidence[0] for other in supporting)
+    if questions:
+        raise ValueError(f"seller questions without verified evidence: {sorted(questions)}")
     review = Review(
         dataset="flmh-radar-ops-v3",
         corpus_sha256=corpus.version,
