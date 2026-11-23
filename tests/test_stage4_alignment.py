@@ -1,3 +1,4 @@
+import hashlib
 import json
 import unittest
 from contextlib import asynccontextmanager
@@ -11,7 +12,7 @@ from flmh_agent.adapters.outbound.coordination import InMemoryRunCoordinator
 from flmh_agent.adapters.outbound.mysql_sql import AsyncMysqlReadOnlyRunner
 from flmh_agent.adapters.outbound.sessions import InMemorySessionDirectory
 from flmh_agent.application.rag import LocalCorpusFallbackKnowledgeService
-from flmh_agent.application.service import AgentApplication
+from flmh_agent.application.service import AgentApplication, RunConflictError
 from flmh_agent.application.text2sql import SqlValidationError, validate_readonly_sql
 from flmh_agent.config import Settings
 from flmh_agent.domain.planning import RuleBasedPlanner
@@ -67,7 +68,7 @@ class _FakeTools:
 
     async def submit_task(self, request, idempotency_key: str):
         self.submit_calls.append(dict(request))
-        return {"taskId": f"t-{len(self.submit_calls)}", "status": "SUCCEEDED", "generatedContent": "OK"}
+        return {"taskId": f"t-{len(self.submit_calls)}", "status": "QUEUED"}
 
     async def get_task(self, task_id: str):
         return {"taskId": task_id, "status": "SUCCEEDED", "generatedContent": "已生成的带货脚本"}
@@ -141,13 +142,29 @@ class Stage4AlignmentTests(IdentityTestCase):
 
     async def test_script_run_handoffs_cleanly_to_new_media_production_run(self):
         script_run = await self.app.start("script-done", {"user_request": "查美国保温杯写英文口播，预算20"})
+        final_text = "异步终稿标记" + "旅行杯" * 110
+        self.tools.get_task = AsyncMock(side_effect=[{"taskId": "t-1", "status": "RUNNING"},
+                                                   {"taskId": "t-1", "status": "SUCCEEDED", "generatedContent": final_text}])
         await self.app.confirm("script-done", {"quote_id": script_run["quote"]["quoteId"], "confirmed": True})
 
+        with self.assertRaises(RunConflictError):
+            await self.app.handoff_media("script-done", {"new_run_id": "too-early"})
+        self.assertIsNone(await self.app.observe("too-early"))
+        self.assertEqual(self.tools.media_quote_calls, [])
+        await self.app.get("script-done")
+        for bad in ({"budget_max": 0}, {"duration_seconds": 0}):
+            with self.assertRaises(ValueError):
+                await self.app.handoff_media("script-done", bad)
         handed = await self.app.handoff_media(
             "script-done",
             {"aspect_ratio": "9:16", "duration_seconds": 8, "budget_max": 30, "new_run_id": "media-from-script"},
         )
         self.assertEqual(handed["sourceRunId"], "script-done")
+        stored = await self.app.observe("media-from-script")
+        self.assertEqual(stored["sourceTaskId"], "t-1")
+        self.assertEqual(stored["sourceContentSha256"], hashlib.sha256(final_text.encode()).hexdigest())
+        for key in ("image_prompt", "video_prompt"):
+            self.assertIn(final_text[:220], self.tools.media_quote_calls[0][key])
         self.assertEqual(handed["runId"], "media-from-script")
         self.assertEqual(handed["status"], "awaiting_confirmation")
         self.assertEqual(handed["plan"]["content_type"], "product_media")

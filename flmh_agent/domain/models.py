@@ -212,6 +212,9 @@ class RevisionInput(BaseModel):
 
 
 class AgentState(TypedDict, total=False):
+    source_run_id: str
+    source_task_id: str
+    source_content_sha256: str
     user_request: str
     slot_values: dict[str, Any]
     slot_updates: dict[str, Any]

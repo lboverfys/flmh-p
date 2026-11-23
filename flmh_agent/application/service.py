@@ -67,7 +67,7 @@ class AgentApplication:
         async with self._run_scope(run_id, identity):
             return await self._start_locked(run_id, request)
 
-    async def _start_locked(self, run_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
+    async def _start_locked(self, run_id: str, request: Mapping[str, Any], *, source: dict[str, str] | None = None) -> dict[str, Any]:
         payload = AgentInput.model_validate(request)
         normalize_slots(payload.slot_updates)
         await self.session_directory.reserve(current_identity().user_id, run_id,
@@ -77,7 +77,11 @@ class AgentApplication:
             "slot_updates": payload.slot_updates,
             "revision": 0,
         }
-        fingerprint = _request_fingerprint(payload.model_dump(mode="json"))
+        fingerprint_data = payload.model_dump(mode="json")
+        if source is not None:
+            state.update(source)
+            fingerprint_data.update(source)
+        fingerprint = _request_fingerprint(fingerprint_data)
         graph_config = self._config(run_id)
         graph = self._graph(_DisconnectedTools())
         previous = await graph.aget_state(graph_config)
@@ -377,6 +381,15 @@ class AgentApplication:
             if not snapshot.values:
                 raise RunNotFoundError("run_id does not exist")
             values = upgrade_slot_checkpoint(snapshot.values)
+            task = values.get("content_task") or {}
+            final = values.get("task_status") or task
+            task_id = task.get("taskId")
+            raw_script = final.get("generatedContent")
+            if (not task_id or final.get("taskId") != task_id or final.get("status") != "SUCCEEDED"
+                    or not isinstance(raw_script, str) or not raw_script.strip()):
+                raise RunConflictError("media handoff requires a successful source task with final content")
+            source = {"source_run_id": run_id, "source_task_id": task_id,
+                      "source_content_sha256": hashlib.sha256(raw_script.encode("utf-8")).hexdigest()}
             selected = dict(values.get("selected_product") or {})
             product_id = str(req.get("product_id") or selected.get("id") or "").strip()
             if not product_id:
@@ -390,23 +403,23 @@ class AgentApplication:
             slots = dict(values.get("slot_values") or {})
             budget = req.get("budget_max")
             if budget is None:
-                budget = slots.get("budget_max") or plan.get("budget_max") or 20
+                budget = slots.get("budget_max")
+            if budget is None:
+                budget = plan.get("budget_max")
+            if budget is None:
+                budget = 20
             budget_num = float(budget)
             if budget_num < 0.01:
                 raise ValueError("budget_max must be at least 0.01")
             aspect_ratio = str(req.get("aspect_ratio") or "9:16")
             if aspect_ratio not in {"1:1", "3:4", "4:3", "9:16", "16:9"}:
                 raise ValueError("aspect_ratio must be one of 1:1, 3:4, 4:3, 9:16, 16:9")
-            duration = int(req.get("duration_seconds") or 6)
-            if not 2 <= duration <= 15:
+            duration = req.get("duration_seconds")
+            if duration is None:
+                duration = 6
+            if not isinstance(duration, int) or not 2 <= duration <= 15:
                 raise ValueError("duration_seconds must be between 2 and 15")
             title = str(selected.get("title") or product_id)
-            raw_script = str(
-                values.get("content_task", {}).get("generatedContent")
-                or values.get("content_brief", {}).get("body")
-                or values.get("user_request")
-                or title
-            ).strip()
             compact_script = re.sub(r"[，,；;。\n]+", " ", raw_script).strip()[:220]
             clean_title = re.sub(r"[，,；;。\n]+", " ", title).strip()
             image_prompt = re.sub(
@@ -429,12 +442,9 @@ class AgentApplication:
                 f"图片提示词：{image_prompt}，视频提示词：{video_prompt}，"
                 f"比例：{aspect_ratio}，时长：{duration}秒，创作预算{budget_num:g}"
             )
-        created = await self.start(
-            new_run_id,
-            {"user_request": media_user_request, "slot_updates": slot_updates},
-            identity=user,
-        )
-        return {**created, "sourceRunId": run_id}
+        self._validate_run_id(new_run_id)
+        async with self._run_scope(new_run_id, user):
+            return await self._start_locked(new_run_id, {"user_request": media_user_request, "slot_updates": slot_updates}, source=source)
 
     def _graph(self, tools: ProductContentPort):
         return build_workflow(
@@ -690,6 +700,8 @@ def _response(run_id: str, result: Mapping[str, Any]) -> dict[str, Any]:
         "quote": values.get("quote", {}),
         "contentTask": values.get("content_task", {}),
         "taskStatus": values.get("task_status", {}),
+        **({"sourceRunId": values["source_run_id"], "sourceTaskId": values["source_task_id"],
+            "sourceContentSha256": values["source_content_sha256"]} if values.get("source_run_id") else {}),
         "mediaRequest": values.get("media_request", {}),
         "mediaRun": values.get("media_run", {}),
         "mediaStatus": values.get("media_status", {}),
