@@ -149,6 +149,16 @@ class ElasticsearchHybridStore:
     def _published_aliases(self) -> str:
         return f"{self.settings.elasticsearch_index}-active-*"
 
+    async def active_corpus_version(self) -> str:
+        try:
+            aliases = await self._request("GET", f"/_alias/{self._published_aliases}", params={"filter_path": "*.aliases"})
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code == 404:
+                return ""
+            raise
+        # Concrete document indices are content-addressed and sealed before alias publication.
+        return hashlib.sha256("\n".join(sorted(aliases)).encode()).hexdigest() if aliases else ""
+
     def snapshot(self):
         return self._open_snapshot(self._published_aliases, keep_alive=self.settings.rag_pit_keep_alive, allow_missing=True)
 

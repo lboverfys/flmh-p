@@ -131,6 +131,7 @@ class AgentEvaluationTests(unittest.IsolatedAsyncioTestCase):
         guess, _ = await self.play(task, "react", [reply(final)])
         self.assertFalse(guess["correct"])
         self.assertEqual(guess["metrics"]["tool_calls"], 0)
+        self.assertTrue(guess["early_stop"])
         flat = [t.query.model_dump(exclude_unset=True) for t in task.checks]
         concurrent, _ = await self.play(task, "planner", [reply(plan(flat)), reply(final)])
         self.assertFalse(concurrent["correct"])
@@ -151,6 +152,7 @@ class AgentEvaluationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["metrics"]["tool_calls"], 1)
         limited, _ = await self.play(task, "react", [reply({"query": {"region": "US"}})] * 5)
         self.assertEqual(limited["status"], "failed")
+        self.assertTrue(limited["early_stop"])
         self.assertEqual((limited["metrics"]["model_calls"], limited["metrics"]["tool_calls"]), (5, 4))
 
     async def test_rejected_gateway_response_or_identity_is_never_counted_as_verified_usage(self):
@@ -236,6 +238,7 @@ class AgentEvaluationTests(unittest.IsolatedAsyncioTestCase):
         counts = row["constraints"]
         self.assertEqual(counts["matched"], len(first))
         self.assertEqual(counts["expected"], sum(len(t.check.model_fields_set) for t in case.turns))
+        self.assertTrue(row["early_stop"])
         self.assertEqual(counts["unscored"], counts["expected"] - len(first))
         self.assertIsNone(counts["retention_rate"])
         self.assertEqual(row["metrics"]["usage_complete_calls"], 1)
@@ -255,6 +258,8 @@ class AgentEvaluationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["usage_paired_ids"], [])
         self.assertIsNone(summary["paired_token_reduction"]["total_tokens"])
         self.assertEqual(summary["arms"]["planner"]["failed_ids"], ["failed"])
+        self.assertEqual(summary["arms"]["planner"]["early_stop_ids"], ["failed"])
+        self.assertEqual(summary["arms"]["planner"]["attempted"], 2)
         self.assertEqual(summary["arms"]["react"]["paired_means"]["tool_calls"], 1)
         self.assertEqual(summary["arms"]["planner"]["paired_means"]["decision_and_tool_rounds"], 3)
         self.assertEqual(summary["arms"]["react"]["paired_means"]["decision_and_tool_rounds"], 3)

@@ -91,7 +91,7 @@ def score(gold: Judgments, run: Rankings, k: int = 5) -> dict:
             raise ValueError("recording does not match frozen labels, corpus or requested depth")
         if any(len(ids) > meta.ranking_depth for ids in run.rankings.values()):
             raise ValueError("ranking exceeds recorded depth")
-    recalls, reciprocal_ranks, strict_hits = [], [], []
+    recalls, reciprocal_ranks, cutoff_ranks, strict_hits = [], [], [], []
     depth = run.recording.ranking_depth if run.recording else max(map(len, run.rankings.values()), default=0)
     for case in gold.cases:
         ranked = run.rankings[case.id]
@@ -104,9 +104,10 @@ def score(gold: Judgments, run: Rankings, k: int = 5) -> dict:
         strict_hits.append(hits == len(groups))
         first = next((i for i, doc in enumerate(ranked, 1) if doc in relevant), None)
         reciprocal_ranks.append(1 / first if first else 0.0)
+        cutoff_ranks.append(1 / first if first and first <= k else 0.0)
     result = {"dataset": gold.dataset, "run": run.name, "source": run.source, "queries": len(gold.cases),
               f"recall@{k}": sum(recalls) / len(recalls), "mrr": sum(reciprocal_ranks) / len(reciprocal_ranks)}
-    result.update(mrr_depth=depth, mrr_at_k=sum(rr if rr and 1 / rr <= k else 0 for rr in reciprocal_ranks) / len(gold.cases),
+    result.update(mrr_depth=depth, mrr_k=k, mrr_at_k=sum(cutoff_ranks) / len(cutoff_ranks),
                   all_required_at_k=sum(strict_hits) / len(strict_hits))
     if run.recording:
         result.update(granularity=gold.granularity, ranking_depth=run.recording.ranking_depth)
@@ -130,15 +131,16 @@ def paired_report(gold: Judgments, runs: list[Rankings], k: int) -> dict:
         groups["sparse_regressed"] = []
     for case in gold.cases:
         baseline, combined = dense.rankings[case.id][:k], hybrid.rankings[case.id][:k]
-        relevant = set(case.relevant)
-        dense_hit, hybrid_hit = not relevant.isdisjoint(baseline), not relevant.isdisjoint(combined)
+        evidence = case.required_groups()
+        dense_hit = all(not group.isdisjoint(baseline) for group in evidence)
+        hybrid_hit = all(not group.isdisjoint(combined) for group in evidence)
         row = {"id": case.id, "question": case.question, "relevant": case.relevant,
                "dense_top_k": baseline, "hybrid_top_k": combined}
         rerank_hit = False
         if reranked:
             control = reranked.rankings[case.id][:k]
             row["dense_rerank_top_k"] = control
-            rerank_hit = not relevant.isdisjoint(control)
+            rerank_hit = all(not group.isdisjoint(control) for group in evidence)
             if hybrid_hit and not rerank_hit:
                 groups["sparse_recovered"].append(row)
             elif rerank_hit and not hybrid_hit:

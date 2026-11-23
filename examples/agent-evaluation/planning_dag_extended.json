@@ -1,51 +1,886 @@
 {
-  "description": "Extended parallel DAG, trend/creators tool binding, and multilingual handoff evaluation tasks.",
+  "catalog": [
+    {
+      "id": "us-fan",
+      "title": "便携风扇",
+      "region": "US",
+      "category": "fan",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "us-fan-host",
+          "handle": "@us-fan"
+        }
+      ]
+    },
+    {
+      "id": "us-lamp",
+      "title": "便携露营灯",
+      "region": "US",
+      "category": "light",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "us-lamp-host",
+          "handle": "@us-lamp"
+        }
+      ]
+    },
+    {
+      "id": "us-cup",
+      "title": "旅行保温杯",
+      "region": "US",
+      "category": "cup",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "us-cup-host",
+          "handle": "@us-cup"
+        }
+      ]
+    },
+    {
+      "id": "ca-fan",
+      "title": "便携风扇",
+      "region": "CA",
+      "category": "fan",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "ca-fan-host",
+          "handle": "@ca-fan"
+        }
+      ]
+    },
+    {
+      "id": "ca-lamp",
+      "title": "便携露营灯",
+      "region": "CA",
+      "category": "light",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "ca-lamp-host",
+          "handle": "@ca-lamp"
+        }
+      ]
+    },
+    {
+      "id": "ca-cup",
+      "title": "旅行保温杯",
+      "region": "CA",
+      "category": "cup",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "ca-cup-host",
+          "handle": "@ca-cup"
+        }
+      ]
+    },
+    {
+      "id": "gb-fan",
+      "title": "便携风扇",
+      "region": "GB",
+      "category": "fan",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "gb-fan-host",
+          "handle": "@gb-fan"
+        }
+      ]
+    },
+    {
+      "id": "gb-lamp",
+      "title": "便携露营灯",
+      "region": "GB",
+      "category": "light",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "gb-lamp-host",
+          "handle": "@gb-lamp"
+        }
+      ]
+    },
+    {
+      "id": "gb-cup",
+      "title": "旅行保温杯",
+      "region": "GB",
+      "category": "cup",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "gb-cup-host",
+          "handle": "@gb-cup"
+        }
+      ]
+    },
+    {
+      "id": "id-fan",
+      "title": "便携风扇",
+      "region": "ID",
+      "category": "fan",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "id-fan-host",
+          "handle": "@id-fan"
+        }
+      ]
+    },
+    {
+      "id": "id-lamp",
+      "title": "便携露营灯",
+      "region": "ID",
+      "category": "light",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "id-lamp-host",
+          "handle": "@id-lamp"
+        }
+      ]
+    },
+    {
+      "id": "id-cup",
+      "title": "旅行保温杯",
+      "region": "ID",
+      "category": "cup",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "id-cup-host",
+          "handle": "@id-cup"
+        }
+      ]
+    },
+    {
+      "id": "th-fan",
+      "title": "便携风扇",
+      "region": "TH",
+      "category": "fan",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "th-fan-host",
+          "handle": "@th-fan"
+        }
+      ]
+    },
+    {
+      "id": "th-lamp",
+      "title": "便携露营灯",
+      "region": "TH",
+      "category": "light",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "th-lamp-host",
+          "handle": "@th-lamp"
+        }
+      ]
+    },
+    {
+      "id": "th-cup",
+      "title": "旅行保温杯",
+      "region": "TH",
+      "category": "cup",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "th-cup-host",
+          "handle": "@th-cup"
+        }
+      ]
+    },
+    {
+      "id": "vn-fan",
+      "title": "便携风扇",
+      "region": "VN",
+      "category": "fan",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "vn-fan-host",
+          "handle": "@vn-fan"
+        }
+      ]
+    },
+    {
+      "id": "vn-lamp",
+      "title": "便携露营灯",
+      "region": "VN",
+      "category": "light",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "vn-lamp-host",
+          "handle": "@vn-lamp"
+        }
+      ]
+    },
+    {
+      "id": "vn-cup",
+      "title": "钛制保温杯",
+      "region": "VN",
+      "category": "cup",
+      "price": 12,
+      "points": [
+        {
+          "date": "2026-10-01",
+          "sales7d": 12
+        },
+        {
+          "date": "2026-10-02",
+          "sales7d": 14
+        }
+      ],
+      "creators": [
+        {
+          "creatorId": "vn-cup-host",
+          "handle": "@vn-cup"
+        }
+      ]
+    }
+  ],
   "tasks": [
     {
       "id": "us-cup-trend-and-creators-parallel",
       "request": "查美国旅行保温杯并分析近30天销量趋势和带货达人",
-      "expected_batches": [["q_catalog"], ["q_trend", "q_creators"]],
-      "expected_tool_kinds": ["product_search", "product_trend", "product_creators"]
+      "checks": [
+        {
+          "query": {
+            "region": "US",
+            "query_id": "q_catalog",
+            "tool_kind": "product_search",
+            "keyword": "旅行保温杯"
+          },
+          "ids": [
+            "us-cup"
+          ]
+        },
+        {
+          "query": {
+            "region": "US",
+            "query_id": "q_trend",
+            "tool_kind": "product_trend",
+            "depends_on": [
+              "q_catalog"
+            ],
+            "product_id_from_query": "q_catalog"
+          },
+          "ids": [
+            "2026-10-01",
+            "2026-10-02"
+          ]
+        },
+        {
+          "query": {
+            "region": "US",
+            "query_id": "q_creators",
+            "tool_kind": "product_creators",
+            "depends_on": [
+              "q_catalog"
+            ],
+            "product_id_from_query": "q_catalog"
+          },
+          "ids": [
+            "us-cup-host"
+          ]
+        }
+      ],
+      "expected_batches": [
+        [
+          "q_catalog"
+        ],
+        [
+          "q_trend",
+          "q_creators"
+        ]
+      ]
     },
     {
       "id": "id-camping-trend-creators-script",
       "request": "查印尼便携露营灯销量趋势与带货达人，并用印尼语写一份带货口播脚本，预算25美元",
-      "expected_batches": [["q_catalog"], ["q_trend", "q_creators"]],
+      "checks": [
+        {
+          "query": {
+            "region": "ID",
+            "query_id": "q_catalog",
+            "tool_kind": "product_search",
+            "keyword": "露营灯"
+          },
+          "ids": [
+            "id-lamp"
+          ]
+        },
+        {
+          "query": {
+            "region": "ID",
+            "query_id": "q_trend",
+            "tool_kind": "product_trend",
+            "depends_on": [
+              "q_catalog"
+            ],
+            "product_id_from_query": "q_catalog"
+          },
+          "ids": [
+            "2026-10-01",
+            "2026-10-02"
+          ]
+        },
+        {
+          "query": {
+            "region": "ID",
+            "query_id": "q_creators",
+            "tool_kind": "product_creators",
+            "depends_on": [
+              "q_catalog"
+            ],
+            "product_id_from_query": "q_catalog"
+          },
+          "ids": [
+            "id-lamp-host"
+          ]
+        }
+      ],
+      "expected_batches": [
+        [
+          "q_catalog"
+        ],
+        [
+          "q_trend",
+          "q_creators"
+        ]
+      ],
       "expected_target_language": "id-ID"
     },
     {
       "id": "six-market-catalog-fanout",
       "request": "对比美国、加拿大、英国、印尼、泰国、越南六个市场的便携风扇",
-      "expected_batches": [["query-1", "query-2", "query-3", "query-4", "query-5", "query-6"]],
-      "expected_regions": ["US", "CA", "GB", "ID", "TH", "VN"]
+      "checks": [
+        {
+          "query": {
+            "region": "US",
+            "query_id": "query-1",
+            "tool_kind": "product_search",
+            "keyword": "便携风扇"
+          },
+          "ids": [
+            "us-fan"
+          ]
+        },
+        {
+          "query": {
+            "region": "CA",
+            "query_id": "query-2",
+            "tool_kind": "product_search",
+            "keyword": "便携风扇"
+          },
+          "ids": [
+            "ca-fan"
+          ]
+        },
+        {
+          "query": {
+            "region": "GB",
+            "query_id": "query-3",
+            "tool_kind": "product_search",
+            "keyword": "便携风扇"
+          },
+          "ids": [
+            "gb-fan"
+          ]
+        },
+        {
+          "query": {
+            "region": "ID",
+            "query_id": "query-4",
+            "tool_kind": "product_search",
+            "keyword": "便携风扇"
+          },
+          "ids": [
+            "id-fan"
+          ]
+        },
+        {
+          "query": {
+            "region": "TH",
+            "query_id": "query-5",
+            "tool_kind": "product_search",
+            "keyword": "便携风扇"
+          },
+          "ids": [
+            "th-fan"
+          ]
+        },
+        {
+          "query": {
+            "region": "VN",
+            "query_id": "query-6",
+            "tool_kind": "product_search",
+            "keyword": "便携风扇"
+          },
+          "ids": [
+            "vn-fan"
+          ]
+        }
+      ],
+      "expected_batches": [
+        [
+          "query-1",
+          "query-2",
+          "query-3",
+          "query-4",
+          "query-5",
+          "query-6"
+        ]
+      ]
     },
     {
       "id": "th-fan-trend-only",
       "request": "查泰国便携风扇近30天销量走势",
-      "expected_batches": [["q_catalog"], ["q_trend"]],
-      "expected_tool_kinds": ["product_search", "product_trend"]
+      "checks": [
+        {
+          "query": {
+            "region": "TH",
+            "query_id": "q_catalog",
+            "tool_kind": "product_search",
+            "keyword": "便携风扇"
+          },
+          "ids": [
+            "th-fan"
+          ]
+        },
+        {
+          "query": {
+            "region": "TH",
+            "query_id": "q_trend",
+            "tool_kind": "product_trend",
+            "depends_on": [
+              "q_catalog"
+            ],
+            "product_id_from_query": "q_catalog"
+          },
+          "ids": [
+            "2026-10-01",
+            "2026-10-02"
+          ]
+        }
+      ],
+      "expected_batches": [
+        [
+          "q_catalog"
+        ],
+        [
+          "q_trend"
+        ]
+      ]
     },
     {
       "id": "vn-tumbler-creators-only",
       "request": "查越南钛制保温杯的带货达人推荐",
-      "expected_batches": [["q_catalog"], ["q_creators"]],
-      "expected_tool_kinds": ["product_search", "product_creators"]
+      "checks": [
+        {
+          "query": {
+            "region": "VN",
+            "query_id": "q_catalog",
+            "tool_kind": "product_search",
+            "keyword": "钛制保温杯"
+          },
+          "ids": [
+            "vn-cup"
+          ]
+        },
+        {
+          "query": {
+            "region": "VN",
+            "query_id": "q_creators",
+            "tool_kind": "product_creators",
+            "depends_on": [
+              "q_catalog"
+            ],
+            "product_id_from_query": "q_catalog"
+          },
+          "ids": [
+            "vn-cup-host"
+          ]
+        }
+      ],
+      "expected_batches": [
+        [
+          "q_catalog"
+        ],
+        [
+          "q_creators"
+        ]
+      ]
     },
     {
       "id": "compound-catalog-and-rag-script",
       "request": "查美国露营灯并查达人建联话术规范写英文脚本，预算20",
-      "expected_has_knowledge_query": true,
-      "expected_target_language": "en-US"
+      "checks": [
+        {
+          "query": {
+            "region": "US",
+            "query_id": "q_catalog",
+            "tool_kind": "product_search",
+            "keyword": "露营灯"
+          },
+          "ids": [
+            "us-lamp"
+          ]
+        }
+      ],
+      "expected_batches": [
+        [
+          "q_catalog"
+        ]
+      ],
+      "expected_target_language": "en-US",
+      "expected_knowledge": true
     },
     {
       "id": "multi-market-category-chain-with-trend",
       "request": "先查美国目录露营灯，再用第一件商品的类目并联查询印尼与泰国露营灯，同时拉取美国露营灯近30天走势",
-      "expected_batches": [["q_us"], ["q_id_cat", "q_th_cat", "q_us_trend"]]
+      "checks": [
+        {
+          "query": {
+            "region": "US",
+            "query_id": "q_us",
+            "tool_kind": "product_search",
+            "keyword": "露营灯"
+          },
+          "ids": [
+            "us-lamp"
+          ]
+        },
+        {
+          "query": {
+            "region": "ID",
+            "query_id": "q_id_cat",
+            "tool_kind": "product_search",
+            "keyword": "露营灯",
+            "depends_on": [
+              "q_us"
+            ],
+            "category_from_query": "q_us"
+          },
+          "ids": [
+            "id-lamp"
+          ]
+        },
+        {
+          "query": {
+            "region": "TH",
+            "query_id": "q_th_cat",
+            "tool_kind": "product_search",
+            "keyword": "露营灯",
+            "depends_on": [
+              "q_us"
+            ],
+            "category_from_query": "q_us"
+          },
+          "ids": [
+            "th-lamp"
+          ]
+        },
+        {
+          "query": {
+            "region": "US",
+            "query_id": "q_us_trend",
+            "tool_kind": "product_trend",
+            "depends_on": [
+              "q_us"
+            ],
+            "product_id_from_query": "q_us"
+          },
+          "ids": [
+            "2026-10-01",
+            "2026-10-02"
+          ]
+        }
+      ],
+      "expected_batches": [
+        [
+          "q_us"
+        ],
+        [
+          "q_id_cat",
+          "q_th_cat",
+          "q_us_trend"
+        ]
+      ]
     },
     {
       "id": "six-node-deep-dag",
       "request": "并发查美国和印尼目录露营灯，再用第一轮结果并联查询趋势和达人列表",
-      "expected_batches": [["q_us", "q_id"], ["q_us_trend", "q_us_creators", "q_id_trend", "q_id_creators"]]
+      "checks": [
+        {
+          "query": {
+            "region": "US",
+            "query_id": "q_us",
+            "tool_kind": "product_search",
+            "keyword": "露营灯"
+          },
+          "ids": [
+            "us-lamp"
+          ]
+        },
+        {
+          "query": {
+            "region": "ID",
+            "query_id": "q_id",
+            "tool_kind": "product_search",
+            "keyword": "露营灯"
+          },
+          "ids": [
+            "id-lamp"
+          ]
+        },
+        {
+          "query": {
+            "region": "US",
+            "query_id": "q_us_trend",
+            "tool_kind": "product_trend",
+            "depends_on": [
+              "q_us"
+            ],
+            "product_id_from_query": "q_us"
+          },
+          "ids": [
+            "2026-10-01",
+            "2026-10-02"
+          ]
+        },
+        {
+          "query": {
+            "region": "US",
+            "query_id": "q_us_creators",
+            "tool_kind": "product_creators",
+            "depends_on": [
+              "q_us"
+            ],
+            "product_id_from_query": "q_us"
+          },
+          "ids": [
+            "us-lamp-host"
+          ]
+        },
+        {
+          "query": {
+            "region": "ID",
+            "query_id": "q_id_trend",
+            "tool_kind": "product_trend",
+            "depends_on": [
+              "q_id"
+            ],
+            "product_id_from_query": "q_id"
+          },
+          "ids": [
+            "2026-10-01",
+            "2026-10-02"
+          ]
+        },
+        {
+          "query": {
+            "region": "ID",
+            "query_id": "q_id_creators",
+            "tool_kind": "product_creators",
+            "depends_on": [
+              "q_id"
+            ],
+            "product_id_from_query": "q_id"
+          },
+          "ids": [
+            "id-lamp-host"
+          ]
+        }
+      ],
+      "expected_batches": [
+        [
+          "q_us",
+          "q_id"
+        ],
+        [
+          "q_us_trend",
+          "q_us_creators",
+          "q_id_trend",
+          "q_id_creators"
+        ]
+      ]
     }
   ]
 }

@@ -1,0 +1,51 @@
+{
+  "dialogues": [
+    {
+      "id": "language-update-hold-withdraw",
+      "turns": [
+        {
+          "user": "口播用印尼语。",
+          "assistant": "已记录本轮要求。",
+          "check": {
+            "target_language": "id-ID"
+          }
+        },
+        {
+          "user": "预算改到 25。",
+          "assistant": "已记录本轮要求。",
+          "check": {
+            "target_language": "id-ID"
+          }
+        },
+        {
+          "user": "改做泰语版本。",
+          "assistant": "已记录本轮要求。",
+          "check": {
+            "target_language": "th-TH"
+          }
+        },
+        {
+          "user": "只换保温杯，其他要求不动。",
+          "assistant": "已记录本轮要求。",
+          "check": {
+            "target_language": "th-TH"
+          }
+        },
+        {
+          "user": "取消刚才指定的语种。",
+          "assistant": "已记录本轮要求。",
+          "check": {
+            "target_language": null
+          }
+        },
+        {
+          "user": "预算换成 30。",
+          "assistant": "已记录本轮要求。",
+          "check": {
+            "target_language": null
+          }
+        }
+      ]
+    }
+  ]
+}

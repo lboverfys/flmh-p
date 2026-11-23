@@ -49,6 +49,7 @@ class ModelGatewayClient:
         instruction = (
             f"根据授权表结构为 BI 问题生成单条 {dialect_label} 只读 SELECT。仅返回 JSON 对象 {{sql, reason}}。"
             f"必须使用具体列名、带 LIMIT、结果不超过 {self.settings.sql_max_rows} 行。market_radar_metrics 默认过滤 score_version='{self.settings.sql_default_score_version}'，product_daily_stat 使用 score_version='{self.settings.sql_daily_score_version}'。"
+            "product_metric_snapshot 使用 is_current 读取当前值并返回其 score_version；采集原始快照为 source-v1，更新指标保留写入方版本。"
         )
         payload = {"question": question, "schema": schema_context, "previousSql": previous_sql, "error": error}
         response = await self.complete(

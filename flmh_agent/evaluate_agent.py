@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from flmh_agent.adapters.outbound.model_gateway import ModelGatewayClient, ModelGatewayPlanner
 from flmh_agent.application.workflow import _layered_search
 from flmh_agent.config import Settings
-from flmh_agent.domain.models import ProductQuery
+from flmh_agent.domain.models import ProductQuery, AgentPlan
 from flmh_agent.domain.slots import update_slots
 
 
@@ -29,7 +29,8 @@ MAX_TOKENS = 2048
 TOOL_LIMIT = 4  # AgentPlan 的查询上限，两种策略共用。
 HISTORY_SIZE = 12
 HISTORY_CHARS = 2400
-ARMS = {"planning": ("planner", "react"), "memory": ("slots", "history12")}
+ARMS = {"planning": ("planner", "react"), "planning_dag_extended": ("planner", "react"),
+        "memory": ("slots", "history12"), "memory_language": ("slots", "history12")}
 TOOL_PROTOCOL = (
     "可用只读查询为 product_search 和 product_ranking。均用商品查询 JSON 表示。"
     "目录查询用 region 及可选 keyword、category、max_price。关键词按标题子串匹配，类目按原值匹配。"
@@ -71,6 +72,8 @@ class Product(Record):
     region: Region
     category: Text
     price: Amount
+    points: list[dict] = Field(default_factory=list)
+    creators: list[dict] = Field(default_factory=list)
 
 
 class Target(Record):
@@ -82,7 +85,10 @@ class Target(Record):
 class Task(Record):
     id: Text
     request: Text
-    checks: list[Target] = Field(min_length=1, max_length=TOOL_LIMIT)
+    checks: list[Target] = Field(min_length=1, max_length=6)
+    expected_batches: list[list[Text]] | None = None
+    expected_target_language: Text | None = None
+    expected_knowledge: bool = False
 
 
 class PlanningSet(Record):
@@ -91,6 +97,7 @@ class PlanningSet(Record):
 
 
 class Slots(Record):
+    target_language: Text | None = None
     product: Text | None = None
     region: Region | None = None
     product_max_price: Amount | None = None
@@ -118,7 +125,9 @@ class MemorySet(Record):
 
 
 class FinalAnswer(Record):
-    answer: dict[Region, list[Text]]
+    answer: dict[Text, list[Text]]
+    target_language: Text | None = None
+    knowledge_query: Text | None = None
 
 
 class EvalError(ValueError):
@@ -194,12 +203,22 @@ class MeasuredGateway(ModelGatewayClient):
 
 
 def tool_request(query: ProductQuery) -> tuple[str, dict]:
-    if query.ranking_limit is not None:
+    if query.tool_kind == "product_trend":
+        return query.tool_kind, {"product_id": query.product_id, "days": query.trend_days or 30}
+    if query.tool_kind == "product_creators":
+        return query.tool_kind, {"product_id": query.product_id, "limit": query.creator_limit or 20}
+    if query.tool_kind == "product_ranking":
         return "product_ranking", {"region": query.region, "limit": query.ranking_limit}
-    return "product_search", query.model_dump(exclude_none=True, exclude={"query_id", "depends_on", "category_from_query"})
+    return "product_search", query.model_dump(exclude_none=True, include={"region", "keyword", "category", "max_price"})
 
 
 def lookup(catalog: Sequence[Product], tool: str, args: dict) -> dict:
+    if tool in {"product_trend", "product_creators"}:
+        product = next((p for p in catalog if p.id == args["product_id"]), None)
+        if product is None:
+            raise EvalError("unknown product binding")
+        field, limit = ("points", args["days"]) if tool == "product_trend" else ("creators", args["limit"])
+        return {"productId": product.id, field: getattr(product, field)[:limit]}
     matches = [p for p in catalog if p.region == args["region"]]
     if tool == "product_ranking":
         matches = matches[:args["limit"]]
@@ -207,7 +226,13 @@ def lookup(catalog: Sequence[Product], tool: str, args: dict) -> dict:
         matches = [p for p in matches if args.get("keyword", "").casefold() in p.title.casefold()
                    and ("category" not in args or p.category == args["category"])
                    and ("max_price" not in args or p.price <= args["max_price"])][:20]
-    return {"source": "LOCAL_EVALUATION_FIXTURE", "products": [p.model_dump() for p in matches]}
+    return {"source": "LOCAL_EVALUATION_FIXTURE", "products": [p.model_dump(exclude={"points", "creators"}) for p in matches]}
+
+
+class EvaluationCatalog(list):
+    def __init__(self):
+        super().__init__()
+        self.by_task = {}
 
 
 class FixtureTools:
@@ -215,12 +240,24 @@ class FixtureTools:
         self.catalog = catalog
         self.batches: list[list[dict]] = []
         self.active = 0
+        self.track_nodes = False
 
     async def search_products(self, query: Mapping[str, Any]) -> dict:
         tool, args = tool_request(ProductQuery.model_validate(query))
+        return await self._observe(tool, args)
+
+    async def get_product_trend(self, product_id: str, *, days: int):
+        return await self._observe("product_trend", {"product_id": product_id, "days": days})
+
+    async def get_product_creators(self, product_id: str, *, limit: int):
+        return await self._observe("product_creators", {"product_id": product_id, "limit": limit})
+
+    async def _observe(self, tool: str, args: dict):
         if not self.active:
             self.batches.append([])
         event = {"tool": tool, "arguments": args}
+        if self.track_nodes:
+            event["query_id"] = asyncio.current_task().get_name()
         self.batches[-1].append(event)
         self.active += 1
         try:
@@ -239,6 +276,64 @@ class FixtureTools:
 
     def observations(self) -> list[dict]:
         return [event for batch in self.batches for event in batch]
+
+
+def resolved_request(query: ProductQuery, results: dict) -> tuple[str, dict]:
+    tool, args = tool_request(query)
+    if query.category_from_query:
+        args["category"] = results[query.category_from_query]["products"][0]["category"]
+    if query.product_id_from_query:
+        args["product_id"] = results[query.product_id_from_query]["products"][0]["id"]
+    return tool, args
+
+
+def evidence_ids(result: dict):
+    if "points" in result:
+        return [p["date"] for p in result["points"]]
+    if "creators" in result:
+        return [p["creatorId"] for p in result["creators"]]
+    return [p["id"] for p in result["products"]]
+
+
+def expected_nodes(task: Task, catalog):
+    targets = {t.query.query_id: t for t in task.checks}
+    order = [key for batch in task.expected_batches for key in batch]
+    if len(targets) != len(task.checks) or set(order) != set(targets) or len(order) != len(targets):
+        raise ValueError("expected batches must contain each query id exactly once")
+    seen, requests = {}, {}
+    for batch in task.expected_batches:
+        next_results = {}
+        for key in batch:
+            query = targets[key].query
+            if not set(query.depends_on) <= seen.keys():
+                raise ValueError("each dependency must precede its consumer")
+            requests[key] = resolved_request(query, seen)
+            result = lookup(catalog, *requests[key])
+            if evidence_ids(result) != targets[key].ids:
+                raise ValueError(f"{task.id}/{key}: expected evidence differs from fixture")
+            next_results[key] = result
+        seen.update(next_results)
+    return requests
+
+
+def score_nodes(task, answer, tools, queries):
+    expected = expected_nodes(task, tools.catalog)
+    ids = {t.query.query_id: t.ids for t in task.checks}
+    evidence, order = {}, {}
+    for index, batch in enumerate(tools.batches):
+        for event in batch:
+            key = event.get("query_id")
+            if key in evidence or key not in expected:
+                return {"correct": False, "answer": answer, "query_evidence": evidence}
+            evidence[key] = expected[key] == (event["tool"], event["arguments"]) and evidence_ids(event["result"]) == ids[key]
+            order[key] = index
+    edges = all(order.get(dep, 99) < order.get(t.query.query_id, -1) for t in task.checks for dep in t.query.depends_on)
+    if queries is not None:
+        graph = {q.query_id: (q.tool_kind, set(q.depends_on), q.product_id_from_query, q.category_from_query) for q in queries}
+        edges &= all(graph.get(q.query_id) == (q.tool_kind, set(q.depends_on), q.product_id_from_query, q.category_from_query) for q in (t.query for t in task.checks))
+        edges &= [{e["query_id"] for e in batch} for batch in tools.batches] == [set(b) for b in task.expected_batches]
+    return {"correct": answer == ids and set(evidence) == set(ids) and all(evidence.values()) and edges,
+            "expected": ids, "answer": answer, "query_evidence": evidence, "dependencies_correct": edges}
 
 
 def plan_bindings(queries: list[ProductQuery], results: list[dict]) -> list[tuple]:
@@ -284,28 +379,46 @@ def score_task(task: Task, answer: dict, tools: FixtureTools, bindings: list[tup
 
 async def run_planning(task: Task, arm: str, gateway: MeasuredGateway, tools: FixtureTools) -> dict:
     bindings = None
+    extended = task.expected_batches is not None
+    tools.track_nodes = extended
+    limit = 6 if extended else TOOL_LIMIT
+    protocol = TOOL_PROTOCOL
+    answer_format = ANSWER_FORMAT
+    if extended:
+        nodes = [target.query.query_id for target in task.checks]
+        protocol += (" 可用 product_trend 与 product_creators，均按 product_id 或依赖 product_id_from_query 查询。"
+                     f"本题按节点 ID 作答，可使用这些标识 {compact(nodes)}。返回商品 ID、日期或 creatorId 列表。")
+        answer_format = '最终答案为 {"answer":{"节点名":["观测值"]}}。需要语种或知识检索时附 target_language 或 knowledge_query。'
     if arm == "planner":
         gateway.phase = "plan"
-        plan = await ModelGatewayPlanner(gateway).plan(task.request + "\n\n" + TOOL_PROTOCOL, {})
-        if not plan.queries or plan.create_content or plan.knowledge_query or plan.analysis_question:
-            raise EvalError("任务仅支持商品目录和榜单查询")
+        plan = await ModelGatewayPlanner(gateway).plan(task.request + "\n\n" + protocol, {})
+        if not plan.queries or len(plan.queries) > limit or plan.analysis_question or (not extended and (plan.create_content or plan.knowledge_query)):
+            raise EvalError("计划必须满足本题集的商品查询路径和节点数限制")
         results = await tools.execute(plan.queries)
-        bindings = plan_bindings(plan.queries, results)
-        raw = await gateway.ask("final", TOOL_PROTOCOL + ANSWER_FORMAT,
+        bindings = [] if extended else plan_bindings(plan.queries, results)
+        raw = await gateway.ask("final", protocol + answer_format,
                                 {"request": task.request, "observations": tools.observations()})
     else:
-        for step in range(TOOL_LIMIT + 1):
-            raw = await gateway.ask("react_decision", REACT_PROMPT,
+        prompt = (protocol + ' 每次仅返回一个 JSON 对象，单步用 {"query":{...}}，带 query_id 并使用实际商品编号。' + answer_format) if extended else REACT_PROMPT
+        for step in range(limit + 1):
+            raw = await gateway.ask("react_decision", prompt,
                                     {"request": task.request, "observations": tools.observations()})
             if set(raw) != {"query"}:
                 break
-            if step == TOOL_LIMIT:
+            if step == limit:
                 raise EvalError("ReAct 超过工具调用上限")
             query = ProductQuery.model_validate(raw["query"])
-            if query.query_id or query.depends_on or query.category_from_query:
+            if (query.query_id and not extended) or query.depends_on or query.category_from_query or query.product_id_from_query:
                 raise EvalError("ReAct 单步查询须提交已解析的工具参数")
             await tools.execute([query])
-    return score_task(task, FinalAnswer.model_validate(raw).answer, tools, bindings)
+    final = FinalAnswer.model_validate(raw)
+    if extended:
+        scored = score_nodes(task, final.answer, tools, plan.queries if arm == "planner" else None)
+        language = plan.target_language if arm == "planner" else final.target_language
+        knowledge = plan.knowledge_query if arm == "planner" else final.knowledge_query
+        scored["correct"] &= (not task.expected_target_language or language == task.expected_target_language) and (not task.expected_knowledge or bool(knowledge))
+        return scored
+    return score_task(task, final.answer, tools, bindings)
 
 
 def history_window(history: list[str], unit: str, char_limit: int) -> tuple[str, dict]:
@@ -350,7 +463,8 @@ async def run_memory(dialogue: Dialogue, arm: str, gateway: MeasuredGateway, uni
             transcript, row["window"] = history_window(history, unit, char_limit)
             context = {"history": transcript}
         try:
-            raw = await gateway.ask(f"turn_{index}", MEMORY_PROMPT, {"context": context, "user": turn.user})
+            prompt = MEMORY_PROMPT if not any(t.check and "target_language" in t.check.model_fields_set for t in dialogue.turns) else MEMORY_PROMPT.replace("四个", "五个") + " target_language 使用 BCP47 语种，撤销写 null。"
+            raw = await gateway.ask(f"turn_{index}", prompt, {"context": context, "user": turn.user})
             answer = MemoryAnswer.model_validate(raw)
             changes = answer.updates.model_dump(exclude_unset=True)
             if arm == "slots":
@@ -407,16 +521,18 @@ def metrics(calls: list[dict], batches: list[list[dict]]) -> dict:
 
 async def measure(case: Task | Dialogue, arm: str, gateway: MeasuredGateway, catalog: list[Product],
                   unit: str, char_limit: int) -> dict:
-    tools = FixtureTools(catalog)
+    tools = FixtureTools(catalog.by_task.get(case.id, catalog) if isinstance(catalog, EvaluationCatalog) else catalog)
     if isinstance(case, Task):
         suite = "planning"
         try:
             outcome = await run_planning(case, arm, gateway, tools)
         except ValueError as exc:
             outcome = {"error": error_text(exc), "correct": None}
+        outcome["early_stop"] = len(tools.observations()) < len(case.checks) or outcome.get("error") == "ReAct 超过工具调用上限"
     else:
         suite = "memory"
         outcome = await run_memory(case, arm, gateway, unit, char_limit)
+        outcome["early_stop"] = any(turn["status"] == "skipped_after_error" for turn in outcome["turns"])
     return {"kind": "case", "suite": suite, "case_id": case.id, "arm": arm,
             "status": "failed" if "error" in outcome else "completed", **outcome,
             "metrics": metrics(gateway.calls, tools.batches), "model_trace": gateway.calls,
@@ -435,7 +551,7 @@ def summarize(suite: str, runs: list[dict]) -> dict:
     for run in runs:
         pairs.setdefault(run["case_id"], {})[run["arm"]] = run
     paired = [key for key, pair in pairs.items() if all(
-        pair[arm]["status"] == "completed" and (suite == "memory" or pair[arm]["correct"]) for arm in arms)]
+        pair[arm]["status"] == "completed" and (not suite.startswith("planning") or pair[arm]["correct"]) for arm in arms)]
     with_usage = [key for key in paired if all(pairs[key][arm]["metrics"]["usage_status"] == "complete" for arm in arms)]
     by_arm = {}
     for arm in arms:
@@ -445,10 +561,14 @@ def summarize(suite: str, runs: list[dict]) -> dict:
         token_sums = {field: sum(pairs[k][arm]["metrics"][field] for k in with_usage) if with_usage else None
                       for field in ("input_tokens", "output_tokens", "total_tokens")}
         result = {"failed_ids": [r["case_id"] for r in records if r["status"] == "failed"],
+                  "early_stop_ids": [r["case_id"] for r in records if r.get("early_stop")],
                   "incomplete_usage_ids": [r["case_id"] for r in records if r["metrics"]["usage_status"] != "complete"],
                   "all_attempted_model_calls": sum(r["metrics"]["model_calls"] for r in records),
                   "paired_means": averages, "paired_token_sums": token_sums}
-        if suite == "planning":
+        result["all_means"] = {field: sum(r["metrics"][field] for r in records) / len(records) for field in averages}
+        result["attempted"] = len(records)
+        result["completed"] = sum(r["status"] == "completed" for r in records)
+        if suite.startswith("planning"):
             result["wrong_answer_ids"] = [r["case_id"] for r in records if r["correct"] is False]
         else:
             result["all_constraints"] = sum_retention(records)
@@ -464,25 +584,32 @@ def summarize(suite: str, runs: list[dict]) -> dict:
 def load_cases(directory: Path, suite: str, selected: set[str]) -> tuple[dict, list[Product], dict]:
     cases = {}
     hashes = {}
-    catalog = []
+    catalog = EvaluationCatalog()
     available: set[str] = set()
     for group in (ARMS if suite == "all" else (suite,)):
         data = (directory / f"{group}.json").read_bytes()
         hashes[group] = hashlib.sha256(data).hexdigest()
-        if group == "planning":
+        if group.startswith("planning"):
             dataset = PlanningSet.model_validate_json(data)
             items = dataset.tasks
-            catalog = dataset.catalog
-            if len({product.id for product in catalog}) != len(catalog):
+            if not catalog:
+                catalog.extend(dataset.catalog)
+            catalog.by_task.update({task.id: dataset.catalog for task in items})
+            if len({product.id for product in dataset.catalog}) != len(dataset.catalog):
                 raise ValueError("商品样本 ID 重复")
             for task in items:
+                if group == "planning_dag_extended":
+                    if not task.expected_batches:
+                        raise ValueError("extended tasks require explicit batches")
+                    expected_nodes(task, dataset.catalog)
+                    continue
                 regions = {t.query.region for t in task.checks}
                 if len(regions) != len(task.checks):
                     raise ValueError(f"{task.id} 同一市场只能有一个评分目标")
                 for target in task.checks:
                     if target.after_region and (target.after_region not in regions or target.after_region == target.query.region):
                         raise ValueError(f"{task.id} 的依赖市场无效")
-                    result = lookup(catalog, *tool_request(target.query))
+                    result = lookup(dataset.catalog, *tool_request(target.query))
                     if [p["id"] for p in result["products"]] != target.ids:
                         raise ValueError(f"{task.id} 的标签与固定工具数据不符")
         else:
@@ -523,7 +650,7 @@ async def evaluate(args: argparse.Namespace) -> int:
             emit({"kind": "metadata", "format_version": 1, "started_utc": datetime.now(timezone.utc).isoformat(),
                   "endpoint": ENDPOINT, "expected_source": "OPENAI_COMPATIBLE", "provider": args.provider,
                   "model": args.model, "purpose": PURPOSE, "temperature": 0.0, "max_tokens": MAX_TOKENS,
-                  "response_format": "json_object", "tool_source": "LOCAL_EVALUATION_FIXTURE", "tool_limit": TOOL_LIMIT,
+                  "response_format": "json_object", "tool_source": "LOCAL_EVALUATION_FIXTURE", "tool_limit": TOOL_LIMIT, "extended_tool_limit": 6,
                   "history_size": HISTORY_SIZE, "history_unit": args.history_unit, "history_chars": args.history_chars,
                   "dataset_sha256": hashes, "cases": {s: [c.id for c in items] for s, items in cases.items()}})
             summaries = {}
@@ -535,10 +662,11 @@ async def evaluate(args: argparse.Namespace) -> int:
                     for arm in arms:
                         gateway = MeasuredGateway(settings, client, args.provider, args.model)
                         record = await measure(case, arm, gateway, catalog, args.history_unit, args.history_chars)
+                        record.update(suite=suite, request=case.request if isinstance(case, Task) else [turn.user for turn in case.turns])
                         emit(record)
                         incomplete |= record["status"] == "failed" or record["metrics"]["usage_status"] != "complete"
                         # 落盘后，汇总只保存计数和评分，不随样本数累积原始模型上下文。
-                        records.append({k: record[k] for k in ("case_id", "arm", "status", "metrics", "correct", "constraints") if k in record})
+                        records.append({k: record[k] for k in ("case_id", "arm", "status", "metrics", "correct", "constraints", "early_stop") if k in record})
                 summaries[suite] = summarize(suite, records)
             emit({"kind": "summary", "suites": summaries})
     print(f"结果已写入 {args.output.resolve()}")

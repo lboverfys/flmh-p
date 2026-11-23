@@ -195,11 +195,17 @@ def build_workflow(
         query = state["plan"]["knowledge_query"]
         slots = state.get("slot_values", {})
         version = (settings.rag_corpus_version if settings else "") or getattr(knowledge_query, "corpus_version", "")
+        read_version = getattr(knowledge_query, "active_corpus_version", None) if not version else None
+        if read_version:
+            version = await read_version()
         key = _fingerprint({"query": query, "corpus_version": version,
                             "deps": {k: slots.get(k) for k in ("product", "region", "target_language")}})
         if version and key == state.get("knowledge_cache_key") and state.get("knowledge_result"):
             return {}
-        return {"knowledge_result": dict(await knowledge_query.retrieve(query)), "knowledge_cache_key": key}
+        result = dict(await knowledge_query.retrieve(query))
+        if read_version and await read_version() != version:
+            key = ""
+        return {"knowledge_result": result, "knowledge_cache_key": key}
 
     async def search_products(state: AgentState) -> dict[str, Any]:
         queries = state["plan"]["queries"]
@@ -714,7 +720,8 @@ async def _layered_search(queries: list[dict[str, Any]], tools: ProductContentPo
                 return name, dict(previous[key]), key, True
             return name, dict(await tools.search_products(arguments)), key, False
 
-        outcomes = await asyncio.gather(*(execute(name) for name in ready), return_exceptions=True)
+        tasks = [asyncio.create_task(execute(name), name=name) for name in ready]
+        outcomes = await asyncio.gather(*tasks, return_exceptions=True)
         for name, outcome in zip(ready, outcomes):
             if isinstance(outcome, BaseException):
                 if isinstance(outcome, asyncio.CancelledError):

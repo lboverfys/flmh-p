@@ -112,6 +112,9 @@ class HybridKnowledgeService:
         self.candidate_multiplier = candidate_multiplier
         self.rank_constant = rank_constant
 
+    async def active_corpus_version(self) -> str:
+        return await self.store.active_corpus_version()
+
     async def retrieve(self, question: str) -> dict:
         chunks = await hybrid_retrieve(
             question,
