@@ -156,6 +156,11 @@ class LocalCorpusFallbackKnowledgeService:
         self._avg_dl: float = 1.0
         self._loaded = False
 
+    @property
+    def corpus_version(self) -> str:
+        self._ensure_loaded()
+        return self._children[0].version if self._children else ""
+
     def _resolve_corpus_path(self) -> Path | None:
         if self._corpus_path is not None:
             return self._corpus_path if self._corpus_path.is_file() else None

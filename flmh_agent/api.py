@@ -256,6 +256,7 @@ def create_app(settings: Settings | None = None, *, identity_verifier: IdentityV
                 max_rows=config.sql_max_rows,
                 allow_score_version_comparison=allow_cmp,
                 default_score_version=config.sql_default_score_version,
+                daily_score_version=config.sql_daily_score_version,
             )
         except SqlValidationError as error:
             return JSONResponse({"valid": False, "error": str(error), "dialect": config.sql_dialect, "allowedTables": allowed}, status_code=422)

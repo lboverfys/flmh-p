@@ -91,6 +91,7 @@ async def open_runtime(settings: Settings, session_state=None) -> AsyncIterator[
             timeout_ms=settings.sql_timeout_ms,
             max_retries=settings.sql_max_retries,
             default_score_version=settings.sql_default_score_version,
+            daily_score_version=settings.sql_daily_score_version,
         ) if runner is not None else None
         rag = {
             "embedder": BgeM3HttpAdapter(settings),

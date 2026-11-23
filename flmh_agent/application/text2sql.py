@@ -76,6 +76,7 @@ class TextToSqlService:
         timeout_ms: int = 5000,
         max_retries: int = 3,
         default_score_version: str = DEFAULT_SCORE_VERSION,
+        daily_score_version: str = "radar-v2-exact-date",
     ) -> None:
         self.permissions = permissions
         self.model = model
@@ -84,6 +85,7 @@ class TextToSqlService:
         self.max_rows = min(max_rows, MAX_SQL_ROWS)
         self.timeout_ms = timeout_ms
         self.max_retries = max(1, min(int(max_retries), 5))
+        self.daily_score_version = daily_score_version
         self.default_score_version = default_score_version or DEFAULT_SCORE_VERSION
 
     async def query(self, question: str, principal: str) -> dict[str, Any]:
@@ -110,6 +112,7 @@ class TextToSqlService:
                     max_rows=self.max_rows,
                     allow_score_version_comparison=allow_score_comparison,
                     default_score_version=self.default_score_version,
+                    daily_score_version=self.daily_score_version,
                 )
                 rows = await self.runner.fetch(validated, max_rows=self.max_rows, timeout_ms=self.timeout_ms)
                 return {
@@ -137,6 +140,7 @@ def validate_readonly_sql(
     max_rows: int = MAX_SQL_ROWS,
     allow_score_version_comparison: bool = False,
     default_score_version: str = DEFAULT_SCORE_VERSION,
+    daily_score_version: str = "radar-v2-exact-date",
 ) -> str:
     if not query.strip():
         raise SqlValidationError("SQL query is required")
@@ -175,8 +179,10 @@ def validate_readonly_sql(
     unauthorized = tables - permitted
     if unauthorized:
         raise SqlValidationError(f"SQL references unauthorized tables: {', '.join(sorted(unauthorized))}")
-    if "market_radar_metrics" in tables and not allow_score_version_comparison and not _has_default_score_filter(tree, default_score_version=default_score_version):
-        raise SqlValidationError(f"market_radar_metrics queries must filter score_version = '{default_score_version}'")
+    if not allow_score_version_comparison:
+        for table, version in (("market_radar_metrics", default_score_version), ("product_daily_stat", daily_score_version)):
+            if table in tables and not _has_default_score_filter(tree, table_name=table, default_score_version=version):
+                raise SqlValidationError(f"{table} queries must filter score_version = '{version}'")
     tree = _enforce_limit(tree, min(max_rows, MAX_SQL_ROWS))
     tree = _normalize_postgres_round(tree, dialect)
     return tree.sql(dialect=dialect)
@@ -187,11 +193,11 @@ def _is_unauthorized_wildcard(star: exp.Star) -> bool:
     return not isinstance(parent, exp.Count)
 
 
-def _has_default_score_filter(tree: exp.Expression, *, default_score_version: str = DEFAULT_SCORE_VERSION) -> bool:
+def _has_default_score_filter(tree: exp.Expression, *, table_name: str, default_score_version: str = DEFAULT_SCORE_VERSION) -> bool:
     scoped_queries: list[tuple[exp.Select, list[exp.Table]]] = []
     for query in tree.find_all(exp.Select):
         local_tables = [table for table in query.find_all(exp.Table) if table.find_ancestor(exp.Select) is query]
-        metrics_tables = [table for table in local_tables if table.name.casefold() == "market_radar_metrics"]
+        metrics_tables = [table for table in local_tables if table.name.casefold() == table_name]
         if metrics_tables:
             scoped_queries.append((query, metrics_tables))
     if not scoped_queries:

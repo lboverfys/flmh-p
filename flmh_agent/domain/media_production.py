@@ -58,6 +58,7 @@ def without_media_fields(text: str) -> str:
 
 
 class MediaProductionRequest(BaseModel):
+    target_language: str | None = Field(default=None, pattern=r"^[a-z]{2}(?:-[A-Z]{2})?$")
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     product_id: str = Field(min_length=1, max_length=96)

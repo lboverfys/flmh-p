@@ -135,7 +135,8 @@ def build_workflow(
             "required_slots": [],
             "query_failures": {},
             "reused_queries": [],
-            "knowledge_result": {},
+            "knowledge_result": state.get("knowledge_result", {}) if plan.knowledge_query else {},
+            "knowledge_cache_key": state.get("knowledge_cache_key", "") if plan.knowledge_query else "",
             "configuration_todos": [],
             "conclusion_dependencies": {name: snapshot for name, snapshot in state.get("conclusion_dependencies", {}).items()
                                         if name not in invalidated},
@@ -191,7 +192,14 @@ def build_workflow(
             return {"error": "知识库适配尚未配置；未生成检索结果。", "configuration_todos": [
                 "BGE_M3_URL", "BGE_M3_MODEL", "BGE_M3_DIMENSION", "BGE_RERANKER_URL", "BGE_RERANKER_MODEL", "ELASTICSEARCH_URL", "ELASTICSEARCH_INDEX"
             ]}
-        return {"knowledge_result": dict(await knowledge_query.retrieve(state["plan"]["knowledge_query"]))}
+        query = state["plan"]["knowledge_query"]
+        slots = state.get("slot_values", {})
+        version = (settings.rag_corpus_version if settings else "") or getattr(knowledge_query, "corpus_version", "")
+        key = _fingerprint({"query": query, "corpus_version": version,
+                            "deps": {k: slots.get(k) for k in ("product", "region", "target_language")}})
+        if version and key == state.get("knowledge_cache_key") and state.get("knowledge_result"):
+            return {}
+        return {"knowledge_result": dict(await knowledge_query.retrieve(query)), "knowledge_cache_key": key}
 
     async def search_products(state: AgentState) -> dict[str, Any]:
         queries = state["plan"]["queries"]
@@ -280,7 +288,8 @@ def build_workflow(
             if any(len(specification[name]) > 2000 for name in ("image_prompt", "video_prompt")):
                 return {"error": "媒体提示词（含商品信息与检索资料）超过2000字符；请缩短请求或减少检索资料后修订，尚未创建报价或任务。",
                         "budget_ok": False}
-            media_request = MediaProductionRequest.model_validate(specification).model_dump(mode="json")
+            specification["target_language"] = state.get("slot_values", {}).get("target_language")
+            media_request = MediaProductionRequest.model_validate(specification).model_dump(mode="json", exclude_none=True)
             origin = state.get("media_origin_run")
             if origin:
                 media_request["origin_run_id"] = origin["runId"]
@@ -693,7 +702,7 @@ async def _layered_search(queries: list[dict[str, Any]], tools: ProductContentPo
                     raise ValueError("CATEGORY_BINDING_CATEGORY_INVALID")
                 arguments["category"] = category
             try:
-                arguments = ProductQuery.model_validate(arguments).model_dump(exclude=catalog_meta_keys)
+                arguments = ProductQuery.model_validate({**arguments, "tool_kind": tool_kind}).model_dump(exclude=catalog_meta_keys - {"tool_kind"})
                 if arguments.get("ranking_limit") is None:
                     arguments.pop("ranking_limit", None)
             except ValidationError as error:

@@ -48,7 +48,7 @@ class ModelGatewayClient:
         dialect_label = "MySQL 8" if self.settings.sql_dialect == "mysql" else "PostgreSQL"
         instruction = (
             f"根据授权表结构为 BI 问题生成单条 {dialect_label} 只读 SELECT。仅返回 JSON 对象 {{sql, reason}}。"
-            f"必须使用具体列名、带 LIMIT、结果不超过 {self.settings.sql_max_rows} 行。市场雷达指标默认过滤 score_version='{self.settings.sql_default_score_version}'。"
+            f"必须使用具体列名、带 LIMIT、结果不超过 {self.settings.sql_max_rows} 行。market_radar_metrics 默认过滤 score_version='{self.settings.sql_default_score_version}'，product_daily_stat 使用 score_version='{self.settings.sql_daily_score_version}'。"
         )
         payload = {"question": question, "schema": schema_context, "previousSql": previous_sql, "error": error}
         response = await self.complete(

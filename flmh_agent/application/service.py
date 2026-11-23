@@ -416,6 +416,12 @@ class AgentApplication:
                 raise ValueError("aspect_ratio must be one of 1:1, 3:4, 4:3, 9:16, 16:9")
             duration = req.get("duration_seconds")
             if duration is None:
+                duration = slots.get("duration_seconds")
+            if duration is None:
+                duration = (plan.get("media_options") or {}).get("duration_seconds")
+            if duration is None:
+                duration = plan.get("duration_seconds")
+            if duration is None:
                 duration = 6
             if not isinstance(duration, int) or not 2 <= duration <= 15:
                 raise ValueError("duration_seconds must be between 2 and 15")

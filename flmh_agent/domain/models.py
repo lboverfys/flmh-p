@@ -50,6 +50,10 @@ class ProductQuery(BaseModel):
     category_from_query: str | None = Field(default=None, pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
 
     def model_post_init(self, __context: Any) -> None:
+        if self.tool_kind is None:
+            object.__setattr__(self, "tool_kind", "product_ranking" if self.ranking_limit is not None else "product_search")
+        if (self.tool_kind == "product_ranking") != (self.ranking_limit is not None):
+            raise ValueError("ranking_limit is required exclusively for product_ranking")
         if self.ranking_limit is not None and any(
             x is not None for x in (self.keyword, self.category, self.max_price, self.category_from_query, self.product_id, self.product_id_from_query)
         ):
@@ -260,6 +264,7 @@ class AgentState(TypedDict, total=False):
     conclusion_dependencies: dict[str, dict[str, int]]
     reused_queries: list[str]
     query_failures: dict[str, str]
+    knowledge_cache_key: str
     knowledge_result: dict[str, Any]
     configuration_todos: list[str]
     content_input_snapshot: str

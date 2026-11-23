@@ -49,7 +49,7 @@ class QueryBindingTests(IdentityTestCase):
                 result["products"].append({"category": "electronics"})
                 return result
             self.assertEqual(len(calls), 2)
-            self.assertEqual(query, {"region": "ID", "keyword": "gift", "category": "camping", "max_price": 20})
+            self.assertEqual(query, {"tool_kind": "product_search", "region": "ID", "keyword": "gift", "category": "camping", "max_price": 20})
             return fixture_products(query)
 
         graph = build_workflow(planner=SimpleNamespace(plan=AsyncMock(return_value=binding_plan())),
@@ -184,13 +184,13 @@ class QueryBindingTests(IdentityTestCase):
         first = await application.start("bound-slots", {"user_request": "跨地区同类选品",
             "slot_updates": {"product": "blue", "region": "GB", "budget_max": 60}})
         self.assertEqual(first["failedQueries"], {})
-        self.assertEqual(calls[1], {"region": "GB", "keyword": "blue", "category": "blue-category", "max_price": 60})
+        self.assertEqual(calls[1], {"tool_kind": "product_search", "region": "GB", "keyword": "blue", "category": "blue-category", "max_price": 60})
         changed = await application.revise("bound-slots", {
             "expected_revision": 0, "slot_updates": {"product": "red", "region": "TH", "budget_max": 40}})
         self.assertEqual(changed["failedQueries"], {})
         self.assertEqual(changed["reusedQueries"], [])
         self.assertEqual(changed["plan"]["queries"][1]["category_from_query"], "origin")
-        self.assertEqual(calls[3], {"region": "TH", "keyword": "red", "category": "red-category", "max_price": 40})
+        self.assertEqual(calls[3], {"tool_kind": "product_search", "region": "TH", "keyword": "red", "category": "red-category", "max_price": 40})
         self.assertEqual(len(calls), 4)
 
         budget = await application.revise("bound-slots", {"expected_revision": 1, "slot_updates": {"budget_max": 35}})
@@ -218,7 +218,7 @@ class QueryBindingTests(IdentityTestCase):
         self.assertNotEqual(changed["slot_snapshot"], budget["slot_snapshot"])
         self.assertEqual(changed["reused_queries"], ["origin", "ranking"])
         self.assertEqual(search.await_count, 4)
-        self.assertEqual(search.await_args.args[0], {"region": "ID", "category": "camping", "keyword": "gift", "max_price": 7})
+        self.assertEqual(search.await_args.args[0], {"tool_kind": "product_search", "region": "ID", "category": "camping", "keyword": "gift", "max_price": 7})
         global_cap = await graph.ainvoke({"slot_updates": {"product_max_price": 7}}, config)
         self.assertEqual([q["max_price"] for q in global_cap["plan"]["queries"]], [7, 7, None])
         self.assertEqual(global_cap["reused_queries"], ["ranking", "similar"])

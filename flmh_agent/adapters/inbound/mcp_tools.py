@@ -179,12 +179,14 @@ def create_mcp_server(settings: Settings | None = None, *, identity_verifier: Id
         duration_seconds: Annotated[int, Field(strict=True, ge=2, le=15)],
         budget_max: Annotated[float, Field(ge=0, allow_inf_nan=False)],
         origin_run_id: Annotated[str | None, Field(min_length=1, max_length=96)] = None,
+        target_language: Annotated[str | None, Field(pattern=r"^[a-z]{2}(?:-[A-Z]{2})?$")] = None,
     ) -> dict[str, Any]:
         """Quote an image-to-video production; no provider call or paid submission occurs before confirmation."""
         return await gateway.create_media_quote({
             "product_id": product_id, "image_prompt": image_prompt, "video_prompt": video_prompt,
             "aspect_ratio": aspect_ratio, "duration_seconds": duration_seconds,
             "budget_max": budget_max, "origin_run_id": origin_run_id,
+            **({"target_language": target_language} if target_language else {}),
         })
 
     @server.tool(name="media_production_submit")

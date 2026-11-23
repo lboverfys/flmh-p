@@ -35,12 +35,14 @@ SETTING_NAMES = {
     "rag_candidate_multiplier": "RAG_CANDIDATE_MULTIPLIER",
     "rag_rrf_k": "RAG_RRF_K",
     "rag_pit_keep_alive": "RAG_PIT_KEEP_ALIVE",
+    "rag_corpus_version": "RAG_CORPUS_VERSION",
     "rag_local_corpus_fallback": "RAG_LOCAL_CORPUS_FALLBACK",
     "sql_dialect": "SQL_DIALECT",
     "bi_sql_role_tables_json": "BI_SQL_ROLE_TABLES_JSON", "bi_database_uri": "BI_DATABASE_URI",
     "sql_max_rows": "SQL_MAX_ROWS",
     "sql_timeout_ms": "SQL_TIMEOUT_MS",
     "sql_max_retries": "SQL_MAX_RETRIES",
+    "sql_daily_score_version": "SQL_DAILY_SCORE_VERSION",
     "sql_default_score_version": "SQL_DEFAULT_SCORE_VERSION",
     "request_timeout_seconds": "REQUEST_TIMEOUT_SECONDS",
 }
@@ -96,6 +98,7 @@ class Settings(BaseModel):
     rag_candidate_multiplier: int = Field(default=4, ge=1, le=10)
     rag_rrf_k: int = Field(default=60, ge=1, le=500)
     rag_pit_keep_alive: str = "1m"
+    rag_corpus_version: str = ""
     rag_local_corpus_fallback: bool = False
     sql_dialect: Literal["postgres", "mysql"] = "postgres"
     bi_sql_role_tables_json: str = ""
@@ -103,6 +106,7 @@ class Settings(BaseModel):
     sql_max_rows: int = Field(default=50, ge=1, le=50)
     sql_timeout_ms: int = Field(default=5000, ge=250, le=60000)
     sql_max_retries: int = Field(default=3, ge=1, le=5)
+    sql_daily_score_version: str = "radar-v2-exact-date"
     sql_default_score_version: str = "v2"
     request_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
 

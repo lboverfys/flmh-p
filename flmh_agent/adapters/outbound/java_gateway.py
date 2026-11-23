@@ -108,6 +108,8 @@ class JavaGatewayClient:
         payload = {"productId": request["product_id"], "imagePrompt": request["image_prompt"],
                    "videoPrompt": request["video_prompt"], "aspectRatio": request["aspect_ratio"],
                    "durationSeconds": request["duration_seconds"], "budgetMax": request["budget_max"]}
+        if request.get("target_language"):
+            payload["targetLanguage"] = request["target_language"]
         if request.get("origin_run_id"):
             payload["originRunId"] = request["origin_run_id"]
         return await self._request("POST", "/api/v1/content/media-productions/quotes", json=payload)

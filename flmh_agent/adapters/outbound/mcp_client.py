@@ -9,6 +9,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
 from flmh_agent.config import Settings
+from flmh_agent.domain.models import ProductQuery
 from flmh_agent.domain.identity import UserIdentity, current_identity
 
 
@@ -59,9 +60,12 @@ class McpProductContentAdapter:
             self._session = None
 
     async def search_products(self, query: dict[str, Any]) -> dict[str, Any]:
-        if query.get("ranking_limit") is not None:
+        kind = ProductQuery.model_validate(query).tool_kind
+        if kind == "product_ranking":
             return await self._call("product_ranking", {"region": query["region"], "limit": query["ranking_limit"]})
-        return await self._call("product_search", {key: value for key, value in query.items() if key != "ranking_limit"})
+        if kind != "product_search":
+            raise ValueError(f"unexpected catalog tool: {kind}")
+        return await self._call("product_search", {key: value for key, value in query.items() if key in {"region", "keyword", "category", "max_price"}})
 
     async def get_creator_observations(self, product_id: str) -> dict[str, Any]:
         return await self._call("product_creator_observations", {"product_id": product_id})

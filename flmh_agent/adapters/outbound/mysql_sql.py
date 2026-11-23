@@ -67,7 +67,7 @@ class AsyncMysqlReadOnlyRunner:
                 self._driver = "pymysql"
                 self._pool = params
             except ImportError as error:
-                raise RuntimeError("install 'aiomysql' or 'pymysql' to execute MySQL BI SQL queries") from error
+                raise RuntimeError("install the MySQL extra in the project environment: python -m pip install '.[mysql]' (aiomysql)") from error
 
     async def close(self) -> None:
         async with self._pool_lock:
