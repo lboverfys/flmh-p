@@ -10,7 +10,7 @@
 - **跨工具分层并行 DAG（`planning.py` / `mcp_tools.py`）**：四类商品工具（目录、榜单、趋势、达人）按依赖分层并行。RAG 是独立的前置检索节点，只读 BI 走互斥路径。 `category_from_query` 与 `product_id_from_query` 绑定直接上游产物，对外输出 `executionBatches`。
 - **成稿转图生视频交接（`/v1/agent/runs/{runId}/handoff-media`）**：使用同一任务的成功回执及非空终稿。新媒体运行保留来源运行、任务与全文 SHA-256，默认提示取正文前 220 字，每条最多 600 字。
 - **Text2SQL 只读执行与安全校验（`text2sql.py` / `mysql_sql.py`）**：支持 `SQL_DIALECT` 切换 MySQL / PostgreSQL，默认对齐新 Java `product-service` 表结构；通过 `AsyncMysqlReadOnlyRunner` 下发只读事务、超时上限与行封顶，并开放 `/v1/bi/validate` SQL AST 安全校验端点。
-- **RAG 混合检索与 310 节 / 300 题跨境语料（`rag.py` / `operations-v3`）**：支持 BGE-M3 + ES 稠密/稀疏 + RRF + BGE-Reranker + 父块回填流水线，显式启用 `RAG_LOCAL_CORPUS_FALLBACK=true` 时可自动加载本地语料检索；新增 10 份 TikTok 跨境运营手册 [operations-v3](examples/rag-evaluation/README.md)（310 父块、662 子块、300 道 `pending` 候选题）。
+- **RAG 混合检索与拒答评测（`rag.py` / `operations-v3`）**：支持 BGE-M3 + ES 稠密/稀疏 + RRF + BGE-Reranker + 父块回填流水线，显式启用 `RAG_LOCAL_CORPUS_FALLBACK=true` 时可自动加载本地语料检索；新增 10 份 TikTok 跨境运营手册（310 父块、662 子块、300 道正向候选、24 道无依据拒答候选，均为 `pending`），含 16 道跨段多父块题。
 
 MySQL 使用项目环境安装 `.[mysql]`。采集的商品原始快照版本为 `source-v1`，其他指标快照保留写入方版本。日表使用 `SQL_DAILY_SCORE_VERSION=radar-v2-exact-date`，旧指标表使用 `SQL_DEFAULT_SCORE_VERSION=v2`。本机独立 MySQL 9.4.0 的只读账号实际执行前端示例与两种分表查询。
 
@@ -48,6 +48,33 @@ MySQL 使用项目环境安装 `.[mysql]`。采集的商品原始快照版本为
 | 5 槽位版本与失效矩阵 | [slots.py](flmh_agent/domain/slots.py) | 检查响应 `slotVersions`、`invalidated`、`reusedQueries` |
 | RAG / 语料 v3 / Text2SQL | [rag.py](flmh_agent/application/rag.py)、[rag_corpus.py](flmh_agent/rag_corpus.py)、[text2sql.py](flmh_agent/application/text2sql.py)、[mysql_sql.py](flmh_agent/adapters/outbound/mysql_sql.py) | [test_rag.py](tests/test_rag.py)、[test_rag_v3_corpus.py](tests/test_rag_v3_corpus.py)、[test_rag_benchmark.py](tests/test_rag_benchmark.py) |
 
+## 达人数据上游边界
+
+FastMoss `/api/goods/V2/search` 的商品搜索提供 `relate_author_count` 等聚合数据，不保证返回达人明细。可选 `creators` 字段随商品原始载荷透传；独立达人画像与商品关联由 Java 商品服务的 `POST /internal/v1/creators/imports` 导入，并通过 `/api/v1/products/{id}/creators` 与 `/api/v1/creators` 查询。部署时 Java 商品库须按 Flyway 顺序应用 V10/V11/V12，身份库须按 `membership-trade-v1.sql` → `membership-trade-v2.sql`；请求字段、密钥和数值范围见 [Java 手动验收规程](https://github.com/lboverfys/flmh-j/blob/main/docs/manual-evidence.md)。
+
+人工审核副本获批、正向题集完成冻结，且真实模型问答证据留存后，才能冻结拒答集并计分；候选原件继续保持 `pending`。以下流程需在 `flmh-p` 仓库运行。执行 `prepare` 后先人工审核副本，再运行冻结命令。`refusal-run.json` 必须来自真实系统对拒答题的问答和人工核验，记录 `source: "RECORDED_REFUSAL_EVALUATION"`、`unanswerable_dataset`、`unanswerable_refused`，以及原始证据文件 SHA-256、语料和判断集指纹与 UTC 时间；若同时报告正向误拒答，还须记录 `positive_dataset` 和 `positive_refused`。不得用候选题、脚本夹具、模拟或推测数据代替。
+
+```powershell
+Set-Location 'D:\Happy\芳\flmh-p'
+$py = 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe'
+$src = 'D:\Happy\芳\flmh-p'
+$v3 = 'examples/rag-evaluation/operations-v3'
+$env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\rag-review'; $env:TMP = $env:TEMP
+[System.IO.Directory]::CreateDirectory($env:TEMP) | Out-Null
+$work = "D:\rubbish\zhongjian\artifacts\flmh-rag\v3-review-$([guid]::NewGuid().ToString('N'))"
+[System.IO.Directory]::CreateDirectory($work) | Out-Null
+& $py -B -m flmh_agent.rag_benchmark prepare --source-root $src --manifest "$v3/sources.json" --candidates "$v3/candidates.json" --out-dir "$work/positive-review"
+# 人工完成正向题复核后再冻结；必须获批全部 300 题。
+& $py -B -m flmh_agent.rag_benchmark freeze --source-root $src --manifest "$v3/sources.json" --review "$work/positive-review/review.json" --min-approved 300 --out "$work/judgments-v3.json"
+Copy-Item "$v3/unanswerable-candidates.json" "$work/unanswerable-review.json"
+# 人工逐题审核拒答副本并填写 reviewer 后再冻结；不要修改仓库内 pending 候选原件。
+& $py -B -m flmh_agent.rag_benchmark freeze-unanswerable --source-root $src --manifest "$v3/sources.json" --review "$work/unanswerable-review.json" --out "$work/unanswerable-judgments.json"
+# 将真实问答及人工判定、原始证据 SHA-256 和 recording 元数据保存为 $work/refusal-run.json 后计分。
+& $py -B -m flmh_agent.evaluate --unanswerable-judgments "$work/unanswerable-judgments.json" --refusal-run "$work/refusal-run.json" --positive-judgments "$work/judgments-v3.json" --output "$work/refusal-report.json"
+```
+
+本轮 RAG 代码提交为 `ffd7a73`，Java 对接功能代码提交为 `ccf269b`（达人导入）与 `d8869eb`（独立前端产物构建）；文档同步提交和当前 HEAD 以 `git log -1 --format=%h` 为准。
+
 ## 本机自动化测试
 
 ```powershell
@@ -58,4 +85,4 @@ $env:TEMP = 'D:\rubbish\zhongjian\temp\flmh\verify-local'; $env:TMP = $env:TEMP
 & $py -B -m flmh_agent.evaluate --judgments examples/rag-evaluation/judgments.json --run examples/rag-evaluation/scripted-ranking.json
 ```
 
-最近一次全量离线单元回归结果为 **346 / 346 通过**（0 失败 / 0 错误 / 0 跳过）。[RAG 评测说明](examples/rag-evaluation/README.md) 与 [Agent 对照基准](examples/agent-evaluation/README.md) 提供了手工审核及接入真实模型/ES 后的实测方法；阶段二真实集群 benchmark 均留待接入环境后手动运行。
+2026-11-25 最近一次 Python 全量离线单测为 **349 / 349 通过**（0 失败 / 0 错误 / 0 跳过）；本轮四组总回归为 Java 658、Python 349、前端 Node 117、采集探针 6，共 **1,130 项通过**。本地拒答与跨段候选仍全部待人工审核；纯 BM25 改写前后 Hit@1 为 231/300 → 222/300、Hit@5 为 280/300 → 279/300，这不是在线模型成绩。
