@@ -11,7 +11,9 @@ from pydantic import Field, SerializerFunctionWrapHandler, model_serializer
 
 from flmh_agent.application.ingestion import CHILD_SIZE, CHILD_STRIDE, PARENT_SIZE, chunk_document
 from flmh_agent.domain.rag import Chunk
-from flmh_agent.evaluate import Case, Digest, Identifier, Judgments, Record
+from flmh_agent.evaluate import (
+    Case, Digest, Identifier, Judgments, Record, UnanswerableCase, UnanswerableJudgments,
+)
 
 LAYOUT = f"section-parent{PARENT_SIZE}-child{CHILD_SIZE}-step{CHILD_STRIDE}-v1"
 
@@ -67,6 +69,19 @@ class Candidate(Record):
     evidence: list[Evidence] = Field(max_length=32)
     equivalent_groups: list[list[Identifier]] = Field(default_factory=list, exclude_if=lambda groups: not groups)
 
+
+class UnanswerableCandidate(Record):
+    id: Identifier
+    question: Identifier
+    status: Literal["pending", "approved", "rejected"]
+    reason: Identifier
+
+
+class UnanswerableReview(Record):
+    dataset: Identifier
+    corpus_sha256: Digest
+    reviewer: str
+    cases: list[UnanswerableCandidate] = Field(min_length=1, max_length=100)
 
 class Review(Record):
     dataset: Identifier
@@ -179,6 +194,32 @@ def review_cases(corpus: Corpus, review: Review, *, freeze: bool, min_approved: 
                           equivalent_groups=case.equivalent_groups))
     return cases
 
+
+def review_unanswerable_cases(
+    corpus: Corpus,
+    review: UnanswerableReview,
+    *,
+    freeze: bool,
+) -> list[UnanswerableCase]:
+    if review.dataset != f"{corpus.dataset}-unanswerable" or review.corpus_sha256 != corpus.version:
+        raise ValueError("unanswerable review belongs to another dataset or source snapshot")
+    if (len({case.id for case in review.cases}) != len(review.cases)
+            or len({case.question.strip() for case in review.cases}) != len(review.cases)):
+        raise ValueError("duplicate unanswerable case id or question")
+    if any(not case.question.strip() or not case.reason.strip() for case in review.cases):
+        raise ValueError("each unanswerable question requires a reason")
+    if freeze and (not review.reviewer.strip() or any(case.status == "pending" for case in review.cases)):
+        raise ValueError("a named reviewer and a decision for every unanswerable question are required")
+    approved = [case for case in review.cases if case.status == "approved"]
+    if freeze and not approved:
+        raise ValueError("freeze requires at least one human-approved unanswerable question")
+    return [UnanswerableCase(id=case.id, question=case.question, reason=case.reason) for case in approved]
+
+
+def freeze_unanswerable_review(corpus: Corpus, review: UnanswerableReview) -> UnanswerableJudgments:
+    cases = review_unanswerable_cases(corpus, review, freeze=True)
+    return UnanswerableJudgments(dataset=review.dataset, corpus_sha256=review.corpus_sha256,
+                                 reviewer=review.reviewer.strip(), cases=cases)
 
 def freeze_review(corpus: Corpus, review: Review, *, min_approved: int | None = None) -> Judgments:
     minimum = (300 if corpus.dataset == "flmh-radar-ops-v3" else 1) if min_approved is None else min_approved

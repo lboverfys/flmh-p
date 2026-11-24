@@ -145,7 +145,7 @@
     },
     {
       "id": "01-sec-064",
-      "question": "申请美区品牌准入，用了另一家关联公司的名字会卡在哪一步？",
+      "question": "美区店铺主体和品牌授权链不是同一家企业，会卡在品牌准入哪道校验？",
       "status": "pending",
       "evidence": [
         {
@@ -229,7 +229,7 @@
     },
     {
       "id": "01-sec-098",
-      "question": "新品只是换了外壳线条，上架前要把外观专利往前查几年？",
+      "question": "壳子轮廓做了小改款，申报外观权利时历史要往前拉多远？",
       "status": "pending",
       "evidence": [
         {
@@ -257,7 +257,7 @@
     },
     {
       "id": "01-sec-108",
-      "question": "品牌给我的授权只写了店名和期限，交给小店审核还缺哪些项？",
+      "question": "授权文件只有店铺名和有效期，品牌方给的许可还漏了哪些关键信息？",
       "status": "pending",
       "evidence": [
         {
@@ -369,7 +369,7 @@
     },
     {
       "id": "01-sec-152",
-      "question": "大促前两天想重做主图和标题，什么时候改更不容易撞上重审？",
+      "question": "大促开门前两天还想临时换主图和标题，提前多少天改更稳？",
       "status": "pending",
       "evidence": [
         {
@@ -481,7 +481,7 @@
     },
     {
       "id": "02-sec-034",
-      "question": "泰语主播用错句尾敬语，又把佛像拿来开玩笑，哪几处得重录？",
+      "question": "泰国主播台词用了不合适的礼貌尾音，还把宗教符号当梗，需撤哪两种？",
       "status": "pending",
       "evidence": [
         {
@@ -537,7 +537,7 @@
     },
     {
       "id": "02-sec-056",
-      "question": "越南直播里观众不断划走，低价款隔多久换一次，停留目标是多少？",
+      "question": "越南场开播后观众划得快，低价款隔多久换一轮，停留目标要守多少？",
       "status": "pending",
       "evidence": [
         {
@@ -593,7 +593,7 @@
     },
     {
       "id": "02-sec-078",
-      "question": "马来西亚一单刚好 RM500，还要算 LVG 销售税吗？税率多少？",
+      "question": "马来西亚一单价 RM500，LVG 还会收吗？按几个点算？",
       "status": "pending",
       "evidence": [
         {
@@ -621,7 +621,7 @@
     },
     {
       "id": "02-sec-088",
-      "question": "在马来站直接卖美版两脚插头，退货风险有多大？",
+      "question": "马来站卖美国 Type A 双片平插头的小家电，售后麻烦大概会到什么量级？",
       "status": "pending",
       "evidence": [
         {
@@ -649,7 +649,7 @@
     },
     {
       "id": "02-sec-100",
-      "question": "同城买家问 Metro Manila 配送要几天，我该报哪个时效区间？",
+      "question": "发往 Metro Manila 的常规订单，给买家承诺几天送到比较稳妥？",
       "status": "pending",
       "evidence": [
         {
@@ -733,7 +733,7 @@
     },
     {
       "id": "02-sec-132",
-      "question": "印尼语配音的片子配上中文字幕，可以直接跑泰国吗？",
+      "question": "印尼版素材想拿去泰国投放，字幕之外还要把哪类本地化风险一起过一遍？",
       "status": "pending",
       "evidence": [
         {
@@ -742,6 +742,13 @@
           "quote": "禁止将印尼语配音视频直接套用中文硬字幕投放到泰国市场",
           "parent": "0c78ea05e0574220efeb9dc69b15fc0a-p23",
           "child": "0c78ea05e0574220efeb9dc69b15fc0a-p23-c0"
+        },
+        {
+          "document": "02-sea-market-localization",
+          "line": 35,
+          "quote": "严禁混用错性别敬词或对皇室、佛像元素做商业恶搞",
+          "parent": "0c78ea05e0574220efeb9dc69b15fc0a-p5",
+          "child": "0c78ea05e0574220efeb9dc69b15fc0a-p5-c0"
         }
       ]
     },
@@ -761,7 +768,7 @@
     },
     {
       "id": "02-sec-142",
-      "question": "当地骑手第一次派件失败，客服最晚何时用什么语言约第二次？",
+      "question": "当地骑手第一次派送失败后，客服多久内要用当地语言约下一次？",
       "status": "pending",
       "evidence": [
         {
@@ -803,7 +810,7 @@
     },
     {
       "id": "02-sec-157",
-      "question": "同一个老品已报名闪购，再叠全店折扣会在哪一步亏钱？",
+      "question": "老品同时报闪购又叠全店折扣，最容易在哪一步把成交做成亏损？",
       "status": "pending",
       "evidence": [
         {
@@ -943,7 +950,7 @@
     },
     {
       "id": "03-sec-051",
-      "question": "老达人这次申请免费样品，历史履约分到多少才适合自动放行？",
+      "question": "系统给合作老号开免审寄样前，历史合作表现要稳定到什么数？",
       "status": "pending",
       "evidence": [
         {
@@ -952,6 +959,13 @@
           "quote": "系统允许对历史履约分 >= 85% 的老达人开启自动审单秒批",
           "parent": "1829a5273ee3566609dc61617ef02d93-p8",
           "child": "1829a5273ee3566609dc61617ef02d93-p8-c1"
+        },
+        {
+          "document": "03-creator-outreach-playbook",
+          "line": 109,
+          "quote": "提供凭证后运营应在管理台手动豁免该达人的逾期扣分标签",
+          "parent": "1829a5273ee3566609dc61617ef02d93-p19",
+          "child": "1829a5273ee3566609dc61617ef02d93-p19-c0"
         }
       ]
     },
@@ -971,7 +985,7 @@
     },
     {
       "id": "03-sec-061",
-      "question": "对方拆箱就发现样品坏了，核实照片后换新的时限是多少？",
+      "question": "开箱留影已经拍到货品破损，商家几小时或几天内要寄出替换品？",
       "status": "pending",
       "evidence": [
         {
@@ -980,6 +994,13 @@
           "quote": "核实拆箱拍照后应在 24 小时内补发换新",
           "parent": "1829a5273ee3566609dc61617ef02d93-p10",
           "child": "1829a5273ee3566609dc61617ef02d93-p10-c1"
+        },
+        {
+          "document": "03-creator-outreach-playbook",
+          "line": 109,
+          "quote": "提供凭证后运营应在管理台手动豁免该达人的逾期扣分标签",
+          "parent": "1829a5273ee3566609dc61617ef02d93-p19",
+          "child": "1829a5273ee3566609dc61617ef02d93-p19-c0"
         }
       ]
     },
@@ -1027,7 +1048,7 @@
     },
     {
       "id": "03-sec-083",
-      "question": "用达人昨日 GMV 算净赚，之后多少天的取消和退款要扣回去？",
+      "question": "报表上的 GMV 不是到手钱，发片后的一阵子还要追扣哪类订单？",
       "status": "pending",
       "evidence": [
         {
@@ -1097,7 +1118,7 @@
     },
     {
       "id": "03-sec-108",
-      "question": "样品被物流耽搁导致达人晚交片，有凭证能把逾期标签撤掉吗？",
+      "question": "物流把样品卡住，不是达人拖稿，这种超期记录如何从后台消掉？",
       "status": "pending",
       "evidence": [
         {
@@ -1111,7 +1132,7 @@
     },
     {
       "id": "03-sec-113",
-      "question": "美国达人授权了视频，加泰文字幕就能宣传成本地达人实测吗？",
+      "question": "把非泰国拍的原片套上泰语包装，能不能叫成本地实测？",
       "status": "pending",
       "evidence": [
         {
@@ -1139,7 +1160,7 @@
     },
     {
       "id": "03-sec-123",
-      "question": "向本地自由职业博主支付固定稿费前，财务要先拿哪些凭证？",
+      "question": "给当地内容创作者按条结款前，财务先向对方收什么材料？",
       "status": "pending",
       "evidence": [
         {
@@ -1181,7 +1202,7 @@
     },
     {
       "id": "03-sec-138",
-      "question": "达人带来的单子总因同一问题退货，应该定期把哪些数据给谁？",
+      "question": "退货理由集中到同一个缺陷，达人表现的记录要反哺到哪两个团队？",
       "status": "pending",
       "evidence": [
         {
@@ -1209,7 +1230,7 @@
     },
     {
       "id": "03-sec-148",
-      "question": "重点达人的新片两小时还不到两百播放且没人点商品，要先查什么？",
+      "question": "合作大号的新片起步很差，前两小时没流量也没商品点击，先排哪个环节？",
       "status": "pending",
       "evidence": [
         {
@@ -1321,7 +1342,7 @@
     },
     {
       "id": "04-sec-034",
-      "question": "测评口播一直是一个中景，B-roll 和手持特写隔多久切一次？",
+      "question": "测评片一镜到底太久，剪辑节奏按多长间隔调整？",
       "status": "pending",
       "evidence": [
         {
@@ -1330,6 +1351,13 @@
           "quote": "每过 2 秒必须切换景别（如口播中景切到手持特写或场景使用 B-Roll）",
           "parent": "01f45a90f0b83a86c9497498d29cd4fd-p5",
           "child": "01f45a90f0b83a86c9497498d29cd4fd-p5-c0"
+        },
+        {
+          "document": "04-short-video-script-framework",
+          "line": 108,
+          "quote": "第 3 天立即按该高光模型延伸扩展出 5 条同结构细分场景变体",
+          "parent": "01f45a90f0b83a86c9497498d29cd4fd-p18",
+          "child": "01f45a90f0b83a86c9497498d29cd4fd-p18-c1"
         }
       ]
     },
@@ -1419,7 +1447,7 @@
     },
     {
       "id": "04-sec-073",
-      "question": "评论点赞都有但没人点车，片中该引导犹豫的观众做什么？",
+      "question": "互动有了但没人碰购物入口，下一版 CTA 应把犹豫的人带去做什么？",
       "status": "pending",
       "evidence": [
         {
@@ -1433,7 +1461,7 @@
     },
     {
       "id": "04-sec-078",
-      "question": "供应商给几家店同一条热门带货片，只镜像或剪掉两帧算原创吗？",
+      "question": "同供应链把爆款视频翻转一下、裁掉两帧再发，能算原创素材吗？",
       "status": "pending",
       "evidence": [
         {
@@ -1461,7 +1489,7 @@
     },
     {
       "id": "04-sec-088",
-      "question": "结尾放 WhatsApp 码或叫买家去 Shopee 搜同款，可以吗？",
+      "question": "短视频把买家引去外站下单算不算红线？站内还能怎么催单？",
       "status": "pending",
       "evidence": [
         {
@@ -1470,6 +1498,13 @@
           "quote": "也不能出现微信号码、外部 WhatsApp 二维码或提示买家去 Amazon/Shopee 搜索同款等导流文本",
           "parent": "01f45a90f0b83a86c9497498d29cd4fd-p15",
           "child": "01f45a90f0b83a86c9497498d29cd4fd-p15-c0"
+        },
+        {
+          "document": "04-short-video-script-framework",
+          "line": 76,
+          "quote": "主动引导犹豫期观众点开互动与下单",
+          "parent": "01f45a90f0b83a86c9497498d29cd4fd-p12",
+          "child": "01f45a90f0b83a86c9497498d29cd4fd-p12-c1"
         }
       ]
     },
@@ -1503,7 +1538,7 @@
     },
     {
       "id": "04-sec-105",
-      "question": "一条试拍片跑出了高光，第三天围绕同一结构该扩几条场景？",
+      "question": "首条素材跑通后，变体计划放到第几天启动，能衍生多少种？",
       "status": "pending",
       "evidence": [
         {
@@ -1573,7 +1608,7 @@
     },
     {
       "id": "04-sec-128",
-      "question": "五个色号只挂一个购物车链接，先出镜的颜色该怎么挑？",
+      "question": "多色商品共用一个购物车链接，先挂哪个款式才不容易让人买错？",
       "status": "pending",
       "evidence": [
         {
@@ -1643,7 +1678,7 @@
     },
     {
       "id": "04-sec-153",
-      "question": "日用工具想在节日前走礼物场景，25 刀以内的卖点怎么写？",
+      "question": "25 美元以内的日用小物想包装成节日礼物，标题利益点可以怎么讲？",
       "status": "pending",
       "evidence": [
         {
@@ -1685,7 +1720,7 @@
     },
     {
       "id": "05-sec-012",
-      "question": "直播台产品有硬阴影，主灯大概打多少度，还缺哪两盏灯？",
+      "question": "直播间像有两层黑影，布光时主光和旁边那两盏怎么摆？",
       "status": "pending",
       "evidence": [
         {
@@ -1694,12 +1729,19 @@
           "quote": "直播台采用标准“三点布光法”（45 度高显指柔和主光+防阴影补光灯+高光轮廓灯）",
           "parent": "43b9d07726fe536e11c7f2daf51293d5-p1",
           "child": "43b9d07726fe536e11c7f2daf51293d5-p1-c0"
+        },
+        {
+          "document": "05-livestream-operations-sop",
+          "line": 69,
+          "quote": "每次主播准备讲新商品，必须确保弹窗提前 3 秒到位",
+          "parent": "43b9d07726fe536e11c7f2daf51293d5-p11",
+          "child": "43b9d07726fe536e11c7f2daf51293d5-p11-c0"
         }
       ]
     },
     {
       "id": "05-sec-017",
-      "question": "新直播间开场十分钟想有自然流，开播前能做哪些预热？",
+      "question": "直播刚开场想接自然流，预热工作要安排在正式开播前还是之后？",
       "status": "pending",
       "evidence": [
         {
@@ -1708,6 +1750,13 @@
           "quote": "能够有效抓取自然流开播首波前 10 分钟冷启动种子用户",
           "parent": "43b9d07726fe536e11c7f2daf51293d5-p2",
           "child": "43b9d07726fe536e11c7f2daf51293d5-p2-c1"
+        },
+        {
+          "document": "05-livestream-operations-sop",
+          "line": 69,
+          "quote": "每次主播准备讲新商品，必须确保弹窗提前 3 秒到位",
+          "parent": "43b9d07726fe536e11c7f2daf51293d5-p11",
+          "child": "43b9d07726fe536e11c7f2daf51293d5-p11-c0"
         }
       ]
     },
@@ -1727,7 +1776,7 @@
     },
     {
       "id": "05-sec-029",
-      "question": "一个讲品循环中间五分钟该留给材质对比，还是不断重复价格？",
+      "question": "每轮讲解别全程报价格，几分钟应该留给实物细节和使用场景？",
       "status": "pending",
       "evidence": [
         {
@@ -1881,7 +1930,7 @@
     },
     {
       "id": "05-sec-090",
-      "question": "直播时孩子入镜又说了站外联系方式，哪些内容得马上停？",
+      "question": "直播误把未成年人或外部联系方式带进画面，现场要怎样立刻处置？",
       "status": "pending",
       "evidence": [
         {
@@ -2077,7 +2126,7 @@
     },
     {
       "id": "05-sec-158",
-      "question": "主播突然说出不能播的词，中控用什么静音和备用画面过渡？",
+      "question": "直播口误说了敏感词，中控有什么无声切换的应急办法？",
       "status": "pending",
       "evidence": [
         {
@@ -2105,7 +2154,7 @@
     },
     {
       "id": "06-sec-012",
-      "question": "露营灯实付毛利四成，GMV Max 设 ROI 2.0 能保本吗？",
+      "question": "GMV Max 投露营灯毛利四成，广告回报线过多少才打平？",
       "status": "pending",
       "evidence": [
         {
@@ -2114,12 +2163,19 @@
           "quote": "例如某露营灯实付毛利率 40%，则保本临界 ROI 为 `2.5`",
           "parent": "071fd826d1ccdf30c95a78177e6e194b-p1",
           "child": "071fd826d1ccdf30c95a78177e6e194b-p1-c0"
+        },
+        {
+          "document": "06-ad-creative-and-gmv-max",
+          "line": 77,
+          "quote": "2）排查设置的 Target ROI 是否远远高于近 7 天真实全站成交均值（例如实际全站最高仅 2.0 却强设 4.5）",
+          "parent": "071fd826d1ccdf30c95a78177e6e194b-p13",
+          "child": "071fd826d1ccdf30c95a78177e6e194b-p13-c0"
         }
       ]
     },
     {
       "id": "06-sec-017",
-      "question": "新 GMV Max 和旧 VSA 正跑同一 SKU，要停旧计划还是拆品组？",
+      "question": "GMV Max 接管同款后，旧 VSA 是关掉还是把流量拆到别的 SKU？",
       "status": "pending",
       "evidence": [
         {
@@ -2128,6 +2184,13 @@
           "quote": "原有跑同一品号的旧手动 VSA 计划应当关停或切分给不同 SKU 组",
           "parent": "071fd826d1ccdf30c95a78177e6e194b-p2",
           "child": "071fd826d1ccdf30c95a78177e6e194b-p2-c1"
+        },
+        {
+          "document": "06-ad-creative-and-gmv-max",
+          "line": 107,
+          "quote": "用当前挂着 LIVE 中标签的 3 条历史高赞实测短片挂进 LIVE Shopping Ads 往直播间导人",
+          "parent": "071fd826d1ccdf30c95a78177e6e194b-p19",
+          "child": "071fd826d1ccdf30c95a78177e6e194b-p19-c0"
         }
       ]
     },
@@ -2147,7 +2210,7 @@
     },
     {
       "id": "06-sec-027",
-      "question": "还有七条素材能正常分发，这个创意池算够用吗？",
+      "question": "手上还有七条素材能投，离安全储备线还差几条？",
       "status": "pending",
       "evidence": [
         {
@@ -2217,7 +2280,7 @@
     },
     {
       "id": "06-sec-056",
-      "question": "美区广告点击够了但转化率只有 2%，该不该按稳定正投产放量？",
+      "question": "美区广告点击有了，转化占点击 2%，通常到多少才适合稳定加预算？",
       "status": "pending",
       "evidence": [
         {
@@ -2273,7 +2336,7 @@
     },
     {
       "id": "06-sec-076",
-      "question": "店里过去七天最好 ROI 才 2，却把目标设成 4.5，花不动先查什么？",
+      "question": "实际回报最近只有 2，后台目标却要 4.5，广告不消耗该先改哪个数？",
       "status": "pending",
       "evidence": [
         {
@@ -2329,7 +2392,7 @@
     },
     {
       "id": "06-sec-096",
-      "question": "双十一预热第一天回报低就砍预算，会不会错过后面的成交？",
+      "question": "双十一预热刚起步当天账面不好看，要不要马上把预算砍下来？",
       "status": "pending",
       "evidence": [
         {
@@ -2357,7 +2420,7 @@
     },
     {
       "id": "06-sec-106",
-      "question": "开播了，怎样把以前三条高赞实测片用在 LIVE Shopping Ads？",
+      "question": "LIVE 开播后想借以前表现好的视频引流，历史片要怎么接入广告？",
       "status": "pending",
       "evidence": [
         {
@@ -2385,7 +2448,7 @@
     },
     {
       "id": "06-sec-116",
-      "question": "广告前三秒展示含吸管的套装，落地页默认了另一个颜色，先对齐什么？",
+      "question": "广告片里出现的颜色、赠品和场景，落地页至少要跟着对齐什么？",
       "status": "pending",
       "evidence": [
         {
@@ -2609,7 +2672,7 @@
     },
     {
       "id": "07-sec-044",
-      "question": "违规通知来快一个月了，还能提几次申诉，最晚什么时候交？",
+      "question": "平台判罚快满一个月，这种线上申诉还能走几轮，入口什么时候关？",
       "status": "pending",
       "evidence": [
         {
@@ -2618,6 +2681,13 @@
           "quote": "商家针对同一笔判罚拥有**两次**正式线上申诉提交权：第一次申诉通常自判罚通知下达日起 30 个自然日内提交",
           "parent": "2c2fdd15b20307f94bf4c5dd2ce6ad78-p7",
           "child": "2c2fdd15b20307f94bf4c5dd2ce6ad78-p7-c0"
+        },
+        {
+          "document": "07-account-health-and-appeal",
+          "line": 146,
+          "quote": "平台风控后台会同步生成有时限的证据收集任务（通常只有 7 天应诉期）",
+          "parent": "2c2fdd15b20307f94bf4c5dd2ce6ad78-p28",
+          "child": "2c2fdd15b20307f94bf4c5dd2ce6ad78-p28-c0"
         }
       ]
     },
@@ -2847,7 +2917,7 @@
     },
     {
       "id": "07-sec-127",
-      "question": "季度核地址时发现退货仓没人收，买家发出退件后平台会怎么退款？",
+      "question": "买家把退件寄出后，因仓点没人签收平台会按什么凭据退钱？",
       "status": "pending",
       "evidence": [
         {
@@ -2889,7 +2959,7 @@
     },
     {
       "id": "07-sec-140",
-      "question": "每月第一次内容自查要回看多少天的标题、卖点和字幕？",
+      "question": "月初做一轮内容回看，往前抽查多长时间上新的货品页面和短视频？",
       "status": "pending",
       "evidence": [
         {
@@ -2959,7 +3029,7 @@
     },
     {
       "id": "08-sec-015",
-      "question": "入仓条码贴在收缩膜皱褶上省地方，FBT 会接受吗？",
+      "question": "FBT 入仓时条码压在起皱的塑料膜上，扫码验收能过吗？",
       "status": "pending",
       "evidence": [
         {
@@ -3092,7 +3162,7 @@
     },
     {
       "id": "08-sec-062",
-      "question": "退包裹回到海外仓，几小时内要拆检，能按哪几个等级处置？",
+      "question": "退件回到仓后先限时拆包，再把货分几种状态处理？",
       "status": "pending",
       "evidence": [
         {
@@ -3101,6 +3171,13 @@
           "quote": "退回海外仓包裹由退件组 48 小时内拆箱查验按三大等级分类处理：",
           "parent": "da4b64526dd384426fa4938068176ff3-p11",
           "child": "da4b64526dd384426fa4938068176ff3-p11-c0"
+        },
+        {
+          "document": "08-logistics-fulfillment-fbt",
+          "line": 152,
+          "quote": "由运营比对近期无物流轨迹售后单号 5 天内认领归账",
+          "parent": "da4b64526dd384426fa4938068176ff3-p29",
+          "child": "da4b64526dd384426fa4938068176ff3-p29-c0"
         }
       ]
     },
@@ -3141,7 +3218,7 @@
     },
     {
       "id": "08-sec-078",
-      "question": "第三方仓的超大件附加费对不上，每个月哪天抽单核账？",
+      "question": "每月核对第三方仓的零碎附加账单，固定在哪天抽流水？",
       "status": "pending",
       "evidence": [
         {
@@ -3150,6 +3227,13 @@
           "quote": "每月 10 日对所有海外仓开具出来的分拣出入库明细表、超大件仓储附加费与耗材账单进行抽样订单流水交集校验",
           "parent": "da4b64526dd384426fa4938068176ff3-p14",
           "child": "da4b64526dd384426fa4938068176ff3-p14-c1"
+        },
+        {
+          "document": "08-logistics-fulfillment-fbt",
+          "line": 124,
+          "quote": "但对存放超过 90 天不动销库存的惩罚性超期堆存费高出普通合作三方中转海外仓 3 到 4 倍",
+          "parent": "da4b64526dd384426fa4938068176ff3-p23",
+          "child": "da4b64526dd384426fa4938068176ff3-p23-c0"
         }
       ]
     },
@@ -3225,7 +3309,7 @@
     },
     {
       "id": "08-sec-108",
-      "question": "跟海外仓签合同时，小比例自然盘亏和超额赔付该如何写清？",
+      "question": "仓库少货多少以内算自然损耗，越线以后赔付金额按什么口径定？",
       "status": "pending",
       "evidence": [
         {
@@ -3267,7 +3351,7 @@
     },
     {
       "id": "08-sec-123",
-      "question": "九十天不动的货还全放在 FBT，和三方中转仓的超期费用差多少？",
+      "question": "FBT 里压了三个月的库存，继续放着比放三方仓要多花几倍？",
       "status": "pending",
       "evidence": [
         {
@@ -3351,7 +3435,7 @@
     },
     {
       "id": "08-sec-151",
-      "question": "退回来的面单糊掉了，运营该拿哪类记录匹配，几天内认领？",
+      "question": "退货面单糊了无法认货号，运营多久内用什么售后记录把它对上？",
       "status": "pending",
       "evidence": [
         {
@@ -3449,7 +3533,7 @@
     },
     {
       "id": "09-sec-039",
-      "question": "卖了很多件但单价很低，用 GMV 那项能看出哪些差别？",
+      "question": "商品销量不少但单价低，雷达里的哪个金额字段能补足这个判断？",
       "status": "pending",
       "evidence": [
         {
@@ -3533,7 +3617,7 @@
     },
     {
       "id": "09-sec-071",
-      "question": "小店没预算跟成熟爆款抢达人，怎么把增长快的新款筛出来？",
+      "question": "预算有限不想追成熟爆款，榜单该按哪个机会分字段从高往低找新品？",
       "status": "pending",
       "evidence": [
         {
@@ -3925,7 +4009,7 @@
     },
     {
       "id": "10-sec-065",
-      "question": "视频提示容量等待和提交结果未知，哪种情况该先查状态再决定是否重试？",
+      "question": "视频任务显示提交悬而未决时，怎样确认上游到底收没收到，避免重复扣费？",
       "status": "pending",
       "evidence": [
         {
@@ -3934,6 +4018,13 @@
           "quote": "而若遇网络超期断开出现 `SUBMISSION_UNKNOWN` 时",
           "parent": "ff6d018e9e762f8357ca998234a3f813-p10",
           "child": "ff6d018e9e762f8357ca998234a3f813-p10-c2"
+        },
+        {
+          "document": "10-ai-image-video-production-spec",
+          "line": 139,
+          "quote": "上游已完成节点的输出对象键值原封不动予以保留并在下一版本号增量计费结算中体现“零重复消耗”",
+          "parent": "ff6d018e9e762f8357ca998234a3f813-p24",
+          "child": "ff6d018e9e762f8357ca998234a3f813-p24-c2"
         }
       ]
     },
@@ -4009,7 +4100,7 @@
     },
     {
       "id": "10-sec-096",
-      "question": "同一 SKU 做三张 AI 图，怎么固定颜色和结构才不会换成另一款？",
+      "question": "同一个 SKU 连做几张图，怎么守住产品细节不让生成结果变成另一件货？",
       "status": "pending",
       "evidence": [
         {
@@ -4065,7 +4156,7 @@
     },
     {
       "id": "10-sec-116",
-      "question": "保健品片子想说药到病除，哪些功效词必须在生成前就删掉？",
+      "question": "保健品稿里冒出治病暗示，生成按钮会被怎样拦住、界面又会标哪里？",
       "status": "pending",
       "evidence": [
         {
@@ -4074,6 +4165,13 @@
           "quote": "工作台应中止自动出图并在修订表单标红具体字段",
           "parent": "ff6d018e9e762f8357ca998234a3f813-p20",
           "child": "ff6d018e9e762f8357ca998234a3f813-p20-c2"
+        },
+        {
+          "document": "10-ai-image-video-production-spec",
+          "line": 122,
+          "quote": "否则将触发肖像权侵权及平台深度伪造封禁处罚",
+          "parent": "ff6d018e9e762f8357ca998234a3f813-p21",
+          "child": "ff6d018e9e762f8357ca998234a3f813-p21-c0"
         }
       ]
     },

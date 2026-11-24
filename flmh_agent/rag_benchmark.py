@@ -24,7 +24,9 @@ from flmh_agent.config import Settings
 from flmh_agent.domain.rag import Chunk
 from flmh_agent.evaluate import Judgments, Rankings, Record, Recording
 from flmh_agent.ports.rag import HybridEmbeddingPort, RerankerPort
-from flmh_agent.rag_corpus import Corpus, Review, freeze_review, load_corpus, read_small, review_cases
+from flmh_agent.rag_corpus import (
+    Corpus, Review, UnanswerableReview, freeze_review, freeze_unanswerable_review, load_corpus, read_small, review_cases,
+)
 
 EXAMPLE = Path("examples/rag-evaluation/operations-v1")
 
@@ -176,6 +178,9 @@ def main() -> None:
     freeze.add_argument("--min-approved", type=int, help="minimum approved questions (operations-v3 defaults to 300)")
     freeze.add_argument("--review", required=True, type=Path)
     freeze.add_argument("--out", required=True, type=Path)
+    freeze_unanswerable = sub.add_parser("freeze-unanswerable", parents=[local], help="freeze human-reviewed unsupported questions")
+    freeze_unanswerable.add_argument("--review", required=True, type=Path)
+    freeze_unanswerable.add_argument("--out", required=True, type=Path)
     online = argparse.ArgumentParser(parents=[local], add_help=False)
     online.add_argument("--index-prefix", required=True, help="dedicated rag-eval-... prefix, new for index")
     sub.add_parser("index", parents=[online], help="publish source documents via configured BGE and Elasticsearch")
@@ -196,6 +201,9 @@ def main() -> None:
         elif args.command == "freeze":
             review = Review.model_validate_json(read_small(args.review))
             write_model(args.out, freeze_review(corpus, review, min_approved=args.min_approved))
+        elif args.command == "freeze-unanswerable":
+            review = UnanswerableReview.model_validate_json(read_small(args.review))
+            write_model(args.out, freeze_unanswerable_review(corpus, review))
         else:
             asyncio.run(use_services(args, corpus))
     except (OSError, ValueError, RuntimeError, httpx.HTTPError) as error:

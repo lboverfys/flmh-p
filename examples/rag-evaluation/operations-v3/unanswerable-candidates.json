@@ -1,0 +1,151 @@
+{
+  "dataset": "flmh-radar-ops-v3-unanswerable",
+  "corpus_sha256": "d16efd8c33cef2b20eaac4adcdf7b572d134330a42c11d6db6e668a75d9f86b4",
+  "reviewer": "",
+  "cases": [
+    {
+      "id": "ua-001",
+      "question": "TikTok Shop 欧洲站各国 VAT 注册门槛与 OSS/IOSS 申报周期分别是什么？",
+      "status": "pending",
+      "reason": "十本手册没有覆盖欧盟 VAT 注册门槛或 OSS/IOSS 申报周期。"
+    },
+    {
+      "id": "ua-002",
+      "question": "英国 TikTok Shop 卖家何时必须注册 VAT，低于门槛能否自愿登记？",
+      "status": "pending",
+      "reason": "手册没有英国税务注册门槛或自愿登记规则。"
+    },
+    {
+      "id": "ua-003",
+      "question": "巴西站卖家怎样用 PIX 绑定本地银行收款，结算手续费是多少？",
+      "status": "pending",
+      "reason": "手册没有巴西市场 PIX 收款绑定与手续费依据。"
+    },
+    {
+      "id": "ua-004",
+      "question": "墨西哥卖家需要提交哪种 SAT RFC 发票，平台税务校验接口是什么？",
+      "status": "pending",
+      "reason": "手册未说明墨西哥 SAT RFC 发票要求或对应平台接口。"
+    },
+    {
+      "id": "ua-005",
+      "question": "加拿大站商品销售要代扣 GST/HST 吗，各省税率怎样计算？",
+      "status": "pending",
+      "reason": "十本手册没有加拿大 GST/HST 代扣和各省税率规则。"
+    },
+    {
+      "id": "ua-006",
+      "question": "法国和德国店铺是否能共用一个 VAT 税号完成本地申报？",
+      "status": "pending",
+      "reason": "手册不包含欧洲各国 VAT 税号注册和申报规则。"
+    },
+    {
+      "id": "ua-007",
+      "question": "日本站跨境卖家消费税的起征点和申报截止日是什么？",
+      "status": "pending",
+      "reason": "手册没有日本消费税起征与申报期限的说明。"
+    },
+    {
+      "id": "ua-008",
+      "question": "TikTok Shop 韩国站卖家开店要提交哪一种本地营业执照？",
+      "status": "pending",
+      "reason": "手册覆盖的市场不含韩国站开店资质要求。"
+    },
+    {
+      "id": "ua-009",
+      "question": "阿根廷卖家提现到本地银行每月最多几次、单笔限额多少？",
+      "status": "pending",
+      "reason": "手册没有阿根廷本地银行提现频次或金额限额依据。"
+    },
+    {
+      "id": "ua-010",
+      "question": "智利店铺绑定 BancoEstado 后，平台提现到账通常要几天？",
+      "status": "pending",
+      "reason": "手册没有智利银行绑定或平台提现时效信息。"
+    },
+    {
+      "id": "ua-011",
+      "question": "哥伦比亚站的本地收款账户是否必须使用 COP 账户？",
+      "status": "pending",
+      "reason": "手册未提供哥伦比亚站点结算币种或账户要求。"
+    },
+    {
+      "id": "ua-012",
+      "question": "TikTok Shop 欧洲站当前完整开放国家名单有哪些？",
+      "status": "pending",
+      "reason": "十本运营手册没有可作为当前站点开放名单的完整清单。"
+    },
+    {
+      "id": "ua-013",
+      "question": "GMV Max API 创建广告组的正式 URL、签名算法和必填参数是什么？",
+      "status": "pending",
+      "reason": "手册介绍投放策略，但没有 GMV Max API 接口地址、签名协议或参数表。"
+    },
+    {
+      "id": "ua-014",
+      "question": "TikTok Shop 欧洲商品目录接口每分钟允许调用多少次？",
+      "status": "pending",
+      "reason": "手册没有欧洲商品目录 API 的限流额度或接口规范。"
+    },
+    {
+      "id": "ua-015",
+      "question": "平台对短视频 AI 生成内容政策在 2026 年 11 月新增了哪些条款？",
+      "status": "pending",
+      "reason": "手册不是对该日期平台新规的权威更新记录，无法推出新增条款。"
+    },
+    {
+      "id": "ua-016",
+      "question": "TikTok Shop 巴西站当前要求哪些商品类目做 ANVISA 备案？",
+      "status": "pending",
+      "reason": "手册未覆盖巴西 ANVISA 监管或类目备案清单。"
+    },
+    {
+      "id": "ua-017",
+      "question": "美国以外的欧洲卖家被 chargeback 后，平台抗辩接口的字段名是什么？",
+      "status": "pending",
+      "reason": "手册只有运营层面的申诉时限，不含欧洲抗辩 API 字段。"
+    },
+    {
+      "id": "ua-018",
+      "question": "跨境订单用 Wise 换汇时平台加收的实时汇率点差是多少？",
+      "status": "pending",
+      "reason": "手册没有 Wise 汇兑点差或平台实时换汇费用数据。"
+    },
+    {
+      "id": "ua-019",
+      "question": "马来西亚本地银行假期会让 TikTok Shop 结算顺延几天？",
+      "status": "pending",
+      "reason": "手册没有马来西亚银行假期对应的结算顺延规则。"
+    },
+    {
+      "id": "ua-020",
+      "question": "西班牙消费者购买后依法拥有几天无理由退货期？",
+      "status": "pending",
+      "reason": "手册没有西班牙消费者法定冷静期的法律说明。"
+    },
+    {
+      "id": "ua-021",
+      "question": "欧盟 GPSR 新规下店铺负责人必须公开哪种 EU Responsible Person 地址？",
+      "status": "pending",
+      "reason": "手册未提供 GPSR 法规义务或责任人地址格式。"
+    },
+    {
+      "id": "ua-022",
+      "question": "法国站跨境包裹的 IOSS 号码应放在电子报关单哪个字段？",
+      "status": "pending",
+      "reason": "手册没有法国 IOSS 号码或电子报关字段要求。"
+    },
+    {
+      "id": "ua-023",
+      "question": "菲律宾卖家绑定 GCash 后，单日提现上限和平台手续费分别多少？",
+      "status": "pending",
+      "reason": "手册未覆盖 GCash 绑定、提现限额和手续费。"
+    },
+    {
+      "id": "ua-024",
+      "question": "印尼本地银行账户的店铺实名必须和 NIB 营业主体完全一致吗？",
+      "status": "pending",
+      "reason": "手册谈及印尼市场运营本地化，但没有此银行实名校验规则。"
+    }
+  ]
+}

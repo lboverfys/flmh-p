@@ -4,15 +4,60 @@
 
 `operations-v3/` 是面向跨境 TikTok 全链路运营扩展的待审语料：10 份本地专题运营手册（`examples/rag-evaluation/operations-v3/corpus/*.md`），基于 `child_size=200`、`child_stride=130` 原生切分为 **310 个父块、662 个子块**，并配套生成 **300 道 `pending` 待复核候选题**（每份手册 30 题，顶层 `reviewer` 留空，全部附带经 `rag_corpus` 校验的原文行号、唯一引文及父子块 ID）。与 v1/v2 一样，300 道 `pending` 候选题用于人工复核与后续独立实验，不作为未复核的基准成绩或实测排名。
 
-v3 候选题采用卖家问法。按章节标题去编号逐题检查，标题命中为 0。两道跨段题各绑定两个必需父块。正式冻结默认要求至少 300 道获批题及逐题裁决，当前获批数为 0。
+v3 候选题采用卖家口语化问法。按章节标题去编号逐题检查，标题命中为 0；当前有 **16 道**必须联合命中多个父块的跨段题。300 道正向候选和 24 道无依据拒答候选均保持 `pending`、顶层 `reviewer` 留空，尚未形成可用于正式评分的人工冻结集。正式冻结正向集默认要求 300 道获批并逐题裁决。
 
 可用 `rag_benchmark prepare` 验证或导出 `operations-v3` 复核包：
 
 ```powershell
-& $py -B -m flmh_agent.rag_benchmark prepare --source-root D:\Happy\芳\flmh-p --manifest examples/rag-evaluation/operations-v3/sources.json --candidates examples/rag-evaluation/operations-v3/candidates.json --out-dir "$work/review-v3"
+Set-Location 'D:\Happy\芳\flmh-p'
+$py = 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe'
+$src = 'D:\Happy\芳\flmh-p'
+$v3 = 'examples/rag-evaluation/operations-v3'
+$work = "D:\rubbish\zhongjian\artifacts\flmh-rag\v3-review-$([guid]::NewGuid().ToString('N'))"
+[System.IO.Directory]::CreateDirectory($work) | Out-Null
+& $py -B -m flmh_agent.rag_benchmark prepare --source-root $src --manifest "$v3/sources.json" --candidates "$v3/candidates.json" --out-dir "$work/review-v3"
 # 人工逐题完成复核后执行
-& $py -B -m flmh_agent.rag_benchmark freeze --source-root D:\Happy\芳\flmh-p --manifest examples/rag-evaluation/operations-v3/sources.json --review "$work/review-v3/review.json" --min-approved 300 --out "$work/judgments-v3.json"
+& $py -B -m flmh_agent.rag_benchmark freeze --source-root $src --manifest "$v3/sources.json" --review "$work/review-v3/review.json" --min-approved 300 --out "$work/judgments-v3.json"
 ```
+
+## v3 无依据拒答评测
+
+`operations-v3/unanswerable-candidates.json` 提供 24 道待人工确认的问题。题目指向十本手册没有覆盖的国家税务/收款细则、未收录的平台新规或未提供的 API 参数。每题的 `reason` 记录目前为何无法从这批手册找到依据；候选集不等于人工结论，冻结前必须由审核人逐题确认。文件保持 `status: "pending"`、顶层 `reviewer: ""`，本仓库不代审批准。
+
+先复制候选集到独立工作目录，再由人工填写每题 `approved` 或 `rejected` 和顶层审核人；不能保留 `pending`。仅将获批题写入冻结 judgments：
+
+```powershell
+Set-Location 'D:\Happy\芳\flmh-p'
+$py = 'D:\rubbish\zhongjian\envs\flmh\agent\Scripts\python.exe'
+$src = 'D:\Happy\芳\flmh-p'
+$v3 = 'examples/rag-evaluation/operations-v3'
+$work = "D:\rubbish\zhongjian\artifacts\flmh-rag\unanswerable-$([guid]::NewGuid().ToString('N'))"
+[System.IO.Directory]::CreateDirectory($work) | Out-Null
+Copy-Item "$v3/unanswerable-candidates.json" "$work/unanswerable-review.json"
+# 人工逐题填写 status 和 reviewer 后冻结
+& $py -B -m flmh_agent.rag_benchmark freeze-unanswerable --source-root $src --manifest "$v3/sources.json" --review "$work/unanswerable-review.json" --out "$work/unanswerable-judgments.json"
+```
+
+为每道拒答题实测后，在独立 JSON 记录 `name`、`source: "RECORDED_REFUSAL_EVALUATION"`、`unanswerable_dataset` 和 `unanswerable_refused`（以候选题 ID 为键，布尔值表示系统是否明确拒答）。`recording` 必须包含语料指纹、无依据 judgments 指纹、原始问答证据文件 SHA-256 与 UTC 时间；提供正向集时还须包含正向 judgments 指纹。如需报告正向集误拒答，另提供 `positive_dataset` 和覆盖正向 judgments 全部题目的 `positive_refused`。保存前须留存真实问题、系统原始回答及人工判定，并计算原始证据文件哈希；不能把候选题、脚本夹具或推测结果标成实测。
+
+```powershell
+& $py -B -m flmh_agent.evaluate --unanswerable-judgments "$work/unanswerable-judgments.json" --refusal-run "$work/refusal-run.json" --positive-judgments "$work/judgments-v3.json"
+```
+
+拒答报告单独给出 `refusal_rate`（无依据题被正确拒答的比例）、`false_positive_rate`（无依据题被回答的比例）和逐题明细；提供正向 judgments 时另报 `false_refusal_rate`（有依据题被错误拒答的比例）。这组指标与正向检索 `Recall@5`、MRR 和 `all_required_at_k` 分开计算。拒答集未冻结、未实测前不生成指标成绩。
+
+### 2026-11-25 本地词法基线复测
+
+对同一份 310 父块 / 662 子块、300 题数据复测。纯 BM25 按现有中文/英文分词器计算子块 BM25，并以每个父块最高子块分数排序；另列 `LocalCorpusFallbackKnowledgeService` 的 BM25+词项余弦 RRF 融合结果，避免把融合排名误称为纯 BM25。
+
+| 本地排名方式 | 阶段 | Hit@1 | Hit@5 | 全部必需父块 Hit@5 |
+| --- | --- | ---: | ---: | ---: |
+| 纯 BM25 | 改写前（基线候选） | 231 / 300（77.0%） | 280 / 300（93.3%） | 280 / 300 |
+| 纯 BM25 | 改写后（当前候选） | 222 / 300（74.0%） | 279 / 300（93.0%） | 267 / 300 |
+| 本地 BM25+词项余弦 RRF | 改写前（基线候选） | 225 / 300（75.0%） | 274 / 300（91.3%） | 274 / 300 |
+| 本地 BM25+词项余弦 RRF | 改写后（当前候选） | 216 / 300（72.0%） | 273 / 300（91.0%） | 262 / 300 |
+
+这是本地固定语料上的离线检索测量，不是 BGE-M3、在线集群或阶段二真实模型成绩。跨段必需多父块题从 2 道增至 16 道，因此“全部必需父块 Hit@5”低于“至少命中一个父块”的 Hit@5；指标不可混用。全部候选仍须人工审核后才能冻结。
 
 ## 语料与授权
 

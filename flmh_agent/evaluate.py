@@ -57,6 +57,63 @@ class Judgments(Record):
         return self
 
 
+class UnanswerableCase(Record):
+    id: Identifier
+    question: Identifier
+    reason: Identifier
+
+
+class UnanswerableJudgments(Record):
+    dataset: Identifier
+    corpus_sha256: Digest
+    reviewer: Identifier
+    cases: list[UnanswerableCase] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def unique_labels(self):
+        if not self.reviewer.strip() or any(not case.question.strip() or not case.reason.strip() for case in self.cases):
+            raise ValueError("a named reviewer, question and rationale are required")
+        if (len({case.id for case in self.cases}) != len(self.cases)
+                or len({case.question.strip() for case in self.cases}) != len(self.cases)):
+            raise ValueError("duplicate unanswerable case id or question")
+        return self
+
+    def fingerprint(self) -> str:
+        return hashlib.sha256(self.model_dump_json().encode()).hexdigest()
+
+
+class RefusalRecording(Record):
+    corpus_sha256: Digest
+    unanswerable_judgments_sha256: Digest
+    positive_judgments_sha256: Digest | None = None
+    raw_evidence_sha256: Digest
+    recorded_at_utc: Identifier
+
+
+class RefusalRun(Record):
+    name: Identifier
+    source: Literal["SCRIPTED_FIXTURE", "RECORDED_REFUSAL_EVALUATION"]
+    unanswerable_dataset: Identifier
+    unanswerable_refused: dict[Identifier, bool] = Field(min_length=1)
+    positive_dataset: Identifier | None = None
+    positive_refused: dict[Identifier, bool] = Field(default_factory=dict)
+    recording: RefusalRecording | None = None
+
+    @model_validator(mode="after")
+    def positive_decisions_have_dataset(self):
+        if self.positive_dataset is None and self.positive_refused:
+            raise ValueError("positive_dataset is required when positive refusal decisions are supplied")
+        if self.source == "RECORDED_REFUSAL_EVALUATION" and self.recording is None:
+            raise ValueError("recorded refusal runs require a corpus, judgment and raw-evidence fingerprint")
+        if self.source == "RECORDED_REFUSAL_EVALUATION" and self.recording is not None:
+            has_positive_hash = self.recording.positive_judgments_sha256 is not None
+            if has_positive_hash != (self.positive_dataset is not None):
+                raise ValueError("positive refusal decisions and their frozen-label fingerprint must be supplied together")
+        if self.source == "SCRIPTED_FIXTURE" and self.recording is not None:
+            raise ValueError("scripted fixtures cannot carry recorded-evaluation metadata")
+        return self
+
+
 class Recording(Record):
     judgments_sha256: Digest
     corpus_sha256: Digest
@@ -114,6 +171,63 @@ def score(gold: Judgments, run: Rankings, k: int = 5) -> dict:
     return result
 
 
+def score_refusals(
+    unanswerable: UnanswerableJudgments,
+    run: RefusalRun,
+    positive: Judgments | None = None,
+) -> dict:
+    if run.unanswerable_dataset != unanswerable.dataset:
+        raise ValueError("refusal run and unanswerable judgments belong to different datasets")
+    if run.recording is not None and (
+            run.recording.corpus_sha256 != unanswerable.corpus_sha256
+            or run.recording.unanswerable_judgments_sha256 != unanswerable.fingerprint()):
+        raise ValueError("refusal recording does not match the corpus or unanswerable judgments")
+    if set(run.unanswerable_refused) != {case.id for case in unanswerable.cases}:
+        raise ValueError("exactly one refusal decision per unanswerable question is required")
+
+    details = []
+    for case in unanswerable.cases:
+        refused = run.unanswerable_refused[case.id]
+        details.append({"id": case.id, "question": case.question, "reason": case.reason,
+                        "expected": "refuse", "refused": refused,
+                        "outcome": "CORRECT_REFUSAL" if refused else "FALSE_ANSWER"})
+    correct = sum(item["refused"] for item in details)
+    total = len(details)
+    report = {"dataset": unanswerable.dataset, "run": run.name, "source": run.source, "queries": total,
+              "correct_refusals": correct, "false_answers": total - correct,
+              "refusal_rate": correct / total, "false_positive_rate": (total - correct) / total,
+              "cases": details}
+
+    if positive is None:
+        if run.positive_dataset is not None or run.positive_refused:
+            raise ValueError("positive judgments are required to score supplied positive decisions")
+        if run.recording is not None and run.recording.positive_judgments_sha256 is not None:
+            raise ValueError("positive judgments are required to verify the refusal recording")
+        if run.recording is not None:
+            report["recording"] = run.recording.model_dump()
+        return report
+    if positive.corpus_sha256 != unanswerable.corpus_sha256:
+        raise ValueError("positive and unanswerable judgments belong to different corpus snapshots")
+    if run.recording is not None and run.recording.positive_judgments_sha256 != positive.fingerprint():
+        raise ValueError("refusal recording does not match the positive judgments")
+    if run.positive_dataset != positive.dataset or set(run.positive_refused) != {case.id for case in positive.cases}:
+        raise ValueError("exactly one positive refusal decision per positive question is required")
+
+    positive_details = []
+    for case in positive.cases:
+        refused = run.positive_refused[case.id]
+        positive_details.append({"id": case.id, "question": case.question, "expected": "answer",
+                                 "refused": refused, "outcome": "FALSE_REFUSAL" if refused else "ANSWERED"})
+    false_refusals = sum(item["refused"] for item in positive_details)
+    report["positive"] = {"dataset": positive.dataset, "queries": len(positive_details),
+                           "false_refusals": false_refusals,
+                           "false_refusal_rate": false_refusals / len(positive_details),
+                           "cases": positive_details}
+    if run.recording is not None:
+        report["recording"] = run.recording.model_dump()
+    return report
+
+
 def paired_report(gold: Judgments, runs: list[Rankings], k: int) -> dict:
     by_name = {run.name: run for run in runs}
     reranked = by_name.get("dense-rerank")
@@ -157,25 +271,48 @@ def paired_report(gold: Judgments, runs: list[Rankings], k: int) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--judgments", required=True, type=Path)
-    parser.add_argument("--run", required=True, type=Path, action="append", help="rankings from one retriever; repeat for a baseline")
+    parser.add_argument("--judgments", type=Path, help="positive retrieval judgments")
+    parser.add_argument("--run", type=Path, action="append", help="rankings from one retriever; repeat for a baseline")
+    parser.add_argument("--unanswerable-judgments", type=Path, help="human-frozen unsupported-question labels")
+    parser.add_argument("--refusal-run", type=Path, help="per-question refusal decisions to score")
+    parser.add_argument("--positive-judgments", type=Path, help="optional frozen answerable labels for false-refusal rate")
     parser.add_argument("--k", type=int, default=5)
     parser.add_argument("--compare-cases", action="store_true", help="compare dense-only and hybrid, optionally with a dense-rerank control")
     parser.add_argument("--output", type=Path, help="save to a new JSON file instead of stdout")
     args = parser.parse_args()
     try:
-        gold = Judgments.model_validate_json(args.judgments.read_bytes())
-        runs = [Rankings.model_validate_json(path.read_bytes()) for path in args.run]
-        if args.compare_cases:
-            report = paired_report(gold, runs, args.k)
-        else:
-            if runs[0].recording is not None and any(run.recording != runs[0].recording for run in runs):
-                raise ValueError("cannot compare runs from different recordings")
-            report = [score(gold, run, args.k) for run in runs]
-        text = json.dumps(report, ensure_ascii=False, indent=2)
+        retrieval_requested = args.judgments is not None or bool(args.run)
+        refusal_requested = args.unanswerable_judgments is not None or args.refusal_run is not None or args.positive_judgments is not None
+        reports = {}
+        if retrieval_requested:
+            if args.judgments is None or not args.run:
+                parser.error("--judgments and at least one --run are required for retrieval scoring")
+            gold = Judgments.model_validate_json(args.judgments.read_bytes())
+            runs = [Rankings.model_validate_json(path.read_bytes()) for path in args.run]
+            if args.compare_cases:
+                reports["retrieval"] = paired_report(gold, runs, args.k)
+            else:
+                if runs[0].recording is not None and any(run.recording != runs[0].recording for run in runs):
+                    raise ValueError("cannot compare runs from different recordings")
+                reports["retrieval"] = [score(gold, run, args.k) for run in runs]
+        elif args.compare_cases:
+            parser.error("--compare-cases requires --judgments and --run")
+
+        if refusal_requested:
+            if args.unanswerable_judgments is None or args.refusal_run is None:
+                parser.error("--unanswerable-judgments and --refusal-run must be provided together")
+            unanswerable = UnanswerableJudgments.model_validate_json(args.unanswerable_judgments.read_bytes())
+            refusal_run = RefusalRun.model_validate_json(args.refusal_run.read_bytes())
+            positive = Judgments.model_validate_json(args.positive_judgments.read_bytes()) if args.positive_judgments else None
+            reports["unanswerable_refusal"] = score_refusals(unanswerable, refusal_run, positive)
+
+        if not reports:
+            parser.error("provide retrieval inputs or unanswerable refusal inputs")
+        output = reports.get("retrieval") if set(reports) == {"retrieval"} else reports
+        text = json.dumps(output, ensure_ascii=False, indent=2)
         if args.output:
-            with args.output.open("x", encoding="utf-8") as output:
-                print(text, file=output)
+            with args.output.open("x", encoding="utf-8") as destination:
+                print(text, file=destination)
         else:
             print(text)
     except (OSError, ValidationError, ValueError) as error:
