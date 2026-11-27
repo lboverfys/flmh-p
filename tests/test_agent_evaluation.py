@@ -155,8 +155,20 @@ class AgentEvaluationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(limited["early_stop"])
         self.assertEqual((limited["metrics"]["model_calls"], limited["metrics"]["tool_calls"]), (5, 4))
 
+    async def test_measured_gateway_accepts_three_remote_sources(self):
+        for source in ("OPENAI_RESPONSES", "OPENAI_COMPATIBLE", "ANTHROPIC_MESSAGES"):
+            with self.subTest(source=source):
+                transport = httpx.MockTransport(lambda request: httpx.Response(200, json=reply({}, source=source)))
+                async with httpx.AsyncClient(transport=transport, base_url="http://evaluation.test") as client:
+                    gateway = MeasuredGateway(Settings(), client, "unit", "unit-model")
+                    result = await gateway.complete(purpose=PURPOSE, messages=[{"role": "user", "content": "test"}])
+                self.assertEqual(result["source"], source)
+                self.assertEqual(gateway.calls[0]["source"], source)
+                self.assertTrue(gateway.calls[0]["pinned_response"])
+
     async def test_rejected_gateway_response_or_identity_is_never_counted_as_verified_usage(self):
-        for bad in [httpx.Response(401), reply({}, source="LOCAL_DETERMINISTIC"),
+        for bad in [httpx.Response(401), reply({}, source="LOCAL_DETERMINISTIC"), reply({}, source="RULES"),
+                    reply({}, source=""), reply({}, source=None),
                     reply({}, provider="fallback"), reply({}, model="other")]:
             with self.subTest(bad=bad):
                 row, _ = await self.play(self.samples["single-price"], "planner", [bad])
@@ -294,6 +306,7 @@ class AgentEvaluationTests(unittest.IsolatedAsyncioTestCase):
             saved = path.read_text(encoding="utf-8")
             records = [json.loads(line) for line in saved.splitlines()]
             self.assertEqual([r["kind"] for r in records], ["metadata", "case", "case", "summary"])
+            self.assertEqual(records[0]["expected_sources"], ["ANTHROPIC_MESSAGES", "OPENAI_COMPATIBLE", "OPENAI_RESPONSES"])
             self.assertEqual(records[-1]["suites"]["planning"]["usage_paired_ids"], [])
             self.assertNotIn("unit-user-token", saved)
             self.assertNotIn("unit-service-key", saved)

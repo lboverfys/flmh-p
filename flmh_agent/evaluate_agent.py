@@ -24,6 +24,7 @@ from flmh_agent.domain.slots import update_slots
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "examples" / "agent-evaluation"
 ENDPOINT = "/api/v1/models/completions"
+REMOTE_MODEL_SOURCES = frozenset({"OPENAI_RESPONSES", "OPENAI_COMPATIBLE", "ANTHROPIC_MESSAGES"})
 PURPOSE = "agent_plan"
 MAX_TOKENS = 2048
 TOOL_LIMIT = 4  # AgentPlan 的查询上限，两种策略共用。
@@ -181,7 +182,7 @@ class MeasuredGateway(ModelGatewayClient):
             value = response.get(key)
             call[key] = value if isinstance(value, str) else None
         call.update(usage_fields(response.get("usage")))
-        if (call["source"], call["provider"], call["model"]) != ("OPENAI_COMPATIBLE", self.provider, self.model):
+        if call["source"] not in REMOTE_MODEL_SOURCES or (call["provider"], call["model"]) != (self.provider, self.model):
             call["error"] = "真实供应商来源或固定的 provider/model 不匹配"
             raise EvalError(call["error"])
         call["pinned_response"] = True
@@ -648,7 +649,7 @@ async def evaluate(args: argparse.Namespace) -> int:
                 output.flush()
 
             emit({"kind": "metadata", "format_version": 1, "started_utc": datetime.now(timezone.utc).isoformat(),
-                  "endpoint": ENDPOINT, "expected_source": "OPENAI_COMPATIBLE", "provider": args.provider,
+                  "endpoint": ENDPOINT, "expected_sources": sorted(REMOTE_MODEL_SOURCES), "provider": args.provider,
                   "model": args.model, "purpose": PURPOSE, "temperature": 0.0, "max_tokens": MAX_TOKENS,
                   "response_format": "json_object", "tool_source": "LOCAL_EVALUATION_FIXTURE", "tool_limit": TOOL_LIMIT, "extended_tool_limit": 6,
                   "history_size": HISTORY_SIZE, "history_unit": args.history_unit, "history_chars": args.history_chars,
